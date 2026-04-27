@@ -1,0 +1,65 @@
+{
+  "name": "agentic-utilities",
+  "version": "0.1.0",
+  "description": "Personal Pi package for sharing and preserving Pi extensions, agent skills, prompts, and themes.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "agent-skills",
+    "agentic-utilities"
+  ],
+  "files": [
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "docs",
+    "extensions",
+    "prompts",
+    "scripts",
+    "skills",
+    "themes"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/*.ts",
+      "./extensions/*/index.ts"
+    ],
+    "skills": [
+      "./skills/**/SKILL.md"
+    ],
+    "prompts": [
+      "./prompts/*.prompt.md"
+    ],
+    "themes": [
+      "./themes/*.json"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit && node scripts/list-resources.mjs",
+    "list": "node scripts/list-resources.mjs",
+    "new:extension": "node scripts/new-extension.mjs",
+    "new:skill": "node scripts/new-skill.mjs",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-tui": "latest",
+    "@types/node": "latest",
+    "typebox": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,15 +1,72 @@
-language: en-US
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
 reviews:
-  profile: chill
-  instructions:
-    - path: "**/*"
-      instructions: >
-        Review this Pi package against AGENTS.md, rules/*.md, and docs/conventions.md.
-        Focus on resource discoverability, package safety, global-first skills, extension tool safety,
-        and verification commands. Do not request broad refactors for unrelated code.
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
   path_filters:
     - "!node_modules/**"
     - "!opensrc/**"
-    - "!*.tgz"
     - "!.pi/**"
     - "!.claude/**"
+    - "!*.tgz"
+    - "!package-lock.json"
+  tools:
+    biome:
+      enabled: true
+    markdownlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+  path_instructions:
+    - path: "package.json"
+      instructions: |
+        Verify Pi package metadata carefully:
+        - `package.json#pi` must discover every shared extension, skill, prompt, and theme.
+        - Pi core packages must stay in `peerDependencies`; extension runtime dependencies belong in `dependencies`.
+        - Do not approve manifest URLs or identity-bearing values unless they are source-of-truth verified.
+    - path: "extensions/**"
+      instructions: |
+        Review Pi extensions for agent safety:
+        - Tool names should be globally specific snake_case.
+        - File mutations must use the repo's mutation queue pattern across the whole read-modify-write window.
+        - Large tool outputs must truncate and point to full output storage.
+        - UI behavior must be guarded by `ctx.hasUI`.
+        - Prefer concrete correctness or safety issues over broad refactor suggestions.
+    - path: "skills/**"
+      instructions: |
+        Review Agent Skills for loadability and daily-use workflow:
+        - `SKILL.md` frontmatter `name` must match the directory.
+        - `description` should say when to use the skill, not just what it is.
+        - Daily-use skills are global-first; avoid creating duplicate repo/global copies.
+        - Relative references must resolve from the skill directory.
+    - path: "prompts/**"
+      instructions: |
+        Review prompt templates for Pi compatibility:
+        - Shared prompt commands should use `*.prompt.md`.
+        - Frontmatter should include a concise `description`; `argument-hint` should match actual placeholders.
+        - Prompts must not instruct agents to push, open PRs, or post externally unless the workflow explicitly expects it.
+    - path: "rules/**"
+      instructions: |
+        Review rules as agent-facing remediation docs:
+        - Prefer imperative wording: do X, not Y, because Z.
+        - Flag duplicated or conflicting rules across files.
+        - Rules should be specific enough to convert repeated review feedback into future automation.
+    - path: ".github/workflows/**"
+      instructions: |
+        Review CI workflows for package safety:
+        - CI should run `npm ci`, `npm run check`, and package dry-run validation.
+        - Avoid writing secrets or requiring unavailable credentials for pull_request checks.
+
+chat:
+  auto_reply: true

@@ -56,6 +56,10 @@
         "noExplicitAny": "off",
         "noUselessEscapeInString": "off"
       }
+    },
+    "domains": {
+      "project": "recommended",
+      "test": "recommended"
     }
   },
   "javascript": {
@@ -72,5 +76,33 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "root": true,
+  "overrides": [
+    {
+      "includes": ["extensions/autopilot/v2-smoke-test.mjs"],
+      "linter": {
+        "domains": {
+          "test": "all"
+        },
+        "rules": {
+          "correctness": {
+            "noUnusedFunctionParameters": "warn",
+            "noUnusedVariables": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["scripts/**/*.mjs"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedFunctionParameters": "warn",
+            "noUnusedVariables": "warn"
+          }
+        }
+      }
+    }
+  ]
 }

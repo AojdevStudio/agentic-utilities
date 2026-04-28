@@ -1286,11 +1286,15 @@ function buildStatusSummary(repoCwd: string, allowed: boolean) {
   const latestText = latest
     ? `, latest=${latest.workflowId} ${latest.status}/${latest.phase}`
     : "";
-
-  return `autopilot root: ${root} (allowed=${allowed ? "yes" : "no"}, enabled=${summary.enabled ? "yes" : "no"}, ` +
+  const header = `autopilot root: ${root} (allowed=${allowed ? "yes" : "no"}, enabled=${summary.enabled ? "yes" : "no"}, ` +
     `v1 locks=${lockFiles.length}, v1 runs=${runFiles.length}, v2 workflows=${workflows.length}${latestText}, ` +
     `verify=${summary.verificationProfile}, sources=${summary.sourcePriority.join(">")})` +
     `${allowed ? "" : " — run /autopilot setup to enable this repo."}`;
+
+  if (!latest) return header;
+  const report = v2.buildWorkflowStatusReport(latest);
+  const overview = v2.buildWorkflowStatusOverview(workflows);
+  return `${header}\n\n${v2.formatWorkflowStatusReport(report, overview)}`;
 }
 
 export default function (pi: ExtensionAPI) {

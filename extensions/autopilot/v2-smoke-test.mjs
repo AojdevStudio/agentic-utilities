@@ -267,6 +267,57 @@ try {
   assert.deepEqual(handoff.highlights.visualEvidence, ["artifacts/browser/001.png"]);
   assert.deepEqual(handoff.highlights.openRisks, ["inspect copy"]);
 
+  const statusTmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-autopilot-v2-status-"));
+  try {
+    const statusWorkflow = v2.createWorkflow({
+      repoCwd: statusTmp,
+      lane: "planning",
+      rawInput: "smoke status workflow",
+    });
+    const statusState = makeExecutionApprovedState(statusWorkflow);
+    writeCompletePlanningArtifacts(statusState);
+    fs.writeFileSync(statusState.queue.queueFile, JSON.stringify({
+      version: 2,
+      workflowId: statusState.workflowId,
+      status: "triaged",
+      items: [{
+        id: "001",
+        title: "Status slice",
+        type: "AFK",
+        priority: "P0",
+        status: "done",
+        draft: "issues/drafts/001-smoke.md",
+        blockedBy: [],
+        verificationProfile: "strict",
+        evidencePaths: ["execution/evidence/001/report.md"],
+        prUrl: "local-pr://status/001",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+    }, null, 2) + "\n", "utf8");
+    v2.saveWorkflowState(statusState);
+    const missingReport = v2.buildWorkflowStatusReport(statusState, "2026-01-01T00:00:00.000Z");
+    assert.equal(missingReport.slices[0].computedState, "not-done");
+    assert.match(missingReport.slices[0].missingEvidence.join("\n"), /execution\/evidence\/001\/report\.md/);
+    assert.match(missingReport.slices[0].missingEvidence.join("\n"), /issues\/execution\/001\.json/);
+    assert.match(missingReport.slices[0].missingEvidence.join("\n"), /issues\/prs\/001\.json/);
+
+    fs.mkdirSync(path.join(statusState.paths.workflowDir, "execution", "evidence", "001"), { recursive: true });
+    fs.writeFileSync(path.join(statusState.paths.workflowDir, "execution", "evidence", "001", "report.md"), "status evidence\n", "utf8");
+    fs.mkdirSync(path.join(statusState.paths.issuesDir, "execution"), { recursive: true });
+    fs.writeFileSync(path.join(statusState.paths.issuesDir, "execution", "001.json"), JSON.stringify({ issueId: "001", updatedAt: "2026-01-01T00:00:01.000Z" }, null, 2) + "\n", "utf8");
+    fs.mkdirSync(path.join(statusState.paths.issuesDir, "prs"), { recursive: true });
+    fs.writeFileSync(path.join(statusState.paths.issuesDir, "prs", "001.json"), JSON.stringify({ prUrl: "local-pr://status/001" }, null, 2) + "\n", "utf8");
+
+    const completeReport = v2.buildWorkflowStatusReport(statusState, "2026-01-01T00:00:02.000Z");
+    assert.equal(completeReport.slices[0].computedState, "done");
+    assert.equal(completeReport.counts.done, 1);
+    const formattedStatus = v2.formatWorkflowStatusReport(completeReport, v2.buildWorkflowStatusOverview([statusState]));
+    assert.match(formattedStatus, /001 done evidence=complete/);
+    assert.match(formattedStatus, /workflows:/);
+  } finally {
+    fs.rmSync(statusTmp, { recursive: true, force: true });
+  }
+
   const transitioned = v2.transitionWorkflowPhase(workflow, "discovery", {
     actor: "smoke-test",
     note: "valid transition smoke test",

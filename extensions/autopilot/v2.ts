@@ -347,6 +347,52 @@ export type QAHandoff = {
   };
 };
 
+export type SliceComputedState = "done" | "not-done" | "queued" | "claimed" | "running" | "blocked" | "pr-open";
+
+export type SliceStatusRow = {
+  id: string;
+  title: string;
+  queueStatus: string;
+  computedState: SliceComputedState;
+  evidenceHealth: "complete" | "missing" | "not-required";
+  missingEvidence: string[];
+  evidencePaths: string[];
+  trackerRef?: string;
+  prRef?: string;
+  lastUpdated?: string;
+};
+
+export type WorkflowStatusReport = {
+  version: 2;
+  workflowId: string;
+  lane: WorkflowLane;
+  phase: WorkflowPhase;
+  status: WorkflowStatus;
+  sourceTitle: string;
+  generatedAt: string;
+  slices: SliceStatusRow[];
+  counts: {
+    total: number;
+    done: number;
+    notDone: number;
+    queued: number;
+    running: number;
+    blocked: number;
+    prOpen: number;
+    missingEvidence: number;
+  };
+};
+
+export type WorkflowStatusOverviewRow = {
+  workflowId: string;
+  phase: WorkflowPhase;
+  status: WorkflowStatus;
+  total: number;
+  done: number;
+  notDone: number;
+  blocked: number;
+};
+
 export type WorkflowCreateOptions = {
   repoCwd: string;
   lane: WorkflowLane;
@@ -535,6 +581,122 @@ export function buildQaHandoff(input: {
       commands: evidence.filter((item) => item.command).map((item) => item.command!),
     },
   };
+}
+
+function countStatusRows(rows: SliceStatusRow[]): WorkflowStatusReport["counts"] {
+  return {
+    total: rows.length,
+    done: rows.filter((row) => row.computedState === "done").length,
+    notDone: rows.filter((row) => row.computedState === "not-done").length,
+    queued: rows.filter((row) => row.computedState === "queued").length,
+    running: rows.filter((row) => row.computedState === "running" || row.computedState === "claimed").length,
+    blocked: rows.filter((row) => row.computedState === "blocked").length,
+    prOpen: rows.filter((row) => row.computedState === "pr-open").length,
+    missingEvidence: rows.filter((row) => row.missingEvidence.length > 0).length,
+  };
+}
+
+function existingWorkflowEvidencePaths(state: WorkflowState, rawPaths: unknown): { existing: string[]; missing: string[] } {
+  const values = Array.isArray(rawPaths) ? rawPaths.map(String).filter(Boolean) : [];
+  const existing: string[] = [];
+  const missing: string[] = [];
+  for (const value of values) {
+    const absolute = workflowPath(state, value);
+    if (fs.existsSync(absolute)) existing.push(value);
+    else missing.push(value);
+  }
+  return { existing, missing };
+}
+
+function sliceComputedState(queueStatus: string, missingEvidence: string[]): SliceComputedState {
+  if (queueStatus === "done") return missingEvidence.length ? "not-done" : "done";
+  if (queueStatus === "blocked") return "blocked";
+  if (queueStatus === "running") return "running";
+  if (queueStatus === "claimed") return "claimed";
+  if (queueStatus === "pr-open") return "pr-open";
+  return "queued";
+}
+
+export function buildWorkflowStatusReport(state: WorkflowState, generatedAt = nowIso()): WorkflowStatusReport {
+  const queue = readJsonOptional(state.queue.queueFile);
+  const items = Array.isArray(queue?.items) ? queue.items : [];
+  const slices: SliceStatusRow[] = items.map((item: any) => {
+    const id = String(item.id ?? "<missing>");
+    const queueStatus = String(item.status ?? "queued");
+    const executionRecord = readJsonOptional(path.join(state.paths.issuesDir, "execution", `${id}.json`));
+    const prRecord = readJsonOptional(path.join(state.paths.issuesDir, "prs", `${id}.json`));
+    const evidence = existingWorkflowEvidencePaths(state, item.evidencePaths);
+    const missingEvidence: string[] = [];
+    if (queueStatus === "done") {
+      if (!Array.isArray(item.evidencePaths) || item.evidencePaths.length === 0) missingEvidence.push("queue evidencePaths");
+      for (const missingPath of evidence.missing) missingEvidence.push(`evidence file: ${missingPath}`);
+      if (!executionRecord) missingEvidence.push(`issues/execution/${id}.json`);
+      if (!prRecord) missingEvidence.push(`issues/prs/${id}.json`);
+    }
+    return {
+      id,
+      title: String(item.title ?? id),
+      queueStatus,
+      computedState: sliceComputedState(queueStatus, missingEvidence),
+      evidenceHealth: queueStatus === "done" ? missingEvidence.length ? "missing" : "complete" : "not-required",
+      missingEvidence,
+      evidencePaths: evidence.existing,
+      trackerRef: typeof item.trackerRef === "string" ? item.trackerRef : undefined,
+      prRef: typeof item.prUrl === "string" ? item.prUrl : typeof executionRecord?.prUrl === "string" ? executionRecord.prUrl : typeof prRecord?.prUrl === "string" ? prRecord.prUrl : undefined,
+      lastUpdated: String(item.completedAt ?? item.settledAt ?? item.updatedAt ?? executionRecord?.updatedAt ?? state.updatedAt ?? ""),
+    };
+  });
+  return {
+    version: 2,
+    workflowId: state.workflowId,
+    lane: state.lane,
+    phase: state.phase,
+    status: state.status,
+    sourceTitle: state.source.title,
+    generatedAt,
+    slices,
+    counts: countStatusRows(slices),
+  };
+}
+
+export function buildWorkflowStatusOverview(workflows: WorkflowState[]): WorkflowStatusOverviewRow[] {
+  return workflows.map((workflow) => {
+    const report = buildWorkflowStatusReport(workflow);
+    return {
+      workflowId: workflow.workflowId,
+      phase: workflow.phase,
+      status: workflow.status,
+      total: report.counts.total,
+      done: report.counts.done,
+      notDone: report.counts.notDone + report.counts.queued + report.counts.running + report.counts.prOpen,
+      blocked: report.counts.blocked,
+    };
+  });
+}
+
+export function formatWorkflowStatusReport(report: WorkflowStatusReport, overview: WorkflowStatusOverviewRow[] = []): string {
+  const lines: string[] = [
+    `Autopilot status: ${report.workflowId}`,
+    `phase=${report.phase} status=${report.status} slices=${report.counts.done}/${report.counts.total} done not-done=${report.counts.notDone} blocked=${report.counts.blocked}`,
+  ];
+  if (!report.slices.length) {
+    lines.push("slices: none");
+  } else {
+    lines.push("slices:");
+    for (const row of report.slices) {
+      const pr = row.prRef ? ` pr=${row.prRef}` : " pr=-";
+      const updated = row.lastUpdated ? ` updated=${row.lastUpdated}` : "";
+      const evidence = row.evidenceHealth === "missing" ? `missing ${row.missingEvidence.join(", ")}` : row.evidenceHealth;
+      lines.push(`- ${row.id} ${row.computedState} evidence=${evidence}${pr}${updated} — ${row.title}`);
+    }
+  }
+  if (overview.length) {
+    lines.push("workflows:");
+    for (const row of overview) {
+      lines.push(`- ${row.workflowId} ${row.status}/${row.phase} done=${row.done}/${row.total} not-done=${row.notDone} blocked=${row.blocked}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 export function nowIso(): string {

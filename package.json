@@ -19,6 +19,7 @@
     "docs",
     "extensions",
     "prompts",
+    "rules",
     "scripts",
     "skills",
     "themes"
@@ -39,11 +40,17 @@
     ]
   },
   "scripts": {
-    "check": "tsc --noEmit && node scripts/list-resources.mjs",
+    "check": "npm run lint && npm run typecheck && npm test && node scripts/list-resources.mjs",
     "list": "node scripts/list-resources.mjs",
     "new:extension": "node scripts/new-extension.mjs",
     "new:skill": "node scripts/new-skill.mjs",
-    "pack:dry": "npm pack --dry-run"
+    "pack:dry": "npm pack --dry-run",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome check --write .",
+    "prepare": "husky",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
@@ -52,14 +59,20 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.13",
     "@mariozechner/pi-ai": "latest",
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-tui": "latest",
     "@types/node": "latest",
+    "husky": "9.1.7",
+    "lint-staged": "16.4.0",
     "typebox": "latest",
     "typescript": "latest"
   },
   "engines": {
     "node": ">=20"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
   }
 }

@@ -52,6 +52,8 @@ skills/<name>/
 
 Skill checklist:
 
+- Daily-use skills are global-first: test under `~/.pi/agent/skills/<name>/` first.
+- For shared daily-use skills, keep canonical files in `skills/<name>/` and symlink the global skill back to that repo path.
 - Frontmatter `name` exactly matches `<name>`.
 - `description` says when to use it, not just what it is.
 - Relative links/scripts resolve from the skill directory.
@@ -64,3 +66,11 @@ Use `prompts/<name>.prompt.md`. Keep prompts short and task-specific.
 ## Themes
 
 Use `themes/<name>.json`. Include screenshots or notes in `docs/` rather than inside `themes/`.
+
+## Local quality gates
+
+- `npm test` runs behavioral smoke tests.
+- `npm run lint` runs Biome linting.
+- `npm run typecheck` runs TypeScript checks.
+- `npm run check` runs lint, typecheck, tests, and resource inventory.
+- Husky + lint-staged run Biome on staged files before commit, then typecheck and smoke tests.

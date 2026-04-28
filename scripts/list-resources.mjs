@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 
 async function exists(path) {
@@ -11,13 +11,29 @@ async function exists(path) {
   }
 }
 
-async function walk(dir) {
+async function walk(dir, seen = new Set()) {
   if (!(await exists(dir))) return [];
+
+  const canonical = await realpath(dir).catch(() => null);
+  if (canonical) {
+    if (seen.has(canonical)) return [];
+    seen.add(canonical);
+  }
+
   const out = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await walk(path)));
-    else out.push(path);
+    if (entry.isDirectory()) {
+      out.push(...(await walk(path, seen)));
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      const target = await stat(path).catch(() => null);
+      if (target?.isDirectory()) out.push(...(await walk(path, seen)));
+      else if (target?.isFile()) out.push(path);
+      continue;
+    }
+    if (entry.isFile()) out.push(path);
   }
   return out;
 }

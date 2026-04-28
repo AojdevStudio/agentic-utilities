@@ -49,6 +49,7 @@ npm run list
 Manual rules:
 
 - Extensions go in `extensions/<kebab-name>/index.ts`.
+- Daily-use skills are global-first: test them under `~/.pi/agent/skills/<kebab-name>/`, then keep shared canonical files in `skills/<kebab-name>/` and symlink the global skill back here.
 - Skills go in `skills/<kebab-name>/SKILL.md` and must have matching `name` frontmatter.
 - Prompt templates go in `prompts/<name>.prompt.md` so docs like `README.md` are not loaded as prompts.
 - Themes go in `themes/<name>.json`.
@@ -59,6 +60,9 @@ Manual rules:
 
 ```bash
 npm install
+npm run lint
+npm run typecheck
+npm test
 npm run check
 npm run pack:dry
 pi -e .

@@ -1,0 +1,15 @@
+language: en-US
+reviews:
+  profile: chill
+  instructions:
+    - path: "**/*"
+      instructions: >
+        Review this Pi package against AGENTS.md, rules/*.md, and docs/conventions.md.
+        Focus on resource discoverability, package safety, global-first skills, extension tool safety,
+        and verification commands. Do not request broad refactors for unrelated code.
+  path_filters:
+    - "!node_modules/**"
+    - "!opensrc/**"
+    - "!*.tgz"
+    - "!.pi/**"
+    - "!.claude/**"

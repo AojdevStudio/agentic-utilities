@@ -1,14 +1,28 @@
-import { SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Type } from "typebox";
-
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import {
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ExtensionContext,
+  SessionManager,
+} from "@mariozechner/pi-coding-agent";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
+import { Type } from "typebox";
 
 import { buildContinueManifest } from "./continue-source.ts";
 import { createNativeRunner, prepareFreshIssueWorktree } from "./execution-runner.ts";
-import { loadRepoAutopilotConfig, loadRepoAutopilotPreferences, repoAutopilotEnabled, setupAutopilotRepo, setupAutopilotRepoWithOptions, type AutopilotSetupOptions, type SourcePriority, type VerificationProfile } from "./prefs.ts";
+import {
+  type AutopilotSetupOptions,
+  loadRepoAutopilotConfig,
+  loadRepoAutopilotPreferences,
+  repoAutopilotEnabled,
+  type SourcePriority,
+  setupAutopilotRepo,
+  setupAutopilotRepoWithOptions,
+  type VerificationProfile,
+} from "./prefs.ts";
 import * as v2 from "./v2.ts";
 
 type ManifestFrontmatter = {
@@ -98,12 +112,32 @@ const STATUS_DIR = "status";
 const LOGS_DIR = "logs";
 
 const AutopilotTransitionParams = Type.Object({
-  workflowId: Type.Optional(Type.String({ description: "Workflow id. If omitted, the latest workflow in the current repo is used." })),
-  gate: Type.Optional(Type.String({ description: "Approval gate to request: issues, before-issues, execution, or before-execution. Backward-compatible with older calls." })),
-  targetPhase: Type.Optional(Type.String({ description: "Workflow phase to request, such as issue-approval, issues-created, execution-approval, ready-to-execute, done, or blocked." })),
+  workflowId: Type.Optional(
+    Type.String({ description: "Workflow id. If omitted, the latest workflow in the current repo is used." }),
+  ),
+  gate: Type.Optional(
+    Type.String({
+      description:
+        "Approval gate to request: issues, before-issues, execution, or before-execution. Backward-compatible with older calls.",
+    }),
+  ),
+  targetPhase: Type.Optional(
+    Type.String({
+      description:
+        "Workflow phase to request, such as issue-approval, issues-created, execution-approval, ready-to-execute, done, or blocked.",
+    }),
+  ),
   phase: Type.Optional(Type.String({ description: "Alias for targetPhase." })),
-  evidencePaths: Type.Optional(Type.Array(Type.String(), { description: "Optional artifact/evidence paths to record on successful phase transitions." })),
-  force: Type.Optional(Type.Boolean({ description: "Force a slash-command-style transition override. Use only for explicit human overrides." })),
+  evidencePaths: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Optional artifact/evidence paths to record on successful phase transitions.",
+    }),
+  ),
+  force: Type.Optional(
+    Type.Boolean({
+      description: "Force a slash-command-style transition override. Use only for explicit human overrides.",
+    }),
+  ),
   note: Type.Optional(Type.String({ description: "Optional approval/transition note or context for the event log." })),
 });
 
@@ -173,12 +207,7 @@ function copyFileIfExists(sourcePath: string, targetPath: string) {
   fs.copyFileSync(sourcePath, targetPath);
 }
 
-async function execInDir(
-  pi: ExtensionAPI,
-  cwd: string,
-  command: string,
-  timeout = 30_000,
-) {
+async function execInDir(pi: ExtensionAPI, cwd: string, command: string, timeout = 30_000) {
   return pi.exec("bash", ["-lc", `cd ${shellQuote(cwd)} && ${command}`], {
     timeout,
   } as any);
@@ -237,14 +266,22 @@ async function createIsolatedAutopilotSession(args: {
     60_000,
   );
   if (addResult.code !== 0) {
-    throw new Error(String(addResult.stderr ?? addResult.stdout ?? "git worktree add failed").trim() || "git worktree add failed");
+    throw new Error(
+      String(addResult.stderr ?? addResult.stdout ?? "git worktree add failed").trim() || "git worktree add failed",
+    );
   }
 
   const targetManifestPath = path.join(worktreeCwd, ".pi", "autopilot", path.basename(manifestPath));
   ensureDir(path.dirname(targetManifestPath));
   fs.copyFileSync(manifestPath, targetManifestPath);
-  copyFileIfExists(path.join(gitRoot, ".pi", "autopilot", "config.yml"), path.join(worktreeCwd, ".pi", "autopilot", "config.yml"));
-  copyFileIfExists(path.join(gitRoot, ".pi", "autopilot", "enabled"), path.join(worktreeCwd, ".pi", "autopilot", "enabled"));
+  copyFileIfExists(
+    path.join(gitRoot, ".pi", "autopilot", "config.yml"),
+    path.join(worktreeCwd, ".pi", "autopilot", "config.yml"),
+  );
+  copyFileIfExists(
+    path.join(gitRoot, ".pi", "autopilot", "enabled"),
+    path.join(worktreeCwd, ".pi", "autopilot", "enabled"),
+  );
   writeJsonFile(getIsolationMetaPath(worktreeCwd), {
     version: 1,
     originRepoCwd: gitRoot,
@@ -260,10 +297,7 @@ async function createIsolatedAutopilotSession(args: {
     throw new Error(`Failed to create session for isolated worktree: ${worktreeCwd}`);
   }
 
-  ctx.ui.notify(
-    `Dirty repo detected. Autopilot will run in isolated worktree: ${worktreeCwd}`,
-    "info",
-  );
+  ctx.ui.notify(`Dirty repo detected. Autopilot will run in isolated worktree: ${worktreeCwd}`, "info");
 
   return { worktreeCwd, sessionFile, manifestPath: targetManifestPath };
 }
@@ -301,10 +335,17 @@ function shouldBlockSensitiveCommand(command: string): string | null {
   if (/\b(cat|sed|awk|grep|rg)\b[\s\S]*\.env(\.|\b|\s|$)/.test(normalized)) {
     return "Refusing to read .env-style secret files during autopilot.";
   }
-  if (/\bbw\s+get\b/.test(normalized) || /\bop\s+item\s+get\b/.test(normalized) || /\bsecurity\s+find-generic-password\b/.test(normalized)) {
+  if (
+    /\bbw\s+get\b/.test(normalized) ||
+    /\bop\s+item\s+get\b/.test(normalized) ||
+    /\bsecurity\s+find-generic-password\b/.test(normalized)
+  ) {
     return "Refusing to print secrets from a credential manager during autopilot.";
   }
-  if (/mongo[\s\S]*findone\(\{key:\\?"mgmt\\?"\}\)/i.test(command) && !/findone\([\s\S]*\{[\s\S]*(x_ssh_auth_password_enabled|debug_tools_enabled|x_api_token)[\s\S]*\}\)/i.test(command)) {
+  if (
+    /mongo[\s\S]*findone\(\{key:\\?"mgmt\\?"\}\)/i.test(command) &&
+    !/findone\([\s\S]*\{[\s\S]*(x_ssh_auth_password_enabled|debug_tools_enabled|x_api_token)[\s\S]*\}\)/i.test(command)
+  ) {
     return "Refusing to dump full UDM management records. Query only explicitly projected safe fields.";
   }
   return null;
@@ -312,18 +353,29 @@ function shouldBlockSensitiveCommand(command: string): string | null {
 
 function redactSensitiveText(text: string): string {
   return text
-    .replace(/((?:x_api_token|x_ssh_password|x_ssh_sha512passwd|x_mgmt_key|api[_-]?token|token|password|passwd|secret|client_secret|authorization|bearer|cookie)\s*["']?\s*[:=]\s*["']?)([^"'\s,}]+)/gi, "$1[REDACTED]")
+    .replace(
+      /((?:x_api_token|x_ssh_password|x_ssh_sha512passwd|x_mgmt_key|api[_-]?token|token|password|passwd|secret|client_secret|authorization|bearer|cookie)\s*["']?\s*[:=]\s*["']?)([^"'\s,}]+)/gi,
+      "$1[REDACTED]",
+    )
     .replace(/(mongodb(\+srv)?:\/\/[^\s:/]+:)([^@\s]+)(@)/gi, "$1[REDACTED]$4")
     .replace(/(https?:\/\/[^\s:/]+:)([^@\s]+)(@)/gi, "$1[REDACTED]$3")
-    .replace(/(-----begin [a-z0-9 ]*private key-----)[\s\S]*?(-----end [a-z0-9 ]*private key-----)/gi, "$1\n[REDACTED]\n$2")
-    .replace(/\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b/g, "[REDACTED]");
+    .replace(
+      /(-----begin [a-z0-9 ]*private key-----)[\s\S]*?(-----end [a-z0-9 ]*private key-----)/gi,
+      "$1\n[REDACTED]\n$2",
+    )
+    .replace(
+      /\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b/g,
+      "[REDACTED]",
+    );
 }
 
 function isSensitiveReadPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/").toLowerCase();
-  return /(^|\/)(\.env($|\.|\/)|\.npmrc$|\.pypirc$|id_rsa$|id_ed25519$|authorized_keys$)/.test(normalized)
-    || /(^|\/)(\.ssh|\.gnupg|\.aws)\//.test(normalized)
-    || /\.(pem|p12|pfx|key)$/i.test(normalized);
+  return (
+    /(^|\/)(\.env($|\.|\/)|\.npmrc$|\.pypirc$|id_rsa$|id_ed25519$|authorized_keys$)/.test(normalized) ||
+    /(^|\/)(\.ssh|\.gnupg|\.aws)\//.test(normalized) ||
+    /\.(pem|p12|pfx|key)$/i.test(normalized)
+  );
 }
 
 function getRepoAutopilotRoot(repoCwd: string) {
@@ -455,9 +507,7 @@ function leadingIndent(line: string): number {
 }
 
 function parseManifest(filePath: string): Manifest {
-  const absPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.resolve(process.cwd(), filePath);
+  const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
 
   if (!fileExists(absPath)) {
     throw new Error(`Manifest not found: ${absPath}`);
@@ -466,9 +516,7 @@ function parseManifest(filePath: string): Manifest {
   const raw = readText(absPath);
   const fmMatch = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (!fmMatch) {
-    throw new Error(
-      `Manifest must start with YAML frontmatter delimited by ---: ${absPath}`,
-    );
+    throw new Error(`Manifest must start with YAML frontmatter delimited by ---: ${absPath}`);
   }
 
   const fmRaw = fmMatch[1];
@@ -487,15 +535,17 @@ function looksLikeAutopilotManifest(raw: string): boolean {
   return /(^|\n)(id|authority|scope|paths|checks|verify|acceptance|stop_when):/m.test(fmMatch[1] ?? "");
 }
 
-async function resolveStartManifestPath(pi: ExtensionAPI, repoCwd: string, input: string): Promise<{ manifestPath: string; mode: "manifest" | "generated" }> {
+async function resolveStartManifestPath(
+  pi: ExtensionAPI,
+  repoCwd: string,
+  input: string,
+): Promise<{ manifestPath: string; mode: "manifest" | "generated" }> {
   const normalized = input.trim();
   if (!normalized) {
     throw new Error("missing source or manifest path");
   }
 
-  const absolute = path.isAbsolute(normalized)
-    ? normalized
-    : path.resolve(repoCwd, normalized);
+  const absolute = path.isAbsolute(normalized) ? normalized : path.resolve(repoCwd, normalized);
 
   if (fileExists(absolute)) {
     const raw = readText(absolute);
@@ -585,8 +635,7 @@ function checkRepoAllowlisted(pi: ExtensionAPI, repoCwd: string): boolean {
 
   const globalConfig = getGlobalConfig(repoCwd);
   const repoRoot = repoCwd;
-  const allowed: string[] =
-    (globalConfig?.repos?.allow ?? []).map((p: string) => p.trim()) || [];
+  const allowed: string[] = (globalConfig?.repos?.allow ?? []).map((p: string) => p.trim()) || [];
 
   return allowed.some((p) => {
     const abs = path.isAbsolute(p) ? p : path.resolve(repoRoot, p);
@@ -755,9 +804,11 @@ function tokenizeArgs(input: string): string[] {
 
 function parseSourcePriority(value: string): SourcePriority[] {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "github" || normalized === "gh" || normalized === "github-first") return ["github", "linear", "plan"];
+  if (normalized === "github" || normalized === "gh" || normalized === "github-first")
+    return ["github", "linear", "plan"];
   if (normalized === "linear" || normalized === "linear-first") return ["linear", "github", "plan"];
-  if (normalized === "mixed" || normalized === "any" || normalized === "all" || normalized === "plan") return ["plan", "github", "linear"];
+  if (normalized === "mixed" || normalized === "any" || normalized === "all" || normalized === "plan")
+    return ["plan", "github", "linear"];
   throw new Error(`Unknown source preference: ${value}`);
 }
 
@@ -780,16 +831,10 @@ function parseCsvGlobs(value: string): string[] {
   return paths;
 }
 
-function buildNextPrompt(args: {
-  manifest: Manifest;
-  failingChecks: Array<any>;
-  iteration: number;
-}): string {
+function buildNextPrompt(args: { manifest: Manifest; failingChecks: Array<any>; iteration: number }): string {
   const { manifest, failingChecks, iteration } = args;
 
-  const checksLabel = failingChecks.length
-    ? "Failing checks"
-    : "No failing checks";
+  const checksLabel = failingChecks.length ? "Failing checks" : "No failing checks";
 
   const checksText = failingChecks.length
     ? failingChecks
@@ -877,13 +922,9 @@ async function runCommandChecks(
       const pattern = check.pattern;
       if (!p || !pattern) return { pass: false, reason: "rg missing path or pattern" };
       const target = path.isAbsolute(p) ? p : path.join(ctx.cwd, p);
-      const { code } = await pi.exec(
-        "rg",
-        ["-n", pattern, target],
-        {
-          timeout: 60 * 1000,
-        } as any,
-      );
+      const { code } = await pi.exec("rg", ["-n", pattern, target], {
+        timeout: 60 * 1000,
+      } as any);
       // rg returns 1 on no matches
       return { pass: code === 0, reason: code === 0 ? undefined : "no matches" };
     }
@@ -950,7 +991,7 @@ function normalizeManifestChecks(raw: unknown): any[] {
 function normalizeManifestVerify(raw: unknown): any[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((item) => typeof item === "string" ? item.trim() : item)
+    .map((item) => (typeof item === "string" ? item.trim() : item))
     .filter((item) => item !== "" && item !== "all_required_checks_passed");
 }
 
@@ -967,14 +1008,14 @@ async function evaluateChecks(
   for (const c of checkList) {
     const res = await runCommandChecks(pi, ctx, c);
     if (!res.pass) {
-      failing.push({ ...((typeof c === "object" && c) ? c : { type: "command", run: c }), reason: res.reason });
+      failing.push({ ...(typeof c === "object" && c ? c : { type: "command", run: c }), reason: res.reason });
     }
   }
 
   for (const v of verifyList) {
     const res = await runCommandChecks(pi, ctx, v);
     if (!res.pass) {
-      failing.push({ ...((typeof v === "object" && v) ? v : { type: "verify", check: v }), reason: res.reason });
+      failing.push({ ...(typeof v === "object" && v ? v : { type: "verify", check: v }), reason: res.reason });
     }
   }
 
@@ -992,7 +1033,7 @@ async function writeStatusWidget(repoCwd: string, ui: ExtensionContext["ui"], le
   if (failing.length) {
     lines.push(`failing:${failing.length}`);
     for (const f of failing.slice(0, 6)) {
-      const label = typeof f === "string" ? f : f?.id ?? f?.type ?? "check";
+      const label = typeof f === "string" ? f : (f?.id ?? f?.type ?? "check");
       lines.push(`- ${label}`);
     }
     if (failing.length > 6) lines.push(`... +${failing.length - 6} more`);
@@ -1024,9 +1065,7 @@ function createAndLaunchV2Workflow(args: {
     rawInput: args.input,
   });
 
-  const prompt = args.lane === "architecture"
-    ? v2.buildArchitecturePrompt(workflow)
-    : v2.buildPlanningPrompt(workflow);
+  const prompt = args.lane === "architecture" ? v2.buildArchitecturePrompt(workflow) : v2.buildPlanningPrompt(workflow);
 
   sendAutopilotPrompt(args.pi, args.ctx, prompt);
   args.ctx.ui.notify(
@@ -1085,16 +1124,18 @@ async function resolveV2RepoCwd(pi: ExtensionAPI, cwd: string): Promise<string> 
 }
 
 function newestPreArtifactPlanningWorkflow(repoCwd: string): v2.WorkflowState | null {
-  return v2.listWorkflowStates(repoCwd).find((workflow) =>
-    workflow.lane === "planning" && v2.isPreArtifactPlanningPhase(workflow.phase)
-  ) ?? null;
+  return (
+    v2
+      .listWorkflowStates(repoCwd)
+      .find((workflow) => workflow.lane === "planning" && v2.isPreArtifactPlanningPhase(workflow.phase)) ?? null
+  );
 }
 
 function lockedPlanningArtifactWriteReason(repoCwd: string, rawPath: string): string | null {
   const workflow = newestPreArtifactPlanningWorkflow(repoCwd);
   if (!workflow) return null;
   const result = v2.isPlanningArtifactLockedPath(workflow, rawPath);
-  return result.locked ? result.reason ?? "Autopilot planning artifacts are locked until concept lock." : null;
+  return result.locked ? (result.reason ?? "Autopilot planning artifacts are locked until concept lock.") : null;
 }
 
 function lockedPlanningArtifactCommandReason(repoCwd: string, command: string): string | null {
@@ -1177,16 +1218,17 @@ async function approveV2WorkflowGate(args: {
   });
 }
 
-async function transitionV2WorkflowPhase(args: {
-  ctx: ExtensionCommandContext;
-  repoCwd: string;
-  rest: string;
-}) {
+async function transitionV2WorkflowPhase(args: { ctx: ExtensionCommandContext; repoCwd: string; rest: string }) {
   const tokens = tokenizeArgs(args.rest);
   const selector = tokens[0] ?? "";
   const targetPhaseToken = tokens[1] ?? "";
   const force = tokens.includes("--force");
-  const note = tokens.slice(2).filter((token) => token !== "--force").join(" ").trim() || undefined;
+  const note =
+    tokens
+      .slice(2)
+      .filter((token) => token !== "--force")
+      .join(" ")
+      .trim() || undefined;
 
   if (!selector || !targetPhaseToken || !v2.isWorkflowPhase(targetPhaseToken)) {
     args.ctx.ui.notify("Usage: /autopilot transition <workflow-id> <phase> [--force] [note]", "error");
@@ -1250,12 +1292,8 @@ function normalizeAutopilotCommandArgs(raw: string): string {
 function buildStatusSummary(repoCwd: string, allowed: boolean) {
   const root = getRepoAutopilotRoot(repoCwd);
   const { runsDir, locksDir } = getAutopilotDirs(repoCwd);
-  const lockFiles = fileExists(locksDir)
-    ? fs.readdirSync(locksDir).filter((f) => f.endsWith(".json"))
-    : [];
-  const runFiles = fileExists(runsDir)
-    ? fs.readdirSync(runsDir).filter((f) => f.endsWith(".json"))
-    : [];
+  const lockFiles = fileExists(locksDir) ? fs.readdirSync(locksDir).filter((f) => f.endsWith(".json")) : [];
+  const runFiles = fileExists(runsDir) ? fs.readdirSync(runsDir).filter((f) => f.endsWith(".json")) : [];
   const repoConfig = loadRepoAutopilotConfig(repoCwd);
   const prefs = loadRepoAutopilotPreferences(repoCwd);
   const workflows = v2.listWorkflowStates(repoCwd);
@@ -1283,10 +1321,9 @@ function buildStatusSummary(repoCwd: string, allowed: boolean) {
   };
   v2.writeLatestStatus(repoCwd, summary);
 
-  const latestText = latest
-    ? `, latest=${latest.workflowId} ${latest.status}/${latest.phase}`
-    : "";
-  const header = `autopilot root: ${root} (allowed=${allowed ? "yes" : "no"}, enabled=${summary.enabled ? "yes" : "no"}, ` +
+  const latestText = latest ? `, latest=${latest.workflowId} ${latest.status}/${latest.phase}` : "";
+  const header =
+    `autopilot root: ${root} (allowed=${allowed ? "yes" : "no"}, enabled=${summary.enabled ? "yes" : "no"}, ` +
     `v1 locks=${lockFiles.length}, v1 runs=${runFiles.length}, v2 workflows=${workflows.length}${latestText}, ` +
     `verify=${summary.verificationProfile}, sources=${summary.sourcePriority.join(">")})` +
     `${allowed ? "" : " — run /autopilot setup to enable this repo."}`;
@@ -1295,6 +1332,105 @@ function buildStatusSummary(repoCwd: string, allowed: boolean) {
   const report = v2.buildWorkflowStatusReport(latest);
   const overview = v2.buildWorkflowStatusOverview(workflows);
   return `${header}\n\n${v2.formatWorkflowStatusReport(report, overview)}`;
+}
+
+const AUTOPILOT_RECOGNIZED_COMMANDS = new Set<string>([
+  "plan",
+  "approve",
+  "ship",
+  "transition",
+  "concept-lock",
+  "lock-concept",
+  "status",
+  "workflows",
+  "workflow",
+  "setup",
+  "prefs",
+  "architecture",
+  "arch",
+  "resume-workflow",
+  "legacy-plan",
+  "plan-legacy",
+  "continue",
+  "from-gh",
+  "from-linear",
+  "scaffold",
+  "init",
+  "from-plan",
+  "draft",
+  "start",
+  "pause",
+  "resume",
+  "stop",
+  "checkpoint",
+  "takeover",
+  "handoff",
+]);
+
+const AUTOPILOT_COMMAND_COMPLETIONS: AutocompleteItem[] = [
+  { value: "status", label: "status", description: "Show repo enablement and latest workflow status" },
+  { value: "workflows", label: "workflows", description: "List v2 workflows" },
+  { value: "plan ", label: "plan", description: "Create a planning workflow from an idea, URL, or source" },
+  { value: "architecture ", label: "architecture", description: "Create an architecture workflow" },
+  { value: "approve ", label: "approve", description: "Approve issues or execution gate" },
+  { value: "transition ", label: "transition", description: "Move a workflow to another phase" },
+  { value: "concept-lock ", label: "concept-lock", description: "Lock planning concept before artifact drafting" },
+  { value: "ship ", label: "ship", description: "Run the next approved execution issue" },
+  { value: "resume-workflow ", label: "resume-workflow", description: "Resend the workflow lane prompt" },
+  { value: "setup", label: "setup", description: "Configure Autopilot for this repo" },
+  { value: "continue ", label: "continue", description: "Continue from a plan, GitHub issue, or Linear issue" },
+  { value: "from-gh ", label: "from-gh", description: "Continue from a GitHub issue" },
+  { value: "from-linear ", label: "from-linear", description: "Continue from a Linear issue" },
+  { value: "scaffold ", label: "scaffold", description: "Create a legacy manifest scaffold" },
+  { value: "legacy-plan ", label: "legacy-plan", description: "Start the legacy planning flow" },
+  { value: "from-plan ", label: "from-plan", description: "Draft a legacy manifest from a plan file" },
+  { value: "start ", label: "start", description: "Legacy runner: start from manifest or source" },
+  { value: "pause", label: "pause", description: "Legacy runner: pause active run" },
+  { value: "resume", label: "resume", description: "Legacy runner: resume active run" },
+  { value: "stop", label: "stop", description: "Legacy runner: stop active run" },
+  { value: "checkpoint", label: "checkpoint", description: "Legacy runner: write checkpoint" },
+  { value: "takeover ", label: "takeover", description: "Legacy runner: take over a manifest" },
+];
+
+const AUTOPILOT_APPROVE_COMPLETIONS: AutocompleteItem[] = [
+  { value: "approve issues ", label: "approve issues", description: "Approve the issue-drafting gate" },
+  { value: "approve execution ", label: "approve execution", description: "Approve the execution gate" },
+];
+
+const AUTOPILOT_SETUP_COMPLETIONS: AutocompleteItem[] = [
+  { value: "setup --interactive", label: "setup --interactive", description: "Configure via prompts" },
+  { value: "setup --source plan", label: "setup --source plan", description: "Prefer local plans as sources" },
+  { value: "setup --source github", label: "setup --source github", description: "Prefer GitHub issues as sources" },
+  { value: "setup --source linear", label: "setup --source linear", description: "Prefer Linear issues as sources" },
+  { value: "setup --source mixed", label: "setup --source mixed", description: "Use mixed source priority" },
+  { value: "setup --verify normal", label: "setup --verify normal", description: "Use normal verification" },
+  { value: "setup --verify strict", label: "setup --verify strict", description: "Use strict verification" },
+  {
+    value: "setup --verify conservative",
+    label: "setup --verify conservative",
+    description: "Use conservative verification",
+  },
+];
+
+function filterAutopilotCompletions(items: AutocompleteItem[], argumentPrefix: string): AutocompleteItem[] | null {
+  const prefix = argumentPrefix.trimStart().toLowerCase();
+  const filtered = items.filter((item) => {
+    const value = item.value.toLowerCase();
+    const label = item.label?.toLowerCase() ?? "";
+    return value.startsWith(prefix) || label.startsWith(prefix);
+  });
+  return filtered.length > 0 ? filtered : null;
+}
+
+function getAutopilotArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  const prefix = argumentPrefix.trimStart().toLowerCase();
+  if (prefix.startsWith("approve ")) {
+    return filterAutopilotCompletions(AUTOPILOT_APPROVE_COMPLETIONS, prefix);
+  }
+  if (prefix.startsWith("setup ")) {
+    return filterAutopilotCompletions(AUTOPILOT_SETUP_COMPLETIONS, prefix);
+  }
+  return filterAutopilotCompletions(AUTOPILOT_COMMAND_COMPLETIONS, prefix);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -1375,7 +1511,11 @@ export default function (pi: ExtensionAPI) {
     failureStreak = ledger.progress?.failureStreak ?? 0;
     turnCount = ledger.progress?.turnCount ?? 0;
     lastFailingChecks = ledger.lastFailingChecks ?? [];
-    armed = ledger.status === "running" || ledger.status === "paused" || ledger.status === "awaiting-user" || ledger.status === "blocked";
+    armed =
+      ledger.status === "running" ||
+      ledger.status === "paused" ||
+      ledger.status === "awaiting-user" ||
+      ledger.status === "blocked";
   }
 
   async function stopRun(repoCwd: string) {
@@ -1395,7 +1535,13 @@ export default function (pi: ExtensionAPI) {
     armed = false;
   }
 
-  async function markStatus(repoCwd: string, runId: string, status: RunLedger["status"], ctx?: ExtensionContext, failingChecks?: Array<any>) {
+  async function markStatus(
+    repoCwd: string,
+    runId: string,
+    status: RunLedger["status"],
+    ctx?: ExtensionContext,
+    failingChecks?: Array<any>,
+  ) {
     const ledger = loadRunLedger(repoCwd, runId);
     if (!ledger) return;
     ledger.status = status;
@@ -1460,9 +1606,7 @@ export default function (pi: ExtensionAPI) {
 
     // If checks failed, prompt continuation.
     const failing = evaluation.failing;
-    const promptHash = shortHash(
-      JSON.stringify({ failing, turnCount: ledger.progress?.turnCount ?? 0 }),
-    );
+    const promptHash = shortHash(JSON.stringify({ failing, turnCount: ledger.progress?.turnCount ?? 0 }));
 
     if (ledger.progress?.lastPromptHash && ledger.progress.lastPromptHash === promptHash) {
       // loop guard: we already asked for this exact failure set.
@@ -1606,18 +1750,33 @@ export default function (pi: ExtensionAPI) {
           const reasons = result.validation.reasons;
           return {
             content: [{ type: "text", text: `Autopilot transition rejected: ${reasons.join(" ")}` }],
-            details: { transitioned: false, workflowId: workflow.workflowId, from: workflow.phase, to: phaseToken, reasons },
+            details: {
+              transitioned: false,
+              workflowId: workflow.workflowId,
+              from: workflow.phase,
+              to: phaseToken,
+              reasons,
+            },
           };
         }
 
         return {
-          content: [{ type: "text", text: `Autopilot transition accepted: ${workflow.phase} -> ${result.state.phase}.` }],
-          details: { transitioned: true, workflowId: workflow.workflowId, from: workflow.phase, phase: result.state.phase },
+          content: [
+            { type: "text", text: `Autopilot transition accepted: ${workflow.phase} -> ${result.state.phase}.` },
+          ],
+          details: {
+            transitioned: true,
+            workflowId: workflow.workflowId,
+            from: workflow.phase,
+            phase: result.state.phase,
+          },
         };
       }
 
       if (!gate) {
-        throw new Error("Provide either targetPhase/phase or gate. gate must be one of: issues, before-issues, execution, before-execution");
+        throw new Error(
+          "Provide either targetPhase/phase or gate. gate must be one of: issues, before-issues, execution, before-execution",
+        );
       }
 
       const workflow = await approveWorkflowGateWithUi({
@@ -1637,7 +1796,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       return {
-        content: [{ type: "text", text: `Autopilot ${gate} approved for ${workflow.workflowId}. Continue with the next gated phase.` }],
+        content: [
+          {
+            type: "text",
+            text: `Autopilot ${gate} approved for ${workflow.workflowId}. Continue with the next gated phase.`,
+          },
+        ],
         details: { approved: true, gate, workflowId: workflow.workflowId, phase: workflow.phase },
       };
     },
@@ -1646,6 +1810,7 @@ export default function (pi: ExtensionAPI) {
   // Commands
   pi.registerCommand("autopilot", {
     description: "Autopilot v2 workflow engine (plan/approve/transition/ship)",
+    getArgumentCompletions: getAutopilotArgumentCompletions,
     handler: async (args, ctx) => {
       const repoCwd = await resolveV2RepoCwd(pi, ctx.cwd);
       const normalizedArgs = normalizeAutopilotCommandArgs(args);
@@ -1660,30 +1825,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const recognizedCommands = new Set([
-        "plan",
-        "approve",
-        "ship",
-        "transition",
-        "concept-lock",
-        "lock-concept",
-        "status",
-        "workflows",
-        "workflow",
-        "setup",
-        "prefs",
-        "architecture",
-        "arch",
-        "resume-workflow",
-        "legacy-plan",
-        "plan-legacy",
-        "continue",
-        "from-gh",
-        "from-linear",
-        "scaffold",
-        "init",
-      ]);
-      if (!recognizedCommands.has(cmd)) {
+      if (!AUTOPILOT_RECOGNIZED_COMMANDS.has(cmd)) {
         ctx.ui.notify(
           `Unknown Autopilot subcommand: ${cmd}. Use /autopilot plan, /autopilot approve issues, /autopilot approve execution, /autopilot transition, or /autopilot ship.`,
           "warning",
@@ -1703,7 +1845,13 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("No v2 workflows found. Use /autopilot plan <idea> first.", "info");
           return;
         }
-        ctx.ui.notify(workflows.slice(0, 8).map((workflow) => v2.summarizeWorkflow(workflow)).join("\n\n"), "info");
+        ctx.ui.notify(
+          workflows
+            .slice(0, 8)
+            .map((workflow) => v2.summarizeWorkflow(workflow))
+            .join("\n\n"),
+          "info",
+        );
         return;
       }
 
@@ -1728,10 +1876,7 @@ export default function (pi: ExtensionAPI) {
             "info",
           );
         } catch (error) {
-          ctx.ui.notify(
-            `Autopilot setup failed: ${error instanceof Error ? error.message : String(error)}`,
-            "error",
-          );
+          ctx.ui.notify(`Autopilot setup failed: ${error instanceof Error ? error.message : String(error)}`, "error");
         }
         return;
       }
@@ -1745,7 +1890,10 @@ export default function (pi: ExtensionAPI) {
       if (cmd === "plan") {
         let topic = rest;
         if (!topic) {
-          const value = await ctx.ui.input("Autopilot v2 plan", "What idea, source, URL, issue, repo, package, or plan should we work from?");
+          const value = await ctx.ui.input(
+            "Autopilot v2 plan",
+            "What idea, source, URL, issue, repo, package, or plan should we work from?",
+          );
           if (!value?.trim()) {
             ctx.ui.notify("Autopilot plan cancelled.", "warning");
             return;
@@ -1781,7 +1929,10 @@ export default function (pi: ExtensionAPI) {
       if (cmd === "architecture" || cmd === "arch") {
         let scope = rest;
         if (!scope) {
-          const value = await ctx.ui.input("Autopilot architecture", "What codebase area or friction should the architecture lane inspect?");
+          const value = await ctx.ui.input(
+            "Autopilot architecture",
+            "What codebase area or friction should the architecture lane inspect?",
+          );
           if (!value?.trim()) {
             ctx.ui.notify("Autopilot architecture cancelled.", "warning");
             return;
@@ -1806,7 +1957,9 @@ export default function (pi: ExtensionAPI) {
       if (cmd === "concept-lock" || cmd === "lock-concept") {
         const parts = rest.split(/\s+/).filter(Boolean);
         const selector = parts[0] ?? "";
-        let workflow = selector ? resolveWorkflowOrNotify(ctx, repoCwd, selector) : resolveWorkflowOrNotify(ctx, repoCwd, "");
+        let workflow = selector
+          ? resolveWorkflowOrNotify(ctx, repoCwd, selector)
+          : resolveWorkflowOrNotify(ctx, repoCwd, "");
         let summary = selector ? parts.slice(1).join(" ") : "";
         if (!workflow && selector) {
           workflow = resolveWorkflowOrNotify(ctx, repoCwd, rest);
@@ -1830,7 +1983,10 @@ export default function (pi: ExtensionAPI) {
         const workflow = resolveWorkflowOrNotify(ctx, repoCwd, rest);
         if (!workflow) return;
         if (workflow.gates["before-execution"].status !== "approved") {
-          ctx.ui.notify(`Execution is blocked. Run /autopilot approve execution ${workflow.workflowId} first.`, "warning");
+          ctx.ui.notify(
+            `Execution is blocked. Run /autopilot approve execution ${workflow.workflowId} first.`,
+            "warning",
+          );
           return;
         }
         try {
@@ -1856,13 +2012,16 @@ export default function (pi: ExtensionAPI) {
             `Shipping issue ${claim.issue.id}: ${claim.issue.title}. Worktree: ${prepared.worktreePath}`,
             "info",
           );
-          const result = await runner.runWorker({
-            repoCwd,
-            worktreePath: prepared.worktreePath,
-            promptPath: claim.implementationPromptPath,
-            workflowId: workflow.workflowId,
-            issueId: String(claim.issue.id),
-          }, logPath);
+          const result = await runner.runWorker(
+            {
+              repoCwd,
+              worktreePath: prepared.worktreePath,
+              promptPath: claim.implementationPromptPath,
+              workflowId: workflow.workflowId,
+              issueId: String(claim.issue.id),
+            },
+            logPath,
+          );
           if (result.exitCode !== 0) {
             const latest = v2.loadWorkflowState(repoCwd, workflow.workflowId) ?? workflow;
             v2.recordExecutionFailure(latest, String(claim.issue.id), {
@@ -1882,9 +2041,8 @@ export default function (pi: ExtensionAPI) {
       if (cmd === "resume-workflow") {
         const workflow = resolveWorkflowOrNotify(ctx, repoCwd, rest);
         if (!workflow) return;
-        const prompt = workflow.lane === "architecture"
-          ? v2.buildArchitecturePrompt(workflow)
-          : v2.buildPlanningPrompt(workflow);
+        const prompt =
+          workflow.lane === "architecture" ? v2.buildArchitecturePrompt(workflow) : v2.buildPlanningPrompt(workflow);
         sendAutopilotPrompt(pi, ctx, prompt);
         ctx.ui.notify(`Resuming v2 workflow: ${workflow.workflowId}`, "info");
         return;
@@ -1922,11 +2080,12 @@ export default function (pi: ExtensionAPI) {
         }
 
         const defaultDir = path.join(repoCwd, ".pi", "autopilot");
-        const manifestPath = slugOrPath.includes("/") || slugOrPath.startsWith(".")
-          ? path.isAbsolute(slugOrPath)
-            ? slugOrPath
-            : path.join(repoCwd, slugOrPath)
-          : path.join(defaultDir, `${slugify(slugOrPath)}.md`);
+        const manifestPath =
+          slugOrPath.includes("/") || slugOrPath.startsWith(".")
+            ? path.isAbsolute(slugOrPath)
+              ? slugOrPath
+              : path.join(repoCwd, slugOrPath)
+            : path.join(defaultDir, `${slugify(slugOrPath)}.md`);
 
         ensureDir(path.dirname(manifestPath));
 
@@ -1942,14 +2101,15 @@ export default function (pi: ExtensionAPI) {
 
         const id = slugify(path.basename(manifestPath).replace(/\.md$/i, "")) || "autopilot-run";
 
-        const template = `---\n` +
-`id: ${id}\n` +
-`branch: ${gitBranch || ""}\n` +
-`authority:\n  commit: false\n  push: true\n  pr: true\n  merge: false\n` +
-`scope:\n  todo_ids: []\n` +
-`paths:\n  allow:\n    - packages/**\n    - app/**\n    - docs/**\n    - opensrc/**\n  related: []\n  deny:\n    - node_modules/**\n` +
-`checks:\n  - type: command\n    run: bun run typecheck\n  - type: command\n    run: cd packages/core && bun test src/server-contract.test.ts\n  - type: command\n    run: cd app && bun run test src/features/strategy/__tests__/hooks.test.ts src/features/strategy/__tests__/StrategyComposerView.test.tsx\nverify:\n  - all_required_checks_passed\nacceptance:\n  - required checks pass\nstop_when:\n  - all_required_checks_passed\n` +
-`---\n\n## Context\nWrite short context + what you want done.\n\n## Execution notes\nOptional notes for the supervisor (avoid authority changes).\n`;
+        const template =
+          `---\n` +
+          `id: ${id}\n` +
+          `branch: ${gitBranch || ""}\n` +
+          `authority:\n  commit: false\n  push: true\n  pr: true\n  merge: false\n` +
+          `scope:\n  todo_ids: []\n` +
+          `paths:\n  allow:\n    - packages/**\n    - app/**\n    - docs/**\n    - opensrc/**\n  related: []\n  deny:\n    - node_modules/**\n` +
+          `checks:\n  - type: command\n    run: bun run typecheck\n  - type: command\n    run: cd packages/core && bun test src/server-contract.test.ts\n  - type: command\n    run: cd app && bun run test src/features/strategy/__tests__/hooks.test.ts src/features/strategy/__tests__/StrategyComposerView.test.tsx\nverify:\n  - all_required_checks_passed\nacceptance:\n  - required checks pass\nstop_when:\n  - all_required_checks_passed\n` +
+          `---\n\n## Context\nWrite short context + what you want done.\n\n## Execution notes\nOptional notes for the supervisor (avoid authority changes).\n`;
 
         fs.writeFileSync(manifestPath, template, "utf-8");
         ctx.ui.notify(`Autopilot manifest scaffolded: ${manifestPath}`, "info");
@@ -1963,9 +2123,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        const absPlan = path.isAbsolute(planPath)
-          ? planPath
-          : path.join(repoCwd, planPath);
+        const absPlan = path.isAbsolute(planPath) ? planPath : path.join(repoCwd, planPath);
         if (!fileExists(absPlan)) {
           ctx.ui.notify(`Plan file not found: ${absPlan}`, "error");
           return;
@@ -1984,7 +2142,10 @@ export default function (pi: ExtensionAPI) {
         ];
 
         const planLower = rawPlan.toLowerCase();
-        if (planLower.includes("strategy composer") || planLower.includes("strategy") && planLower.includes("dry-run")) {
+        if (
+          planLower.includes("strategy composer") ||
+          (planLower.includes("strategy") && planLower.includes("dry-run"))
+        ) {
           checks.push(
             "  - type: command\n    run: cd app && bun run test src/features/strategy/__tests__/hooks.test.ts src/features/strategy/__tests__/StrategyComposerView.test.tsx",
           );
@@ -1992,7 +2153,9 @@ export default function (pi: ExtensionAPI) {
 
         let gitBranch = "";
         try {
-          const { stdout } = await pi.exec("bash", ["-lc", "git rev-parse --abbrev-ref HEAD"], { timeout: 10_000 } as any);
+          const { stdout } = await pi.exec("bash", ["-lc", "git rev-parse --abbrev-ref HEAD"], {
+            timeout: 10_000,
+          } as any);
           gitBranch = String(stdout ?? "").trim();
         } catch {
           // ignore
@@ -2038,10 +2201,7 @@ export default function (pi: ExtensionAPI) {
           }
           await startAutopilotRun({ ctx, repoCwd, manifestPath: resolved.manifestPath });
         } catch (error) {
-          ctx.ui.notify(
-            `Autopilot start failed: ${error instanceof Error ? error.message : String(error)}`,
-            "error",
-          );
+          ctx.ui.notify(`Autopilot start failed: ${error instanceof Error ? error.message : String(error)}`, "error");
         }
         return;
       }
@@ -2178,10 +2338,7 @@ export default function (pi: ExtensionAPI) {
       await autopilotTick(ctx);
     } catch (e) {
       if (ctx.hasUI) {
-        ctx.ui.notify(
-          `Autopilot tick error: ${e instanceof Error ? e.message : String(e)}`,
-          "warning",
-        );
+        ctx.ui.notify(`Autopilot tick error: ${e instanceof Error ? e.message : String(e)}`, "warning");
       }
     }
   });
@@ -2197,9 +2354,7 @@ export default function (pi: ExtensionAPI) {
       const root = getRepoAutopilotRoot(repoCwd);
       const { runsDir, locksDir } = getAutopilotDirs(repoCwd);
 
-      const leaseFiles = fileExists(locksDir)
-        ? fs.readdirSync(locksDir).filter((f) => f.endsWith(".json"))
-        : [];
+      const leaseFiles = fileExists(locksDir) ? fs.readdirSync(locksDir).filter((f) => f.endsWith(".json")) : [];
 
       if (!leaseFiles.length) return;
 

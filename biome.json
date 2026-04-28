@@ -16,6 +16,8 @@
       "tsconfig.json",
       ".github/**",
       ".coderabbit.yaml",
+      ".claude-plugin/**",
+      "claude-code/**",
       "docs/**",
       "extensions/**",
       "prompts/**",

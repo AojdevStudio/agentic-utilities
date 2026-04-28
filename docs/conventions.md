@@ -63,6 +63,14 @@ Skill checklist:
 
 Use `prompts/<name>.prompt.md`. Keep prompts short and task-specific.
 
+## Claude Code plugins
+
+- Marketplace metadata lives in `.claude-plugin/marketplace.json`.
+- Plugin source lives in `claude-code/plugins/<name>/`.
+- Plugin names use kebab-case.
+- Verify GitHub owner/repo URLs with `gh repo view` or `git remote -v` before writing manifests.
+- Replace personal absolute paths with `${CLAUDE_PLUGIN_ROOT}` for bundled files or interactive configuration for user-owned output locations.
+
 ## Themes
 
 Use `themes/<name>.json`. Include screenshots or notes in `docs/` rather than inside `themes/`.

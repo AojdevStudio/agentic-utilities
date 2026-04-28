@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createJiti } from "/Users/ossieirondi/.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/jiti/lib/jiti.mjs";
+import { createJiti } from "@mariozechner/jiti";
 
 const jiti = createJiti(import.meta.url);
 const v2 = await jiti.import("./v2.ts");
@@ -13,7 +13,8 @@ function readJson(file) {
 }
 
 function readEvents(file) {
-  return fs.readFileSync(file, "utf8")
+  return fs
+    .readFileSync(file, "utf8")
     .trim()
     .split(/\r?\n/)
     .filter(Boolean)
@@ -26,7 +27,9 @@ function writeCompletePlanningArtifacts(workflow, options = {}) {
   fs.mkdirSync(path.join(workflow.paths.artifactsDir, "screenshots"), { recursive: true });
   fs.mkdirSync(path.join(workflow.paths.issuesDir, "drafts"), { recursive: true });
 
-  fs.writeFileSync(path.join(workflow.paths.artifactsDir, "prd.draft.md"), `# PRD Draft: Smoke Workflow
+  fs.writeFileSync(
+    path.join(workflow.paths.artifactsDir, "prd.draft.md"),
+    `# PRD Draft: Smoke Workflow
 
 Workflow: ${workflow.workflowId}
 
@@ -54,9 +57,13 @@ ${options.uiFacing ? "- UI-facing surface: dashboard workflow requires screensho
 ## Out of Scope
 
 - External tracker mutation.
-`, "utf8");
+`,
+    "utf8",
+  );
 
-  fs.writeFileSync(path.join(workflow.paths.artifactsDir, "ubiquitous-language.draft.md"), `# Ubiquitous Language Draft: Smoke Workflow
+  fs.writeFileSync(
+    path.join(workflow.paths.artifactsDir, "ubiquitous-language.draft.md"),
+    `# Ubiquitous Language Draft: Smoke Workflow
 
 Workflow: ${workflow.workflowId}
 
@@ -74,7 +81,9 @@ Workflow: ${workflow.workflowId}
 ## Flagged ambiguities
 
 - None.
-`, "utf8");
+`,
+    "utf8",
+  );
 
   const issueBody = options.horizontalIssue
     ? `# Create schema layer only
@@ -120,30 +129,56 @@ This crosses artifact files, queue JSON, and transition validation so it produce
 `;
   fs.writeFileSync(path.join(workflow.paths.issuesDir, "drafts", "001-smoke.md"), issueBody, "utf8");
 
-  fs.writeFileSync(workflow.queue.queueFile, JSON.stringify({
-    version: 2,
-    workflowId: workflow.workflowId,
-    status: "drafted",
-    items: [{
-      id: "001",
-      title: "Validate one vertical workflow slice",
-      type: "AFK",
-      draft: "issues/drafts/001-smoke.md",
-      blockedBy: [],
-      verificationProfile: "normal",
-      priority: "P0",
-    }],
-  }, null, 2) + "\n", "utf8");
+  fs.writeFileSync(
+    workflow.queue.queueFile,
+    JSON.stringify(
+      {
+        version: 2,
+        workflowId: workflow.workflowId,
+        status: "drafted",
+        items: [
+          {
+            id: "001",
+            title: "Validate one vertical workflow slice",
+            type: "AFK",
+            draft: "issues/drafts/001-smoke.md",
+            blockedBy: [],
+            verificationProfile: "normal",
+            priority: "P0",
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+    "utf8",
+  );
 
   if (options.sourceNotes) {
-    fs.writeFileSync(path.join(workflow.paths.artifactsDir, "source-notes", "external.md"), "# Source Notes\n\nExternal source summarized for execution.\n", "utf8");
-    fs.writeFileSync(path.join(workflow.paths.workflowDir, "sources.json"), JSON.stringify({
-      sources: [{ ...workflow.source, notesPath: "artifacts/source-notes/external.md" }],
-    }, null, 2) + "\n", "utf8");
+    fs.writeFileSync(
+      path.join(workflow.paths.artifactsDir, "source-notes", "external.md"),
+      "# Source Notes\n\nExternal source summarized for execution.\n",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(workflow.paths.workflowDir, "sources.json"),
+      JSON.stringify(
+        {
+          sources: [{ ...workflow.source, notesPath: "artifacts/source-notes/external.md" }],
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
   }
 
   if (options.visualEvidence) {
-    fs.writeFileSync(path.join(workflow.paths.artifactsDir, "screenshots", "ui-evidence.txt"), "browser evidence placeholder\n", "utf8");
+    fs.writeFileSync(
+      path.join(workflow.paths.artifactsDir, "screenshots", "ui-evidence.txt"),
+      "browser evidence placeholder\n",
+      "utf8",
+    );
   }
 }
 
@@ -151,8 +186,16 @@ function makeExecutionApprovedState(workflow) {
   const issuesApprovalFile = path.join(workflow.paths.approvalsDir, "before-issues.json");
   const executionApprovalFile = path.join(workflow.paths.approvalsDir, "before-execution.json");
   fs.mkdirSync(workflow.paths.approvalsDir, { recursive: true });
-  fs.writeFileSync(issuesApprovalFile, JSON.stringify({ gate: "before-issues", status: "approved" }, null, 2) + "\n", "utf8");
-  fs.writeFileSync(executionApprovalFile, JSON.stringify({ gate: "before-execution", status: "approved" }, null, 2) + "\n", "utf8");
+  fs.writeFileSync(
+    issuesApprovalFile,
+    JSON.stringify({ gate: "before-issues", status: "approved" }, null, 2) + "\n",
+    "utf8",
+  );
+  fs.writeFileSync(
+    executionApprovalFile,
+    JSON.stringify({ gate: "before-execution", status: "approved" }, null, 2) + "\n",
+    "utf8",
+  );
   return {
     ...workflow,
     phase: "ready-to-execute",
@@ -194,8 +237,14 @@ try {
   assert.equal(readJson(workflow.paths.stateFile).phase, "grill");
   assert.equal(workflow.phase, "grill");
   assert.equal(fs.existsSync(path.join(workflow.paths.artifactsDir, "prd.draft.md")), false);
-  assert.equal(v2.isPlanningArtifactLockedPath(workflow, path.join(workflow.paths.artifactsDir, "prd.draft.md")).locked, true);
-  assert.equal(v2.isPlanningArtifactLockedPath(workflow, path.join(workflow.paths.workflowDir, "decisions.md")).locked, false);
+  assert.equal(
+    v2.isPlanningArtifactLockedPath(workflow, path.join(workflow.paths.artifactsDir, "prd.draft.md")).locked,
+    true,
+  );
+  assert.equal(
+    v2.isPlanningArtifactLockedPath(workflow, path.join(workflow.paths.workflowDir, "decisions.md")).locked,
+    false,
+  );
   assert.match(v2.buildPlanningPrompt(workflow), /After concept lock, automatically continue/);
   const conceptLocked = v2.recordConceptLock(workflow, {
     summary: "Shared design concept accepted for smoke workflow.",
@@ -218,11 +267,21 @@ try {
   assert.equal(v2.defaultNativeRunnerConfig().concurrency, 2);
   assert.equal(v2.defaultNativeRunnerConfig().maxRepairAttempts, 2);
   assert.equal(v2.defaultNativeRunnerConfig().envAllowlist.includes("PATH"), true);
-  assert.deepEqual(v2.selectReadyAfkIssues({ items: [
-    { id: "001", type: "AFK", priority: "P1", status: "queued", blockedBy: [] },
-    { id: "002", type: "AFK", priority: "P0", status: "queued", blockedBy: [] },
-    { id: "003", type: "HITL", priority: "P0", status: "queued", blockedBy: [] },
-  ] }, 2).map((item) => item.id), ["002", "001"]);
+  assert.deepEqual(
+    v2
+      .selectReadyAfkIssues(
+        {
+          items: [
+            { id: "001", type: "AFK", priority: "P1", status: "queued", blockedBy: [] },
+            { id: "002", type: "AFK", priority: "P0", status: "queued", blockedBy: [] },
+            { id: "003", type: "HITL", priority: "P0", status: "queued", blockedBy: [] },
+          ],
+        },
+        2,
+      )
+      .map((item) => item.id),
+    ["002", "001"],
+  );
 
   process.env.PI_SMOKE_ALLOWED = "yes";
   const runner = runnerModule.createNativeRunner({
@@ -259,7 +318,12 @@ try {
     evidence: [
       { kind: "red", summary: "red failed", createdAt: "2026-01-01T00:00:00.000Z" },
       { kind: "green", summary: "green passed", createdAt: "2026-01-01T00:00:00.000Z" },
-      { kind: "visual", path: "artifacts/browser/001.png", summary: "browser evidence", createdAt: "2026-01-01T00:00:00.000Z" },
+      {
+        kind: "visual",
+        path: "artifacts/browser/001.png",
+        summary: "browser evidence",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
       { kind: "risk", summary: "inspect copy", createdAt: "2026-01-01T00:00:00.000Z" },
     ],
   });
@@ -276,24 +340,34 @@ try {
     });
     const statusState = makeExecutionApprovedState(statusWorkflow);
     writeCompletePlanningArtifacts(statusState);
-    fs.writeFileSync(statusState.queue.queueFile, JSON.stringify({
-      version: 2,
-      workflowId: statusState.workflowId,
-      status: "triaged",
-      items: [{
-        id: "001",
-        title: "Status slice",
-        type: "AFK",
-        priority: "P0",
-        status: "done",
-        draft: "issues/drafts/001-smoke.md",
-        blockedBy: [],
-        verificationProfile: "strict",
-        evidencePaths: ["execution/evidence/001/report.md"],
-        prUrl: "local-pr://status/001",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }],
-    }, null, 2) + "\n", "utf8");
+    fs.writeFileSync(
+      statusState.queue.queueFile,
+      JSON.stringify(
+        {
+          version: 2,
+          workflowId: statusState.workflowId,
+          status: "triaged",
+          items: [
+            {
+              id: "001",
+              title: "Status slice",
+              type: "AFK",
+              priority: "P0",
+              status: "done",
+              draft: "issues/drafts/001-smoke.md",
+              blockedBy: [],
+              verificationProfile: "strict",
+              evidencePaths: ["execution/evidence/001/report.md"],
+              prUrl: "local-pr://status/001",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
     v2.saveWorkflowState(statusState);
     const missingReport = v2.buildWorkflowStatusReport(statusState, "2026-01-01T00:00:00.000Z");
     assert.equal(missingReport.slices[0].computedState, "not-done");
@@ -302,16 +376,31 @@ try {
     assert.match(missingReport.slices[0].missingEvidence.join("\n"), /issues\/prs\/001\.json/);
 
     fs.mkdirSync(path.join(statusState.paths.workflowDir, "execution", "evidence", "001"), { recursive: true });
-    fs.writeFileSync(path.join(statusState.paths.workflowDir, "execution", "evidence", "001", "report.md"), "status evidence\n", "utf8");
+    fs.writeFileSync(
+      path.join(statusState.paths.workflowDir, "execution", "evidence", "001", "report.md"),
+      "status evidence\n",
+      "utf8",
+    );
     fs.mkdirSync(path.join(statusState.paths.issuesDir, "execution"), { recursive: true });
-    fs.writeFileSync(path.join(statusState.paths.issuesDir, "execution", "001.json"), JSON.stringify({ issueId: "001", updatedAt: "2026-01-01T00:00:01.000Z" }, null, 2) + "\n", "utf8");
+    fs.writeFileSync(
+      path.join(statusState.paths.issuesDir, "execution", "001.json"),
+      JSON.stringify({ issueId: "001", updatedAt: "2026-01-01T00:00:01.000Z" }, null, 2) + "\n",
+      "utf8",
+    );
     fs.mkdirSync(path.join(statusState.paths.issuesDir, "prs"), { recursive: true });
-    fs.writeFileSync(path.join(statusState.paths.issuesDir, "prs", "001.json"), JSON.stringify({ prUrl: "local-pr://status/001" }, null, 2) + "\n", "utf8");
+    fs.writeFileSync(
+      path.join(statusState.paths.issuesDir, "prs", "001.json"),
+      JSON.stringify({ prUrl: "local-pr://status/001" }, null, 2) + "\n",
+      "utf8",
+    );
 
     const completeReport = v2.buildWorkflowStatusReport(statusState, "2026-01-01T00:00:02.000Z");
     assert.equal(completeReport.slices[0].computedState, "done");
     assert.equal(completeReport.counts.done, 1);
-    const formattedStatus = v2.formatWorkflowStatusReport(completeReport, v2.buildWorkflowStatusOverview([statusState]));
+    const formattedStatus = v2.formatWorkflowStatusReport(
+      completeReport,
+      v2.buildWorkflowStatusOverview([statusState]),
+    );
     assert.match(formattedStatus, /001 done evidence=complete/);
     assert.match(formattedStatus, /workflows:/);
   } finally {
@@ -376,7 +465,9 @@ try {
     fs.rmSync(missingAgreementTmp, { recursive: true, force: true });
   }
 
-  const missingExecutionEvidenceTmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-autopilot-v2-missing-execution-evidence-"));
+  const missingExecutionEvidenceTmp = fs.mkdtempSync(
+    path.join(os.tmpdir(), "pi-autopilot-v2-missing-execution-evidence-"),
+  );
   try {
     const missingExecutionEvidenceWorkflow = v2.createWorkflow({
       repoCwd: missingExecutionEvidenceTmp,
@@ -616,10 +707,7 @@ try {
       rawInput: "smoke tracker blocked workflow",
     });
     writeCompletePlanningArtifacts(trackerBlockedWorkflow);
-    assert.throws(
-      () => v2.createTrackerIssues(trackerBlockedWorkflow, { dryRun: true }),
-      /before-issues approval/i,
-    );
+    assert.throws(() => v2.createTrackerIssues(trackerBlockedWorkflow, { dryRun: true }), /before-issues approval/i);
   } finally {
     fs.rmSync(trackerBlockedTmp, { recursive: true, force: true });
   }
@@ -650,7 +738,9 @@ try {
       },
     };
     writeCompletePlanningArtifacts(trackerState);
-    fs.writeFileSync(path.join(trackerState.paths.issuesDir, "drafts", "002-dependent.md"), `# Dependent vertical slice
+    fs.writeFileSync(
+      path.join(trackerState.paths.issuesDir, "drafts", "002-dependent.md"),
+      `# Dependent vertical slice
 
 Type: HITL
 
@@ -675,37 +765,53 @@ npm run check
 ## Vertical-slice rationale
 
 This keeps the queue DAG intact while crossing tracker refs and issue metadata.
-`, "utf8");
-    fs.writeFileSync(trackerState.queue.queueFile, JSON.stringify({
-      version: 2,
-      workflowId: trackerState.workflowId,
-      status: "drafted",
-      items: [
+`,
+      "utf8",
+    );
+    fs.writeFileSync(
+      trackerState.queue.queueFile,
+      JSON.stringify(
         {
-          id: "002",
-          title: "Dependent vertical slice",
-          type: "HITL",
-          draft: "issues/drafts/002-dependent.md",
-          blockedBy: ["001"],
-          verificationProfile: "strict",
-          priority: "P1",
+          version: 2,
+          workflowId: trackerState.workflowId,
+          status: "drafted",
+          items: [
+            {
+              id: "002",
+              title: "Dependent vertical slice",
+              type: "HITL",
+              draft: "issues/drafts/002-dependent.md",
+              blockedBy: ["001"],
+              verificationProfile: "strict",
+              priority: "P1",
+            },
+            {
+              id: "001",
+              title: "Validate one vertical workflow slice",
+              type: "AFK",
+              draft: "issues/drafts/001-smoke.md",
+              blockedBy: [],
+              verificationProfile: "normal",
+              priority: "P0",
+            },
+          ],
         },
-        {
-          id: "001",
-          title: "Validate one vertical workflow slice",
-          type: "AFK",
-          draft: "issues/drafts/001-smoke.md",
-          blockedBy: [],
-          verificationProfile: "normal",
-          priority: "P0",
-        },
-      ],
-    }, null, 2) + "\n", "utf8");
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
     v2.saveWorkflowState(trackerState);
     const approvedTracker = v2.approveGate(trackerState, "before-issues", "smoke-test", "tracker creation approved");
     const dryRun = v2.createTrackerIssues(approvedTracker, { dryRun: true });
-    assert.deepEqual(dryRun.operations.map((op) => op.kind), ["parent", "child", "child"]);
-    assert.deepEqual(dryRun.operations.filter((op) => op.kind === "child").map((op) => op.issueId), ["001", "002"]);
+    assert.deepEqual(
+      dryRun.operations.map((op) => op.kind),
+      ["parent", "child", "child"],
+    );
+    assert.deepEqual(
+      dryRun.operations.filter((op) => op.kind === "child").map((op) => op.issueId),
+      ["001", "002"],
+    );
     assert.equal(fs.existsSync(path.join(approvedTracker.paths.issuesDir, "created", "001.json")), false);
 
     const created = v2.createTrackerIssues(approvedTracker, { archiveDrafts: true });
@@ -731,10 +837,7 @@ This keeps the queue DAG intact while crossing tracker refs and issue metadata.
       rawInput: "smoke execution blocked workflow",
     });
     writeCompletePlanningArtifacts(executionBlockedWorkflow, { sourceNotes: true });
-    assert.throws(
-      () => v2.claimNextExecutionIssue(executionBlockedWorkflow),
-      /before-execution approval/i,
-    );
+    assert.throws(() => v2.claimNextExecutionIssue(executionBlockedWorkflow), /before-execution approval/i);
   } finally {
     fs.rmSync(executionBlockedTmp, { recursive: true, force: true });
   }
@@ -881,28 +984,92 @@ This keeps the queue DAG intact while crossing tracker refs and issue metadata.
     });
     const schedulerState = makeExecutionApprovedState(schedulerWorkflow);
     writeCompletePlanningArtifacts(schedulerState);
-    fs.writeFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "002-smoke.md"), fs.readFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "001-smoke.md"), "utf8").replace("Validate one vertical workflow slice", "Validate sibling vertical workflow slice"), "utf8");
-    fs.writeFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "003-smoke.md"), fs.readFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "001-smoke.md"), "utf8").replace("Validate one vertical workflow slice", "Validate dependent vertical workflow slice"), "utf8");
-    fs.writeFileSync(schedulerState.queue.queueFile, JSON.stringify({
-      version: 2,
-      workflowId: schedulerState.workflowId,
-      status: "triaged",
-      items: [
-        { id: "001", title: "Ready P1", type: "AFK", priority: "P1", status: "queued", draft: "issues/drafts/001-smoke.md", blockedBy: [], verificationProfile: "strict" },
-        { id: "002", title: "Ready P0", type: "AFK", priority: "P0", status: "queued", draft: "issues/drafts/002-smoke.md", blockedBy: [], verificationProfile: "strict" },
-        { id: "003", title: "Dependent", type: "AFK", priority: "P0", status: "queued", draft: "issues/drafts/003-smoke.md", blockedBy: ["001"], verificationProfile: "strict" },
-        { id: "004", title: "HITL skip", type: "HITL", priority: "P0", status: "queued", draft: "issues/drafts/003-smoke.md", blockedBy: [], verificationProfile: "strict" },
-      ],
-    }, null, 2) + "\n", "utf8");
+    fs.writeFileSync(
+      path.join(schedulerState.paths.issuesDir, "drafts", "002-smoke.md"),
+      fs
+        .readFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "001-smoke.md"), "utf8")
+        .replace("Validate one vertical workflow slice", "Validate sibling vertical workflow slice"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(schedulerState.paths.issuesDir, "drafts", "003-smoke.md"),
+      fs
+        .readFileSync(path.join(schedulerState.paths.issuesDir, "drafts", "001-smoke.md"), "utf8")
+        .replace("Validate one vertical workflow slice", "Validate dependent vertical workflow slice"),
+      "utf8",
+    );
+    fs.writeFileSync(
+      schedulerState.queue.queueFile,
+      JSON.stringify(
+        {
+          version: 2,
+          workflowId: schedulerState.workflowId,
+          status: "triaged",
+          items: [
+            {
+              id: "001",
+              title: "Ready P1",
+              type: "AFK",
+              priority: "P1",
+              status: "queued",
+              draft: "issues/drafts/001-smoke.md",
+              blockedBy: [],
+              verificationProfile: "strict",
+            },
+            {
+              id: "002",
+              title: "Ready P0",
+              type: "AFK",
+              priority: "P0",
+              status: "queued",
+              draft: "issues/drafts/002-smoke.md",
+              blockedBy: [],
+              verificationProfile: "strict",
+            },
+            {
+              id: "003",
+              title: "Dependent",
+              type: "AFK",
+              priority: "P0",
+              status: "queued",
+              draft: "issues/drafts/003-smoke.md",
+              blockedBy: ["001"],
+              verificationProfile: "strict",
+            },
+            {
+              id: "004",
+              title: "HITL skip",
+              type: "HITL",
+              priority: "P0",
+              status: "queued",
+              draft: "issues/drafts/003-smoke.md",
+              blockedBy: [],
+              verificationProfile: "strict",
+            },
+          ],
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
     v2.saveWorkflowState(schedulerState);
     const round = await v2.runSchedulerRound(schedulerState, {
       concurrency: 2,
       executeIssue: async (issue) => {
         if (issue.id === "002") throw new Error("sibling failed");
-        return { status: "done", evidencePaths: [`evidence/${issue.id}.md`], branch: `autopilot/${issue.id}`, attempts: 1 };
+        return {
+          status: "done",
+          evidencePaths: [`evidence/${issue.id}.md`],
+          branch: `autopilot/${issue.id}`,
+          attempts: 1,
+        };
       },
     });
-    assert.deepEqual(round.selected.map((item) => item.id), ["002", "001"]);
+    assert.deepEqual(
+      round.selected.map((item) => item.id),
+      ["002", "001"],
+    );
     const schedulerQueue = readJson(schedulerState.queue.queueFile);
     assert.equal(schedulerQueue.items.find((item) => item.id === "001").status, "done");
     assert.equal(schedulerQueue.items.find((item) => item.id === "002").status, "blocked");
@@ -935,7 +1102,12 @@ This keeps the queue DAG intact while crossing tracker refs and issue metadata.
       lane: "planning",
       rawInput: "smoke approval workflow",
     });
-    const rejectedApproval = v2.approveGate(approvalWorkflow, "before-issues", "smoke-test", "should reject from grill");
+    const rejectedApproval = v2.approveGate(
+      approvalWorkflow,
+      "before-issues",
+      "smoke-test",
+      "should reject from grill",
+    );
     assert.equal(rejectedApproval.phase, "grill");
     assert.equal(fs.existsSync(path.join(approvalWorkflow.paths.approvalsDir, "before-issues.json")), false);
 

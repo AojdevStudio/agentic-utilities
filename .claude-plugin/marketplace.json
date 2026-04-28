@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agentic-utilities",
+  "description": "Curated Claude Code plugins from agentic-utilities — a harness-agnostic collection of skills, plugins, and extensions across pi, Claude Code, and Codex. This marketplace exposes the Claude Code plugins.",
+  "owner": {
+    "name": "Ossie Irondi"
+  },
+  "plugins": [
+    {
+      "name": "youtube-analyzer",
+      "description": "Analyze YouTube videos with content-type detection, multi-agent transcript chunking, optional GitHub repo cross-referencing for tutorials, and structured markdown output. Works in chat mode (inline) or document mode (saved to a configured output directory).",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/youtube-analyzer",
+      "category": "content-analysis",
+      "license": "MIT",
+      "keywords": ["youtube", "video-analysis", "transcript", "content-analysis", "tutorial", "knowledge-extraction"]
+    }
+  ]
+}

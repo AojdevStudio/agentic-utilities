@@ -1,0 +1,12 @@
+{
+  "name": "youtube-analyzer",
+  "version": "0.1.0",
+  "description": "Analyze YouTube videos with content-type detection, multi-agent transcript chunking, optional GitHub repo cross-referencing for tutorials, and structured markdown output. Works in chat mode (inline) or document mode (saved to a configured output directory).",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/youtube-analyzer",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": ["youtube", "video-analysis", "transcript", "content-analysis", "tutorial", "knowledge-extraction"]
+}

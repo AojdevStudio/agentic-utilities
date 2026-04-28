@@ -8,6 +8,8 @@ This repo is structured as a real Pi package: install the repo once, then Pi dis
 
 ```text
 agentic-utilities/
+├── .claude-plugin/         # Claude Code marketplace manifest
+├── claude-code/            # Claude Code plugin lane
 ├── extensions/             # Pi extensions: TypeScript modules loaded by Pi
 │   └── <name>/index.ts
 ├── skills/                 # Agent Skills: each skill owns a SKILL.md
@@ -33,9 +35,9 @@ After edits inside a running Pi session, run `/reload`.
 ## Install from Git once published
 
 ```bash
-pi install git:github.com/<user>/agentic-utilities
+pi install git:github.com/AojdevStudio/agentic-utilities
 # or pin a tag
-pi install git:github.com/<user>/agentic-utilities@v0.1.0
+pi install git:github.com/AojdevStudio/agentic-utilities@v0.1.0
 ```
 
 ## Add resources
@@ -53,6 +55,7 @@ Manual rules:
 - Skills go in `skills/<kebab-name>/SKILL.md` and must have matching `name` frontmatter.
 - Prompt templates go in `prompts/<name>.prompt.md` so docs like `README.md` are not loaded as prompts.
 - Themes go in `themes/<name>.json`.
+- Claude Code plugins go in `claude-code/plugins/<name>/` and must be listed in `.claude-plugin/marketplace.json`.
 - Runtime npm dependencies used by extensions belong in `dependencies`.
 - Pi core packages belong in `peerDependencies`: `@mariozechner/pi-coding-agent`, `@mariozechner/pi-ai`, `@mariozechner/pi-tui`, `typebox`.
 

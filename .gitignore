@@ -12,5 +12,15 @@ pnpm-debug.log*
 .pi/npm/
 .pi/git/
 
+# Local harness state
+.claude/
+.pi/autopilot/issues/
+.pi/autopilot/locks/
+.pi/autopilot/logs/
+.pi/autopilot/prds/
+.pi/autopilot/runs/
+.pi/autopilot/status/
+.pi/autopilot/workflows/
+
 # opensrc - source code for packages
 opensrc/

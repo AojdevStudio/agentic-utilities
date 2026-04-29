@@ -38,16 +38,16 @@ repo_explored: {true|false}
 
 ---
 
-## Production Checklist (Telos-Compatible)
+## Production Checklist
 
 Append at the bottom of output when "Production Checklist" was selected in Phase 2:
 
 ```markdown
 ---
 
-## Suggested Telos Entries
+## Suggested Tracker Entries
 
-> These items are formatted for easy copy into Telos. They are NOT auto-created.
+> These items are formatted for easy copy into your task tracker. They are NOT auto-created.
 
 ### Setup & Configuration
 - [ ] `[setup]` Install {package} v{version} -- {brief context from video}

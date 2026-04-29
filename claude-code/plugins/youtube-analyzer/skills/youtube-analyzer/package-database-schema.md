@@ -337,7 +337,7 @@ If identical -> CURRENT
 
 ### Production Checklist Integration
 
-For HIGH warnings, add to the Telos Entries section:
+For HIGH warnings, add to the Tracker Entries section:
 
 ```markdown
 - [ ] `[production]` Upgrade {package} from v{mentioned} to v{latest} -- {migration notes}

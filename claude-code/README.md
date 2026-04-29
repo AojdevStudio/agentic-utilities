@@ -71,7 +71,7 @@ flowchart LR
 ```
 
 1. Scaffold the plugin under `plugins/<plugin-name>/` — `/plugin-dev:create-plugin` works, or copy the layout from an existing plugin.
-2. Write the SKILL.md, workflows, and scripts. **Audit for personal paths** — replace `${PAI_DIR}` and `/Users/...` references with `${CLAUDE_PLUGIN_ROOT}` (for plugin-internal paths) or `AskUserQuestion` prompts (for user-specific data like vault locations).
+2. Write the SKILL.md, workflows, and scripts. **Audit for personal paths** — replace any local-installation paths (`/Users/...`, harness-specific env vars, `~/.claude/...` references) with `${CLAUDE_PLUGIN_ROOT}` (for plugin-internal paths) or `AskUserQuestion` prompts (for user-specific data like vault locations).
 3. Add a marketplace entry to `../.claude-plugin/marketplace.json#/plugins[]`:
 
    ```json

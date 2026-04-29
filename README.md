@@ -59,6 +59,13 @@ Manual rules:
 - Runtime npm dependencies used by extensions belong in `dependencies`.
 - Pi core packages belong in `peerDependencies`: `@mariozechner/pi-coding-agent`, `@mariozechner/pi-ai`, `@mariozechner/pi-tui`, `typebox`.
 
+## Project docs
+
+- [`docs/autopilot.md`](docs/autopilot.md) — `/autopilot` command reference and common v2 flow.
+- [`docs/catalog.md`](docs/catalog.md) — package resource inventory.
+- [`docs/conventions.md`](docs/conventions.md) — repo conventions for extensions, skills, prompts, themes, and Claude Code plugins.
+- [`docs/publishing.md`](docs/publishing.md) — publishing notes.
+
 ## Verify
 
 ```bash

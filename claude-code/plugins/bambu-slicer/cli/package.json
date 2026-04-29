@@ -1,0 +1,16 @@
+{
+  "name": "bambu-slicer-cli",
+  "version": "0.1.0",
+  "description": "TypeScript CLI for slicing STL files with OrcaSlicer using patched Bambu Studio profiles. Bundled with the bambu-slicer Claude Code plugin.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

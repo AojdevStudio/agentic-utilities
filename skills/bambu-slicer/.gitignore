@@ -1,0 +1,21 @@
+# Local/private config
+.bambu-slicer.local.md
+*.local.md
+.env
+.env.*
+!.env.example
+
+# Bun / Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Slicer artifacts and working files
+*.3mf
+*.gcode
+*.stl
+*.step
+*.stp
+.bambu-tmp/
+downloads/
+outputs/

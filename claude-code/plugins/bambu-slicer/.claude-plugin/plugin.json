@@ -1,0 +1,12 @@
+{
+  "name": "bambu-slicer",
+  "version": "0.1.0",
+  "description": "Unified 3D printing pipeline for Bambu Lab printers — design (OpenSCAD MCP), browse (MakerWorld), slice STL→3MF (OrcaSlicer-backed CLI), arrange multi-object plates, and printer control via Bambu MCP. Bundles a TypeScript slicing CLI with patched OrcaSlicer profile handling.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/bambu-slicer",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": ["3d-printing", "bambu-lab", "orcaslicer", "slicer", "stl", "3mf", "makerworld", "openscad", "gridfinity"]
+}

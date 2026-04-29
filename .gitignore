@@ -24,3 +24,11 @@ pnpm-debug.log*
 
 # opensrc - source code for packages
 opensrc/
+
+# Port-history docs — these tend to leak private skill/path/infra names while
+# describing what was scrubbed. Use the PR description or a private note instead.
+CHANGES.md
+**/CHANGES.md
+
+# Personal terms list for gitleaks — never commit. See .gitleaks.local.toml.example.
+.gitleaks.local.toml

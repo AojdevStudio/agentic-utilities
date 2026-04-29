@@ -1,0 +1,32 @@
+# Personal-terms list for gitleaks. Each contributor maintains their own.
+#
+# Copy this file to `.gitleaks.local.toml` (gitignored) and add your private
+# skill names, repo names, agent names, internal project codenames — anything
+# that should never ship into the public marketplace repo even if it looks
+# innocent in markdown.
+#
+# The pre-commit hook runs this config as a second pass after `.gitleaks.toml`.
+# CI does NOT see this file — it's local-only by design.
+#
+# Why this is separate: putting your specific term list in a tracked file
+# would itself be a leak (the list is metadata about your private ecosystem).
+# Keeping it local-only means each contributor protects what's private to
+# them without exposing it to the public repo.
+
+title = "Personal terms — local only"
+
+# Don't extend gitleaks defaults here; the tracked config already does that.
+
+# Example rule (replace with your real terms):
+#
+# [[rules]]
+# id = "private-skill-names"
+# description = "Internal skill / agent / repo names that shouldn't ship publicly"
+# regex = '''\b(YourPrivateSkill|YourInternalAgent|YourCodename)\b'''
+# tags = ["pii", "personal"]
+#
+# [[rules]]
+# id = "private-env-vars"
+# description = "Personal-installation env vars"
+# regex = '''\$\{?(MY_FRAMEWORK_DIR|VAULT_PATH)\}?'''
+# tags = ["pii", "env"]

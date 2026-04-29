@@ -1,0 +1,67 @@
+# gitleaks config — secret + PII scan for the agentic-utilities marketplace repo.
+#
+# This file holds the *structural* patterns we always block: things that look
+# like personal data regardless of who the contributor is (home paths, RFC1918
+# IPs, hardware serials, localhost ports). Default gitleaks rules also apply,
+# so credential families (AWS keys, GitHub tokens, etc.) are caught for free.
+#
+# Contributor-specific personal-term lists live in `.gitleaks.local.toml`,
+# which is gitignored. The pre-commit hook runs both configs in sequence.
+#
+# Tested with: gitleaks 8.30.
+
+title = "agentic-utilities — secret + PII gate"
+
+# Pull in gitleaks' built-in credential rules.
+[extend]
+useDefault = true
+
+# ---- Custom structural rules ------------------------------------------------
+
+[[rules]]
+id = "macos-home-path"
+description = "Personal macOS home directory path leaks contributor identity"
+regex = '''/Users/[a-z][a-z0-9._-]+/'''
+tags = ["pii", "path"]
+
+[[rules]]
+id = "rfc1918-ipv4"
+description = "Private IPv4 address (homelab/LAN). Use a generic example or env var."
+regex = '''\b(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b'''
+tags = ["pii", "network"]
+
+[[rules]]
+id = "localhost-port"
+description = "Hardcoded localhost port — usually a personal-infra service"
+regex = '''\blocalhost:\d{2,5}\b'''
+tags = ["pii", "network"]
+
+[[rules]]
+id = "bambu-printer-serial-family"
+description = "Bambu Lab P2S printer serial number family"
+regex = '''\b22E8AJ[A-Z0-9]+\b'''
+tags = ["pii", "hardware"]
+
+# ---- Allowlist --------------------------------------------------------------
+
+[allowlist]
+description = "Documented generic examples and third-party source mirrors"
+
+# Files where generic examples are intentional.
+paths = [
+  '''(^|/)opensrc/''',          # Third-party source mirrors
+  '''(^|/)node_modules/''',
+  '''(^|/)\.gitleaks\.toml$''', # This file (regex literals would self-match)
+  '''(^|/)\.gitleaks\.local\.toml(\.example)?$''',
+  '''(^|/)\.github/workflows/[^/]+\.ya?ml$''',  # CI configs may reference 192.168.x.x in matrix
+]
+
+# Specific generic example values used in documentation.
+regexes = [
+  '''192\.168\.1\.50''',  # Generic example IP used in plugin READMEs
+  '''localhost:3000''',   # Common dev-server port, ubiquitous in examples
+  '''localhost:8080''',
+  '''localhost:5173''',   # Vite default
+  # Placeholder usernames in /Users/ paths — clearly not real PII.
+  '''/Users/(you|me|user|username|name|<[^>]+>)/''',
+]

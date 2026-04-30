@@ -1,0 +1,79 @@
+{
+  "name": "agentic-utilities",
+  "version": "0.1.0",
+  "description": "Personal Pi package for sharing and preserving Pi extensions, agent skills, prompts, and themes.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "agent-skills",
+    "agentic-utilities"
+  ],
+  "files": [
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "docs",
+    "extensions",
+    "prompts",
+    "rules",
+    "scripts",
+    "skills",
+    "themes"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/*.ts",
+      "./extensions/*/index.ts"
+    ],
+    "skills": [
+      "./skills/**/SKILL.md"
+    ],
+    "prompts": [
+      "./prompts/*.prompt.md"
+    ],
+    "themes": [
+      "./themes/*.json"
+    ]
+  },
+  "scripts": {
+    "check": "npm run lint && npm run typecheck && npm test && node scripts/list-resources.mjs",
+    "list": "node scripts/list-resources.mjs",
+    "new:extension": "node scripts/new-extension.mjs",
+    "new:skill": "node scripts/new-skill.mjs",
+    "pack:dry": "npm pack --dry-run",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome check --write .",
+    "prepare": "husky",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "@mariozechner/jiti": "2.6.5",
+    "@mariozechner/pi-ai": "latest",
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-tui": "latest",
+    "@types/node": "latest",
+    "husky": "9.1.7",
+    "lint-staged": "16.4.0",
+    "typebox": "latest",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
+  }
+}

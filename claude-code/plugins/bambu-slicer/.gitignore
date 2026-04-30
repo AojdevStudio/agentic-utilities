@@ -1,0 +1,12 @@
+# Per-user / per-project plugin config (never commit credentials or paths)
+.claude/*.local.md
+
+# Bun / Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Slicer artifacts and working directories
+*.3mf
+*.gcode
+.bambu-tmp/

@@ -1,0 +1,18 @@
+version: 2
+profiles:
+  normal:
+    required:
+      - id: git-diff-check
+        type: command
+        run: git diff --check
+  strict:
+    required:
+      - id: git-diff-check
+        type: command
+        run: git diff --check
+  conservative:
+    required:
+      - id: git-diff-check
+        type: command
+        run: git diff --check
+overrides: []

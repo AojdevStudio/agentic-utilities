@@ -1,0 +1,14 @@
+set -eu
+
+# Secret + PII scan. Structural rules are in .gitleaks.toml (tracked). Optional
+# personal-term rules in .gitleaks.local.toml (gitignored, per-contributor).
+# This gate is intentional — see AGENTS.md "Secret + PII gate". Do not bypass
+# with --no-verify; fix the finding or add a justified allowlist entry.
+gitleaks protect --staged --redact --no-banner --config=.gitleaks.toml
+if [ -f .gitleaks.local.toml ]; then
+  gitleaks protect --staged --redact --no-banner --config=.gitleaks.local.toml
+fi
+
+npm exec lint-staged
+npm run typecheck
+npm test

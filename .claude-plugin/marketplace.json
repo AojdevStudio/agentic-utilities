@@ -1,0 +1,44 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agentic-utilities",
+  "description": "Curated Claude Code plugins from agentic-utilities — a harness-agnostic collection of skills, plugins, and extensions across pi, Claude Code, and Codex. This marketplace exposes the Claude Code plugins.",
+  "owner": {
+    "name": "Ossie Irondi"
+  },
+  "plugins": [
+    {
+      "name": "youtube-analyzer",
+      "description": "Analyze YouTube videos with content-type detection, multi-agent transcript chunking, optional GitHub repo cross-referencing for tutorials, and structured markdown output. Works in chat mode (inline) or document mode (saved to a configured output directory).",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/youtube-analyzer",
+      "category": "content-analysis",
+      "license": "MIT",
+      "keywords": ["youtube", "video-analysis", "transcript", "content-analysis", "tutorial", "knowledge-extraction"]
+    },
+    {
+      "name": "bambu-slicer",
+      "description": "Unified 3D printing pipeline for Bambu Lab printers — design (OpenSCAD MCP), browse (MakerWorld), slice STL→3MF (OrcaSlicer-backed CLI), arrange multi-object plates, and printer control via Bambu MCP. Bundles a TypeScript slicing CLI with patched OrcaSlicer profile handling.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/bambu-slicer",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "3d-printing",
+        "bambu-lab",
+        "orcaslicer",
+        "slicer",
+        "stl",
+        "3mf",
+        "makerworld",
+        "openscad",
+        "gridfinity"
+      ]
+    }
+  ]
+}

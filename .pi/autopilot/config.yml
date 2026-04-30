@@ -1,0 +1,30 @@
+enabled: true
+source_priority: [plan, github, linear]
+verification_profile: normal
+allow_paths:
+  - AGENTS.md
+  - README.md
+  - CHANGELOG.md
+  - docs/**
+  - extensions/**
+  - prompts/**
+  - rules/**
+  - scripts/**
+  - skills/**
+  - themes/**
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - biome.json
+  - .github/**
+  - .coderabbit.yaml
+  - claude-code/**
+  - .claude-plugin/**
+deny_paths:
+  - node_modules/**
+  - opensrc/**
+  - .pi/autopilot/workflows/**
+  - .pi/autopilot/runs/**
+  - .pi/autopilot/logs/**
+  - .pi/autopilot/locks/**
+  - .pi/autopilot/status/**

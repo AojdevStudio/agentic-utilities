@@ -1,6 +1,11 @@
-# Audit Prompt Template
+# Audit Checklist / Delegation Prompt
 
-Use this as the audit checklist or as a prompt for a separate exploration agent when the host supports one. Replace the `{{...}}` placeholders before using it.
+Use this directly as the audit checklist. Paths in this file are relative to the skill root (`skills/harness-audit/`), not to the `references/` directory. When delegating to a separate exploration agent, first replace every `{{...}}` placeholder with concrete repo values; do not send unresolved placeholders to another agent.
+
+Placeholder sources:
+- `{{STACK}}`, `{{PACKAGE_MANAGER}}`, `{{REPO_PATH}}`, and `{{REPO_CONTEXT}}` come from stack detection and initial repo inspection.
+- `{{LINT_CONFIG_PATHS}}`, `{{TEST_RUNNER}}`, and `{{STACK_SPECIFIC_BONUS_SIGNALS}}` come from the matching stack reference.
+- `{{LINT_CMD}}` for fix templates must be derived from package scripts, Makefile targets, or the matching stack reference; if no lint command exists, report that as the gap instead of inventing one.
 
 ---
 
@@ -61,6 +66,22 @@ Concentration check: 5-10 deep skills > 50 shallow ones. Flag sprawl.
 ## 8. Garbage collection cadence
 This is hard to detect from code alone. Look for: weekly review docs, `CHANGELOG.md` with structured entries, `docs/` folder with retros/postmortems, `.github/ISSUE_TEMPLATE/` for "agent slop" or similar, `docs/decisions/` ADRs. Note any signal that PR feedback gets converted into rules/lints over time.
 
+# Symphony readiness overlay
+
+When the requested mode is `symphony-readiness` or `audit+fix:symphony`, also use `references/symphony-readiness.md` and score the repo on:
+
+1. `WORKFLOW.md` contract
+2. Disposable workspace bootstrap
+3. One-command validate loop
+4. Agent-visible app validation
+5. Evidence protocol
+6. Ticket/PR lifecycle skill
+7. Agent-readable observability
+8. Safety, secrets, and workspace policy
+9. Smoke-ticket eval
+
+This overlay answers whether an unattended ticket-level orchestrator can safely run agents in this repo. Do not treat good docs/tests as sufficient if there is no disposable bootstrap, evidence path, or smoke-ticket proof.
+
 # Bonus signals to capture
 
 `{{STACK_SPECIFIC_BONUS_SIGNALS}}` — read the matching `references/stack-{{STACK}}.md` for stack-specific things to look for here.
@@ -87,4 +108,15 @@ What's already well-set-up that should be preserved.
 ## Stack-specific observations
 Toolchain caveats agents need to know (Swift project file conflicts, Bun gotchas, Python venv conventions, etc.).
 
-Keep total report under ~1500 words. Be ruthless — gaps not present, but no padding.
+For Symphony modes, also include:
+
+## Symphony readiness overlay
+9-item scorecard with evidence and gaps.
+
+## Symphony readiness verdict
+Ready / Close / Not ready.
+
+## Minimum blockers before unattended orchestration
+The smallest set of fixes needed before a scheduler can run agents unattended.
+
+Keep baseline reports under ~1500 words. Keep Symphony reports under ~2200 words unless depth is requested. Be ruthless — gaps not present, but no padding.

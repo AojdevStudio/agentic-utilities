@@ -64,7 +64,9 @@ esac
 
 ## Pre-commit pattern
 
-`.git/hooks/pre-commit`:
+Do not rely on committing `.git/hooks/` directly; it is not version-controlled. Put the hook in `scripts/git-hooks/pre-commit` and add `make install-hooks` or an equivalent installer that symlinks/copies it into `.git/hooks/pre-commit`.
+
+`scripts/git-hooks/pre-commit`:
 ```sh
 #!/usr/bin/env bash
 set -euo pipefail
@@ -81,9 +83,20 @@ fi
 # xcodebuild build -project MyApp.xcodeproj -scheme MyApp -quiet
 ```
 
-`chmod +x .git/hooks/pre-commit` after creating.
+Example installer:
 
-For team-wide enforcement (since `.git/hooks/` isn't tracked), put the script in `scripts/git-hooks/pre-commit` and add a `make install-hooks` target that symlinks them.
+```make
+install-hooks:
+	mkdir -p .git/hooks
+	chmod +x scripts/git-hooks/pre-commit
+	@if [ -e .git/hooks/pre-commit ] && [ ! -L .git/hooks/pre-commit ]; then \
+		echo ".git/hooks/pre-commit exists and is not a symlink; refusing to overwrite"; \
+		exit 1; \
+	fi
+	ln -sf ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
+```
+
+Run `make install-hooks` after cloning.
 
 ## CI pattern (GitHub Actions, macOS)
 

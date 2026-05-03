@@ -10,8 +10,7 @@ Repo: `{{REPO_PATH}}` ({{STACK}}, package manager: {{PKG_MGR}})
 Constraints from the repo operator docs:
 - Surgical fixes only — no refactors of unrelated code
 - Functional verification required — run the change and show output
-- Do not commit or push unless explicitly requested
-- Do not post to external systems unless explicitly requested
+- **Do not commit, push, open PRs, post comments, or call external systems unless explicitly requested.**
 - No emojis in committed files unless repo already uses them
 - kebab-case for new filenames
 
@@ -45,7 +44,7 @@ If the repo has a stale section saying "no commands yet" but commands DO exist, 
 
 After writing, ask: "is this lean enough to be useful at cold-start?" If >250 lines, cut.
 
-Verify: read it back end-to-end, then have the user agent (you, simulating cold-start) try to run the test command using only the brief. If you can't, the brief failed.
+Verify: read it back end-to-end, then ignore surrounding conversation context and try to run the documented test command using only the brief. If you can't, the brief failed.
 ```
 
 ---
@@ -75,6 +74,8 @@ Each file:
 
 After extracting, leave a 1-line pointer in the original location:
 > See `rules/naming-conventions.md` for naming standards.
+
+Preserve surrounding rationale when it is specific and useful. Move only the enforceable rule content; do not erase narrative context that explains why the rule exists unless that rationale moves into the new rule file.
 
 Update AGENTS.md to point to `rules/` in the "Where rules live" section.
 
@@ -128,19 +129,21 @@ Universal requirements:
 - Auto-fixable issues (formatting) get applied + restaged automatically
 
 Verification steps (REQUIRED):
-1. Stage a file with an intentional lint violation. Run the hook command directly (`pre-commit run`, `npx lint-staged`, `.git/hooks/pre-commit`, etc.). Show that it blocks or fixes.
-2. Stage a file with a type error. Run the hook command directly. Show that it blocks.
-3. Revert the test changes.
-4. Show the actual hook output for both cases.
+1. Prefer a scratch worktree or temporary branch so verification does not mutate the user's active index.
+2. Stage a file with an intentional lint violation. Run the hook command directly (`pre-commit run`, `npx lint-staged`, `.git/hooks/pre-commit`, etc.). Show that it blocks or fixes.
+3. Stage a file with a type error. Run the hook command directly. Show that it blocks.
+4. Revert the test changes and restore the original branch/index.
+5. Show the actual hook output for both cases.
 
 Only run a real `git commit` when the user explicitly requested commit-based verification.
 
 Don't claim done until you've shown evidence.
 
-For Node/TS: bun add -D husky lint-staged, husky init, configure lint-staged in package.json.
-For Swift: native `.git/hooks/pre-commit` shell script with swiftlint.
+For Node/TS: `bun add -D husky lint-staged`, `bunx husky init`, configure lint-staged in package.json.
+For Swift: tracked `scripts/git-hooks/pre-commit` plus `make install-hooks`/installer that symlinks into `.git/hooks/`; do not rely on committing `.git/hooks/` directly.
 For Python: `pre-commit install` after writing `.pre-commit-config.yaml`.
-For Rust: native `.git/hooks/pre-commit` running `cargo fmt --check` and `cargo clippy`.
+For Rust: tracked `scripts/git-hooks/pre-commit` plus `make install-hooks`/installer running `cargo fmt --check` and `cargo clippy`; do not rely on committing `.git/hooks/` directly.
+For Go: tracked hook installer or pre-commit framework running `gofmt`, `go vet`, and `golangci-lint` when present.
 
 If commits were explicitly requested, use commit message: `chore: add pre-commit hook running {tools}`. Match repo conventions.
 ```
@@ -208,7 +211,7 @@ Path A is simpler if CodeRabbit is acceptable. Path B is better if Ossie wants p
 
 Default: Path A unless audit found Ossie already runs CodeRabbit elsewhere and is dissatisfied.
 
-Verify: open a draft PR with an intentional issue (a TODO, a console.log) and confirm the review fires within 5 min.
+Verify: validate config syntax and file placement locally. Treat CodeRabbit GitHub App installation as a hard gate: verify it is installed for the repo/org, or print a clear `App not installed — config is dormant` warning and leave PR review automation as partial. Only open a draft PR with an intentional issue when the user explicitly authorizes external GitHub-side verification; otherwise document the exact manual verification command/steps.
 ```
 
 ---
@@ -255,7 +258,7 @@ Use when: artifact #8 is ❌ Missing.
 ```
 Set up a "garbage collection day" ritual converting agent/PR feedback into permanent rules. Two pieces:
 
-1. **Schedule** — If a scheduling tool is available and the user explicitly wants automation, create a recurring routine (Friday 14:00 local) that:
+1. **Schedule** — If a scheduling tool is available and the user explicitly wants automation, ask for or use the repo's documented cadence. If unspecified, document a manual weekly cadence instead of hardcoding a time. The routine should:
    - Pulls the week's PR review comments
    - Pulls any "agent slop" issues / labels
    - Drafts proposed rule additions or lint changes
@@ -275,6 +278,208 @@ Verify: for automated cadence, trigger a manual run and confirm it produces outp
 
 ---
 
+## `add-workflow-contract`
+
+Use when: Symphony overlay #1 is ❌ Missing or ⚠️ Partial.
+
+```
+Seed or improve a repo-local `WORKFLOW.md` using `references/workflow-template.md`.
+
+Rules:
+- Use obvious placeholders for tracker slug, repo URL, and credentials.
+- Do not paste real tokens or personal local paths.
+- Match the repo's real validation/bootstrap commands when they exist.
+- If commands do not exist yet, point to the scripts this fix also creates or mark the placeholder clearly.
+- Include state semantics for Todo, In Progress, Human Review, Rework, Merging, and terminal states, adjusted to the repo's tracker workflow.
+- Include explicit handoff criteria and evidence requirements.
+
+Verify: parse the YAML front matter manually or with an available YAML parser; confirm no secrets are present; confirm referenced scripts exist or are marked TODO placeholders.
+```
+
+---
+
+## `add-disposable-bootstrap`
+
+Use when: Symphony overlay #2 is ❌ Missing or ⚠️ Partial.
+
+```
+Add a minimal disposable bootstrap path such as `scripts/bootstrap.sh` and, when useful, `scripts/verify-ready.sh`.
+
+Requirements:
+- strict shell mode (`set -euo pipefail`)
+- install dependencies using the repo's package manager
+- document required env vars through `.env.example` or AGENTS.md
+- avoid machine-specific absolute paths
+- avoid destructive cleanup outside the current repo/workspace
+- be safe to run in a freshly cloned workspace
+
+Verify in a temporary directory when cheap. If full install is too expensive, run syntax checks and the cheapest dry-run available, then state exactly what was not executed.
+```
+
+---
+
+## `add-evidence-protocol`
+
+Use when: Symphony overlay #5 is ❌ Missing or ⚠️ Partial.
+
+```
+Add `docs/agent-evidence.md` or an equivalent section using `references/evidence-protocol.md`.
+
+Then wire it into AGENTS.md / repo skills / WORKFLOW.md so agents actually read it.
+
+Must define:
+- evidence by change type
+- required reproduction signal
+- validation command transcript expectations
+- screenshot/video/log expectations for UI/runtime work
+- where evidence should be attached or stored
+- what not to claim without proof
+
+Verify: ensure the cold-start brief or workflow points to the evidence doc.
+```
+
+---
+
+## `add-validate-loop`
+
+Use when: Symphony overlay #3 is ❌ Missing or ⚠️ Partial.
+
+```
+Add one stable validation command that represents the meaningful pre-handoff quality gate.
+
+Prefer the repo's existing convention:
+- `make verify`
+- `./scripts/verify.sh`
+- `pnpm verify` / `npm run verify`
+- `uv run ...`
+- `cargo test --workspace && cargo clippy ...`
+- `go test ./... && go vet ./...`
+
+The command should run, as applicable:
+- lint/format check
+- typecheck/compile
+- unit/integration tests that are safe locally
+- app smoke check when cheap and deterministic
+
+If `wrap-test-runner` already created `scripts/test.sh` or an equivalent test wrapper, extend or call that wrapper from the validate loop instead of creating a parallel, inconsistent test script.
+
+If full validation is slow, expose tiers such as `verify-fast` and `verify-full`, and document which one Symphony agents must run before handoff.
+
+Wire the command into AGENTS.md, WORKFLOW.md, and the ticket lifecycle skill.
+
+Verify: run the fastest real validation tier. If full validation is intentionally skipped due to cost, state the exact skipped command and why.
+```
+
+---
+
+## `add-app-validation`
+
+Use when: Symphony overlay #4 is ❌ Missing or ⚠️ Partial.
+
+```
+Add the smallest agent-visible app validation path for the repo.
+
+Prefer existing tools and scripts. Do not install a full browser/observability stack unless the repo already uses it.
+
+For web apps, add or document:
+- one app launch command (`scripts/launch-app.sh`, `make dev`, `pnpm dev`, etc.)
+- one browser validation path (Playwright, Cypress, agent-browser, Chrome DevTools, or existing E2E runner)
+- screenshot/video capture command if available
+- browser console/server log capture instructions
+- shutdown/cleanup command
+- deterministic seed/test user instructions when needed
+
+For service/CLI repos, adapt this to a smoke request/CLI invocation plus log capture.
+
+Wire the path into AGENTS.md, the ticket lifecycle skill, or WORKFLOW.md so agents actually use it for UI/runtime changes.
+
+Verify: run the launch command when cheap and show a healthy empty-state/log output. If browser automation is not configured, document the gap explicitly instead of claiming app validation is ready.
+```
+
+---
+
+## `add-ticket-lifecycle-skill`
+
+Use when: Symphony overlay #6 is ❌ Missing or ⚠️ Partial.
+
+```
+Create a repo-scoped skill/prompt for ticket execution, preferably in the repo's existing skill system. Use `.agents/skills/ticket-lifecycle/SKILL.md` for cross-harness repos when no convention exists.
+
+Include:
+- read ticket and acceptance criteria
+- maintain one persistent workpad/comment
+- branch/worktree policy
+- plan/reproduce/implement/validate/handoff loop
+- PR creation/update policy
+- review comment sweep
+- rework policy
+- landing policy
+- blocker policy
+
+Keep it 60-120 lines. Link out to evidence, testing, and landing docs instead of embedding everything.
+
+Verify: read the skill end-to-end and ensure every linked file exists.
+```
+
+---
+
+## `add-observability-access`
+
+Use when: Symphony overlay #7 is ❌ Missing or ⚠️ Partial.
+
+```
+Document or add the smallest agent-readable observability path.
+
+Prefer:
+- `scripts/logs.sh` for local service logs
+- `scripts/ci-failure-summary.sh` for CI logs
+- browser console capture instructions for UI apps
+- metrics/traces query commands if the repo already has them
+
+Do not invent a full observability stack during a harness fix. Add the thinnest stable wrapper around existing signals.
+
+Verify: run the wrapper against existing logs or show a clear empty-state output.
+```
+
+---
+
+## `add-safety-policy`
+
+Use when: Symphony overlay #8 is ❌ Missing or ⚠️ Partial.
+
+```
+Add a short `docs/agent-safety.md` or AGENTS.md section covering:
+- secrets via env vars only
+- required `.env.example` entries
+- workspace-only editing expectation
+- destructive command policy
+- external posting/publishing policy
+- sandbox/approval posture
+- cleanup boundaries
+
+Verify: run the repo's secret scanner if present, preferably `gitleaks detect --staged` or `gitleaks detect --no-git --source <changed-path>`. If no scanner is present, document that as a remaining safety gap; then grep added files for common token names (`API_KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PRIVATE_KEY`) and confirm no values were introduced. Do not mark the secret-scan gate as complete unless an actual scanner or CI gate exists.
+```
+
+---
+
+## `add-smoke-ticket-eval`
+
+Use when: Symphony overlay #9 is ❌ Missing.
+
+```
+Add a local smoke-ticket fixture and runner based on `references/smoke-ticket-eval.md`.
+
+Prefer:
+- `docs/agent-evals/smoke-ticket.md`
+- `scripts/agent-smoke-eval.sh`
+
+The first version may be a dry-run verifier that checks the fixture, expected marker file, validation command, and evidence section shape. Do not require real tracker credentials unless the user explicitly wants live integration. If the eval is a placeholder, make it fail by default in CI or exclude it from CI with an explicit TODO; do not let a stub silently pass.
+
+Verify: prefer the dry-run path and show pass/fail output. A live smoke-ticket eval may spawn agents, create worktrees, call external trackers, and burn tokens; run it only with explicit user approval. If it is intentionally a template, make that explicit and ensure it exits non-zero until configured.
+```
+
+---
+
 ## Execution order
 
 When running `audit+fix` mode and multiple gaps need fixing:
@@ -285,7 +490,12 @@ When running `audit+fix` mode and multiple gaps need fixing:
 
 **Sequential required (overlapping files):**
 - `setup-pre-commit` BEFORE `add-rich-lint-messages` (the second needs the first's lint config in place)
-- `wrap-test-runner` BEFORE `add-cold-start-brief` (the brief points at the script)
+- `wrap-test-runner` / `add-validate-loop` BEFORE `add-cold-start-brief` (the brief points at validation scripts)
 - `extract-rules-dir` BEFORE `add-rich-lint-messages` (lint messages point at rules)
+- `wrap-test-runner` / `add-validate-loop` / `add-disposable-bootstrap` BEFORE `add-workflow-contract` (workflow hooks should reference real commands)
+- `add-evidence-protocol` BEFORE `add-ticket-lifecycle-skill` (ticket skill should link to evidence rules)
+- `add-app-validation` BEFORE `add-ticket-lifecycle-skill` when ticket skill references UI/runtime proof
+- `add-ticket-lifecycle-skill` BEFORE `add-workflow-contract` when the workflow prompt references repo skills
+- `add-smoke-ticket-eval` AFTER validation/bootstrap scripts exist
 
 When in doubt, sequential. Wrong parallelization causes conflicts; wrong sequencing only costs time.

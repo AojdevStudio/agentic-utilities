@@ -1,0 +1,12 @@
+{
+  "name": "ask-codex",
+  "version": "0.1.0",
+  "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/ask-codex",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": ["codex", "openai", "code-analysis", "refactoring", "cli-integration", "external-services"]
+}

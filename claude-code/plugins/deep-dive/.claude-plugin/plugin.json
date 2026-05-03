@@ -1,0 +1,12 @@
+{
+  "name": "deep-dive",
+  "version": "0.1.0",
+  "description": "Opinionated, actionable analysis on any topic. Delivers ONE clear recommendation grounded in the user's actual stack — not a menu of options. Auto-detects topic category (operational, architecture, strategy, security, workflow), scales to quick/standard/exhaustive depth, and pulls live docs via find-docs when available.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/deep-dive",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": ["analysis", "deep-dive", "decision-making", "advisory", "expert-opinion", "code-review"]
+}

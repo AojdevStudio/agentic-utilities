@@ -122,9 +122,36 @@ For the full quality and filament tables, read `references/profiles.md`.
 
 Output location: default to `/tmp/` for quick prints, or the user's configured output directory. Do not write generated 3MF/G-code into committed skill files.
 
-### 4. Multi-object plate arrangement
+### 4. Multi-object plate arrangement and stacking
 
-When the user has multiple STLs to print at once, combine them on one plate:
+When the user has multiple parts to print, **pick the densest packing the geometry allows** before falling back to separate plates. Three patterns, in priority order:
+
+**Pattern A — Vertical stack (parts physically on top of each other).** Use when parts have flat tops AND flat bottoms AND the upper bottom fits within the lower top. The previous part's top surface acts as the bed for the next. Right answer for repeated drawer/bin/lid/tray geometries.
+
+Bambu Studio workflow (CLI cannot do this today — it is a slicer-UI operation):
+
+1. Drag all stackable parts onto a single plate.
+2. Select all → right-click → **Merge** (formerly "Assemble"). Each object becomes a "part" of one assembly. Bambu Studio only allows Z-axis movement on parts, not standalone objects.
+3. Alt+Click (or use the object list) to select each part.
+4. Move tool → set Z to `part_height × index`. Three identical 25 mm drawers stacked: Z = 0, 25, 50.
+5. Slice as normal. The slicer treats the assembly as one tall object with correct layer transitions.
+
+Geometric requirements:
+
+- Flat top on lower part; flat bottom on upper part.
+- Upper part's footprint ⊆ lower part's top (no overhang).
+- Total stacked height ≤ printer Z range (e.g. 256 mm on the P2S).
+- Same filament across the stack.
+
+**Pattern B — Sequential print-by-object (parts side-by-side, one finishes before the next starts).** Use when parts won't vertically stack but are short enough that the head can clear already-printed neighbours. Failure-isolating: one falls off, the rest continue.
+
+Bambu Studio workflow:
+
+1. Place parts on one plate with ≥ `extruder_clearance_max_radius` (~67 mm on Bambu) XY spacing.
+2. Process settings → **Special mode** → Print Schedule: **By Object**.
+3. First-printed objects must have height < `extruder_clearance_height_to_rod` (~25 mm typical) unless they print last.
+
+**Pattern C — Multi-object same-layer plate (default, what the CLI does today).** All parts print together layer-by-layer with travel between them.
 
 ```bash
 bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" \
@@ -132,7 +159,7 @@ bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" \
   --output combined-plate.3mf
 ```
 
-The slicer auto-arranges and auto-orients all objects. Use this for batch printing. See `references/gotchas.md` for bed-margin caveats.
+The slicer auto-arranges and auto-orients all objects. See `references/gotchas.md` for bed-margin caveats and the identical-plate stacking detection rule.
 
 ### 5. Printer control with Bambu MCP
 
@@ -168,12 +195,16 @@ When the user wants to maximize a print session:
 
 ```text
 User wants to 3D print something
-├── Has specific STL file(s)?       → Slice
-├── Wants something custom?         → Design with OpenSCAD
-├── Wants to browse for a model?    → MakerWorld with agent-browser
-├── Multiple things to print?       → Multi-object plate
-├── Asking about printer state?     → Bambu MCP printer control
-└── "Print night" / batch session?  → Batch workflow
+├── Has specific STL file(s)?            → Slice
+├── Wants something custom?              → Design with OpenSCAD
+├── Wants to browse for a model?         → MakerWorld with agent-browser
+├── Multiple things to print?
+│   ├── Repeated flat-topped parts?      → Vertical stack, Pattern A (Section 4)
+│   ├── Short parts that won't stack?    → Sequential by-object, Pattern B (Section 4)
+│   └── Otherwise                        → Multi-object plate, Pattern C (Section 4)
+├── Multi-plate 3MF handed in?           → Identical-plate check (gotchas) → stack if eligible
+├── Asking about printer state?          → Bambu MCP printer control
+└── "Print night" / batch session?       → Batch workflow
 ```
 
 ## Technical notes

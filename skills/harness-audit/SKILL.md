@@ -75,7 +75,7 @@ Use this overlay when the user mentions Symphony, ticket-level orchestration, un
 
 Score the overlay separately using `references/symphony-readiness.md`:
 
-1. **`WORKFLOW.md` contract** — repo-local orchestrator contract with tracker states, workspace hooks, agent settings, and ticket lifecycle prompt.
+1. **`WORKFLOW.md` contract** — repo-local orchestrator contract with tracker states, live tracker preflight, workspace hooks, agent settings, and ticket lifecycle prompt.
 2. **Disposable workspace bootstrap** — fresh clone/workspace can install dependencies, prepare services, and clean up without hidden local state.
 3. **One-command validate loop** — stable command for the meaningful quality gate.
 4. **Agent-visible app validation** — app/browser/log/test path an agent can drive and inspect.
@@ -129,7 +129,7 @@ For Symphony modes, additionally return:
 
 - 9-item Symphony readiness overlay scorecard.
 - Symphony readiness verdict: `Ready`, `Close`, or `Not ready`.
-- Minimum blockers before unattended orchestration.
+- Minimum blockers before unattended orchestration, including missing live tracker preflight when Linear/Symphony is in scope.
 - One recommended smoke-ticket eval shape for this repo.
 
 Keep the baseline report under about 1500 words. For Symphony modes, keep the combined report under about 2200 words unless the user asks for depth. Do not pad.

@@ -14,6 +14,7 @@ Look for a repo-local `WORKFLOW.md` or equivalent orchestrator contract.
 
 Must include:
 - tracker config placeholders, not hardcoded personal secrets
+- real tracker preflight command/instructions that verify the project/key/states exist before unattended runs
 - active, review, rework, merge, and terminal state semantics
 - workspace bootstrap hooks or pointers
 - agent command / sandbox / approval posture
@@ -81,6 +82,7 @@ Strong signal: evidence is compressed for humans. Raw logs alone are weak.
 
 Look for a repo-scoped skill/prompt that covers:
 - read ticket and acceptance criteria
+- verify the tracker project exists and configured state names match the real tracker workflow before launch
 - maintain one persistent workpad/comment
 - create branch/worktree
 - open/update PR
@@ -129,7 +131,7 @@ Look for a documented or runnable eval that:
 5. verifies the handoff state/comment/PR body
 6. cleans up disposable state
 
-If no external tracker is available, a local fixture issue file is acceptable for a dry-run eval.
+If no external tracker is available, a local fixture issue file is acceptable for a dry-run eval. If Linear is the tracker, a live preflight like `bun run symphony validate WORKFLOW.md --live-tracker` must pass before scoring this as runnable against the real tracker.
 
 ## Output addendum
 

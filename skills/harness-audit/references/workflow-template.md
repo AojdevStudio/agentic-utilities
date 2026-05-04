@@ -74,6 +74,16 @@ No description provided.
 - `Merging`: follow the repo landing skill; do not bypass required merge policy.
 - Terminal states: do nothing.
 
+## Required preflight
+
+Before unattended execution, run the tracker preflight and fix every error:
+
+```bash
+bun run symphony validate WORKFLOW.md --live-tracker
+```
+
+This must verify the tracker API key, project slug, active states, terminal states, and lifecycle states against the real tracker workflow. Do not start polling if preflight fails.
+
 ## Required handoff
 
 Before moving to human review, ensure:
@@ -93,4 +103,5 @@ Before moving to human review, ensure:
 - The `after_create` hook must be safe in an empty workspace.
 - Do not hardcode personal API tokens, local absolute repo paths, or private machine names.
 - Customize `tracker.kind` and state names to the actual tracker workflow.
+- Include a live tracker preflight command for the actual orchestrator; for Symphony + Linear use `bun run symphony validate WORKFLOW.md --live-tracker`.
 - If targeting OpenAI's Elixir reference implementation, use `tracker.kind: linear` and adapt `agent_runner` to its current `codex` front-matter schema. This generic template is intentionally runner-adapter-neutral.

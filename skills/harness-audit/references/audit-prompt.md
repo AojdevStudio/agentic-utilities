@@ -80,7 +80,7 @@ When the requested mode is `symphony-readiness` or `audit+fix:symphony`, also us
 8. Safety, secrets, and workspace policy
 9. Smoke-ticket eval
 
-This overlay answers whether an unattended ticket-level orchestrator can safely run agents in this repo. Do not treat good docs/tests as sufficient if there is no disposable bootstrap, evidence path, or smoke-ticket proof.
+This overlay answers whether an unattended ticket-level orchestrator can safely run agents in this repo. Do not treat good docs/tests as sufficient if there is no disposable bootstrap, evidence path, tracker preflight, or smoke-ticket proof. For Linear workflows, verify the repo documents a live preflight command that checks the API key, project slug, and configured state names; without that, real Symphony readiness cannot be ✅.
 
 # Bonus signals to capture
 

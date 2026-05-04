@@ -21,7 +21,9 @@ Covers: Rust 1.70+, Cargo workspaces, embedded Rust, web (axum/actix), Tauri.
 
 ## Pre-commit pattern
 
-`.git/hooks/pre-commit`:
+Do not rely on committing `.git/hooks/` directly; it is not version-controlled. Put the hook in `scripts/git-hooks/pre-commit` and add `make install-hooks` or an equivalent installer that symlinks/copies it into `.git/hooks/pre-commit`.
+
+`scripts/git-hooks/pre-commit`:
 ```sh
 #!/usr/bin/env bash
 set -euo pipefail
@@ -35,6 +37,19 @@ cargo clippy --workspace --all-targets -- -D warnings
 # Tests scoped to changed crates would be ideal but cargo doesn't do incremental test selection well.
 # For small projects: cargo test --workspace
 # For large: skip tests in pre-commit, rely on pre-push or CI
+```
+
+Example installer:
+
+```make
+install-hooks:
+	mkdir -p .git/hooks
+	chmod +x scripts/git-hooks/pre-commit
+	@if [ -e .git/hooks/pre-commit ] && [ ! -L .git/hooks/pre-commit ]; then \
+		echo ".git/hooks/pre-commit exists and is not a symlink; refusing to overwrite"; \
+		exit 1; \
+	fi
+	ln -sf ../../scripts/git-hooks/pre-commit .git/hooks/pre-commit
 ```
 
 For larger workspaces (>30s `cargo build`), use `cargo nextest run` and only test the workspace member containing staged files.

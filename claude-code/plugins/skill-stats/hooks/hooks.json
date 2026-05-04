@@ -1,0 +1,17 @@
+{
+  "description": "Logs every Skill tool invocation to plugin-owned telemetry for later reporting.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun ${CLAUDE_PLUGIN_ROOT}/scripts/log-skill.ts",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

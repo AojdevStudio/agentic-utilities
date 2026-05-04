@@ -36,7 +36,8 @@ Before slicing anything, verify setup once:
 
 3. OrcaSlicer installed at the configured path. Default: `/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer`; override with `ORCA_CLI_PATH`.
 4. Bambu Studio installed. The CLI patches its profile JSONs at slice time; Bambu Studio does not need to be running, but profiles must exist on disk.
-5. Optional local config exists outside committed files, for example `.bambu-slicer.local.md` or `~/.config/bambu-slicer/local.md`, with placeholders resolved by the user. The CLI itself reads environment variables: `ORCA_CLI_PATH`, `BAMBU_PROFILE_BASE`, and `BAMBU_MACHINE_PROFILE`.
+5. Optional local config exists outside committed files, for example `.bambu-slicer.local.md` or `~/.config/bambu-slicer/local.md`, with placeholders resolved by the user. The CLI itself reads environment variables: `ORCA_CLI_PATH`, `BAMBU_PROFILE_BASE`, `BAMBU_MACHINE_PROFILE`, `BAMBU_OUTPUT_DIR`, and `BAMBU_DEFAULT_FILAMENT`.
+6. Generated print artifacts default to a temp generated-artifact directory. Set `BAMBU_OUTPUT_DIR` to the user's preferred generated-artifact directory when needed. Do **not** save generated STL/3MF/G-code files into `~/Downloads` unless the user explicitly asks for a one-off there.
 
 If any step fails, surface a clear error before attempting to slice.
 
@@ -103,16 +104,17 @@ CLI usage:
 
 ```bash
 # Single file, default settings: 0.20 mm Standard, Bambu PLA Basic
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf
+# Output defaults to a generated-artifact temp directory unless BAMBU_OUTPUT_DIR is set
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl
 
 # Custom quality
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf --quality 0.12
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --quality 0.12
 
 # Custom filament
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf --filament "Bambu PETG Basic"
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --filament "Bambu PETG Basic"
 
 # Multiple objects on one plate, space-separated
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input "box.stl cylinder.stl hook.stl" --output plate.3mf
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input "box.stl cylinder.stl hook.stl"
 
 # List available profiles
 bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --list-profiles
@@ -120,11 +122,48 @@ bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --list-profiles
 
 For the full quality and filament tables, read `references/profiles.md`.
 
-Output location: default to `/tmp/` for quick prints, or the user's configured output directory. Do not write generated 3MF/G-code into committed skill files.
+Output location: default to a generated-artifact temp directory. Use `BAMBU_OUTPUT_DIR` when the user explicitly chooses another generated-artifact directory. Do not write generated 3MF/G-code into `~/Downloads` or committed skill files.
 
-### 4. Multi-object plate arrangement
+### 3a. Filament and AMS selection
 
-When the user has multiple STLs to print at once, combine them on one plate:
+Do not treat the slicer profile color as the user's loaded filament color. Bambu/Orca profile JSONs often carry a default display color (for example orange-ish PLA), which is not an AMS inventory check.
+
+Before choosing a filament profile:
+
+1. If `bambu-printer` MCP AMS tools are available, query the printer/AMS and pick the loaded spool that matches the required material. Prefer exact material + brand (`Bambu PLA Basic`, `Bambu PETG Basic`) over color. Report the selected tray/material/color.
+2. If AMS tools are unavailable in this Pi session, preserve the source 3MF filament/material when possible. Otherwise ask the user which loaded material/profile to use before slicing multi-material or color-sensitive prints.
+3. For separable vertical stacks, require an incompatible release interface: PLA parts → PETG interface; PETG parts → PLA interface. Verify the AMS has both materials before generating a print-ready file.
+
+### 4. Multi-object plate arrangement and stacking
+
+When the user has multiple parts to print, **pick the densest packing the geometry allows** before falling back to separate plates. Three patterns, in priority order:
+
+**Pattern A — Vertical stack (parts physically on top of each other).** Use when parts have flat tops AND flat bottoms AND the upper bottom fits within the lower top. The previous part's top surface acts as the bed for the next. Right answer for repeated drawer/bin/lid/tray geometries.
+
+Bambu Studio workflow (CLI cannot do this today — it is a slicer-UI operation):
+
+1. Drag all stackable parts onto a single plate.
+2. Select all → right-click → **Merge** (formerly "Assemble"). Each object becomes a "part" of one assembly. Bambu Studio only allows Z-axis movement on parts, not standalone objects.
+3. Alt+Click (or use the object list) to select each part.
+4. Move tool → set Z to `part_height × index`. Three identical 25 mm drawers stacked: Z = 0, 25, 50.
+5. Slice as normal. The slicer treats the assembly as one tall object with correct layer transitions.
+
+Geometric requirements:
+
+- Flat top on lower part; flat bottom on upper part.
+- Upper part's footprint ⊆ lower part's top (no overhang).
+- Total stacked height ≤ printer Z range (e.g. 256 mm on the P2S).
+- Same filament across the stack.
+
+**Pattern B — Sequential print-by-object (parts side-by-side, one finishes before the next starts).** Use when parts won't vertically stack but are short enough that the head can clear already-printed neighbours. Failure-isolating: one falls off, the rest continue.
+
+Bambu Studio workflow:
+
+1. Place parts on one plate with ≥ `extruder_clearance_max_radius` (~67 mm on Bambu) XY spacing.
+2. Process settings → **Special mode** → Print Schedule: **By Object**.
+3. First-printed objects must have height < `extruder_clearance_height_to_rod` (~25 mm typical) unless they print last.
+
+**Pattern C — Multi-object same-layer plate (default, what the CLI does today).** All parts print together layer-by-layer with travel between them.
 
 ```bash
 bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" \
@@ -132,7 +171,7 @@ bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" \
   --output combined-plate.3mf
 ```
 
-The slicer auto-arranges and auto-orients all objects. Use this for batch printing. See `references/gotchas.md` for bed-margin caveats.
+The slicer auto-arranges and auto-orients all objects. See `references/gotchas.md` for bed-margin caveats and the identical-plate stacking detection rule.
 
 ### 5. Printer control with Bambu MCP
 
@@ -168,12 +207,16 @@ When the user wants to maximize a print session:
 
 ```text
 User wants to 3D print something
-├── Has specific STL file(s)?       → Slice
-├── Wants something custom?         → Design with OpenSCAD
-├── Wants to browse for a model?    → MakerWorld with agent-browser
-├── Multiple things to print?       → Multi-object plate
-├── Asking about printer state?     → Bambu MCP printer control
-└── "Print night" / batch session?  → Batch workflow
+├── Has specific STL file(s)?            → Slice
+├── Wants something custom?              → Design with OpenSCAD
+├── Wants to browse for a model?         → MakerWorld with agent-browser
+├── Multiple things to print?
+│   ├── Repeated flat-topped parts?      → Vertical stack, Pattern A (Section 4)
+│   ├── Short parts that won't stack?    → Sequential by-object, Pattern B (Section 4)
+│   └── Otherwise                        → Multi-object plate, Pattern C (Section 4)
+├── Multi-plate 3MF handed in?           → Identical-plate check (gotchas) → stack if eligible
+├── Asking about printer state?          → Bambu MCP printer control
+└── "Print night" / batch session?       → Batch workflow
 ```
 
 ## Technical notes

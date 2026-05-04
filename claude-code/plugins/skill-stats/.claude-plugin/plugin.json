@@ -1,0 +1,21 @@
+{
+  "name": "skill-stats",
+  "version": "0.1.0",
+  "description": "Telemetry-driven report on Claude Code skill usage. Bundles a PreToolUse hook that logs every Skill invocation to a plugin-owned JSONL file, plus a report generator that surfaces top-used skills, recently-active skills, dormant skills (size + last-touched), and phantom invocations. Uses ${CLAUDE_PLUGIN_DATA} for telemetry storage so it survives plugin updates and never collides with other plugins.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/skill-stats",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "telemetry",
+    "skills",
+    "claude-code",
+    "harness",
+    "introspection",
+    "infrastructure",
+    "dormancy",
+    "pruning"
+  ]
+}

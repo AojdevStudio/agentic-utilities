@@ -1,6 +1,6 @@
 # Profile Reference
 
-Default profile names used by the bundled CLI, all targeting a Bambu Lab P2S with a 0.4 mm nozzle. Override via `BAMBU_MACHINE_PROFILE` and the maps in `scripts/cli/profiles.ts` for other Bambu printers.
+Default profile names used by the bundled CLI, all targeting a Bambu Lab P2S with a 0.4 mm nozzle. Override via `BAMBU_MACHINE_PROFILE` and the maps in `scripts/cli/profiles.ts` for other Bambu printers. Generated output defaults to a temp generated-artifact directory; override with `BAMBU_OUTPUT_DIR` for a user-chosen generated-artifact directory.
 
 ## Quality profiles (`--quality`, 0.4 mm nozzle)
 
@@ -16,11 +16,15 @@ Default profile names used by the bundled CLI, all targeting a Bambu Lab P2S wit
 
 | Name | Material | Notes |
 |------|----------|-------|
-| Bambu PLA Basic | PLA (default) | General purpose |
+| Bambu PLA Basic | PLA (default, unless `BAMBU_DEFAULT_FILAMENT` is set) | General purpose. Profile color is not AMS truth. |
 | Bambu PLA Matte | PLA | Nice surface finish |
 | Bambu PETG Basic | PETG | Heat/moisture resistant |
 | Generic PLA | PLA | Third-party PLA |
 | Generic PETG | PETG | Third-party PETG |
+
+## AMS and profile color caveat
+
+The CLI loads filament *profiles*; it does not query the printer AMS by itself. The orange-ish color seen in generated 3MFs comes from Bambu/Orca profile metadata, not from a live spool lookup. When `bambu-printer` MCP AMS tools are available, query AMS first and choose the profile that matches the loaded material. When they are unavailable, preserve the source 3MF material/profile or ask the user.
 
 ## Adding new profiles
 

@@ -39,6 +39,51 @@
         "openscad",
         "gridfinity"
       ]
+    },
+    {
+      "name": "deep-dive",
+      "description": "Opinionated, actionable analysis on any topic. Delivers ONE clear recommendation grounded in the user's actual stack — not a menu of options. Auto-detects topic category (operational, architecture, strategy, security, workflow), scales to quick/standard/exhaustive depth, and pulls live docs via find-docs when available.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/deep-dive",
+      "category": "analysis",
+      "license": "MIT",
+      "keywords": ["analysis", "deep-dive", "decision-making", "advisory", "expert-opinion", "code-review"]
+    },
+    {
+      "name": "ask-codex",
+      "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control, sandbox modes, session resumption, and stderr suppression. Requires the `codex` binary on PATH.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/ask-codex",
+      "category": "analysis",
+      "license": "MIT",
+      "keywords": ["codex", "openai", "code-analysis", "refactoring", "cli-integration", "external-services"]
+    },
+    {
+      "name": "skill-stats",
+      "description": "Telemetry-driven report on Claude Code skill usage. Bundles a PreToolUse hook that logs every Skill invocation to a plugin-owned JSONL file, plus a report generator that surfaces top-used, recently-active, dormant, and phantom skills. Uses ${CLAUDE_PLUGIN_DATA} for storage so it survives plugin updates.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/skill-stats",
+      "category": "infrastructure",
+      "license": "MIT",
+      "keywords": [
+        "telemetry",
+        "skills",
+        "claude-code",
+        "harness",
+        "introspection",
+        "infrastructure",
+        "dormancy",
+        "pruning"
+      ]
     }
   ]
 }

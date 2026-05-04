@@ -36,7 +36,8 @@ Before slicing anything, verify setup once:
 
 3. OrcaSlicer installed at the configured path. Default: `/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer`; override with `ORCA_CLI_PATH`.
 4. Bambu Studio installed. The CLI patches its profile JSONs at slice time; Bambu Studio does not need to be running, but profiles must exist on disk.
-5. Optional local config exists outside committed files, for example `.bambu-slicer.local.md` or `~/.config/bambu-slicer/local.md`, with placeholders resolved by the user. The CLI itself reads environment variables: `ORCA_CLI_PATH`, `BAMBU_PROFILE_BASE`, and `BAMBU_MACHINE_PROFILE`.
+5. Optional local config exists outside committed files, for example `.bambu-slicer.local.md` or `~/.config/bambu-slicer/local.md`, with placeholders resolved by the user. The CLI itself reads environment variables: `ORCA_CLI_PATH`, `BAMBU_PROFILE_BASE`, `BAMBU_MACHINE_PROFILE`, `BAMBU_OUTPUT_DIR`, and `BAMBU_DEFAULT_FILAMENT`.
+6. Generated print artifacts default to a temp generated-artifact directory. Set `BAMBU_OUTPUT_DIR` to the user's preferred generated-artifact directory when needed. Do **not** save generated STL/3MF/G-code files into `~/Downloads` unless the user explicitly asks for a one-off there.
 
 If any step fails, surface a clear error before attempting to slice.
 
@@ -103,16 +104,17 @@ CLI usage:
 
 ```bash
 # Single file, default settings: 0.20 mm Standard, Bambu PLA Basic
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf
+# Output defaults to a generated-artifact temp directory unless BAMBU_OUTPUT_DIR is set
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl
 
 # Custom quality
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf --quality 0.12
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --quality 0.12
 
 # Custom filament
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --output model.3mf --filament "Bambu PETG Basic"
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input model.stl --filament "Bambu PETG Basic"
 
 # Multiple objects on one plate, space-separated
-bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input "box.stl cylinder.stl hook.stl" --output plate.3mf
+bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --input "box.stl cylinder.stl hook.stl"
 
 # List available profiles
 bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --list-profiles
@@ -120,7 +122,17 @@ bun run "$BAMBU_SLICER_CLI_DIR/cli.ts" --list-profiles
 
 For the full quality and filament tables, read `references/profiles.md`.
 
-Output location: default to `/tmp/` for quick prints, or the user's configured output directory. Do not write generated 3MF/G-code into committed skill files.
+Output location: default to a generated-artifact temp directory. Use `BAMBU_OUTPUT_DIR` when the user explicitly chooses another generated-artifact directory. Do not write generated 3MF/G-code into `~/Downloads` or committed skill files.
+
+### 3a. Filament and AMS selection
+
+Do not treat the slicer profile color as the user's loaded filament color. Bambu/Orca profile JSONs often carry a default display color (for example orange-ish PLA), which is not an AMS inventory check.
+
+Before choosing a filament profile:
+
+1. If `bambu-printer` MCP AMS tools are available, query the printer/AMS and pick the loaded spool that matches the required material. Prefer exact material + brand (`Bambu PLA Basic`, `Bambu PETG Basic`) over color. Report the selected tray/material/color.
+2. If AMS tools are unavailable in this Pi session, preserve the source 3MF filament/material when possible. Otherwise ask the user which loaded material/profile to use before slicing multi-material or color-sensitive prints.
+3. For separable vertical stacks, require an incompatible release interface: PLA parts → PETG interface; PETG parts → PLA interface. Verify the AMS has both materials before generating a print-ready file.
 
 ### 4. Multi-object plate arrangement and stacking
 

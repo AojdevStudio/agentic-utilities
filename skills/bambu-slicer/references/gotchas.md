@@ -46,9 +46,15 @@ Failure modes to flag before stacking:
 - Lower part has any top-surface overhang or curvature → Pattern A will not bond cleanly. Fall back to Pattern B (sequential by-object) or separate plates.
 - Upper part footprint exceeds lower top → overhang on the print, abort the stack offer.
 - Combined stack height > printer Z range → split into smaller stacks.
-- Different filaments per layer → requires AMS swap or pause-resume; not in scope for the simple stack offer.
+- Different filaments per layer → requires AMS swap or pause-resume. For separable stacks this is expected: use an incompatible release interface and verify AMS materials first.
 
 Tooling status: pre-composing a stacked STL from N inputs is a candidate CLI enhancement (`--stack-z` taking N inputs and writing a Z-offset assembly STL). Today the operation is performed in Bambu Studio's UI via Merge → Move on Z.
+
+## Separable vertical stacks need a release interface
+
+When the user asks to "stack" duplicate parts, do **not** assume same-material contact is acceptable. Same-material vertical stacks can fuse into one part. For separable PLA stacks, insert a one-layer PETG release/interface sheet at the contact plane and assign it to a PETG filament; for PETG parts, use PLA as the incompatible release material.
+
+Failure mode: same-filament Pattern A stack bonds at the flat interface. Root cause: the upper first layer is printed directly onto the previous part's top surface. Fix: make the stack an assembly with bottom part = model filament, one release layer = incompatible filament, top part = model filament, then preview the interface layer before printing. Save the generated 3MF under the configured generated-artifact output directory, not Downloads. Why it matters: "stacked" usually means batched but separable, not fused.
 
 ## Two-up plates when geometry permits
 

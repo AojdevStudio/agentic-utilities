@@ -75,5 +75,8 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
+  },
+  "overrides": {
+    "protobufjs": ">=7.5.6"
   }
 }

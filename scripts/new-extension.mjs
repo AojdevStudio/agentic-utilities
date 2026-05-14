@@ -7,7 +7,7 @@ const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 if (!name || !kebabCase.test(name)) {
   console.error("Usage: npm run new:extension -- <kebab-name> [description]");
-  console.error("Example: npm run new:extension -- dirty-repo-guard \"Warn before risky git state changes\"");
+  console.error('Example: npm run new:extension -- dirty-repo-guard "Warn before risky git state changes"');
   process.exit(1);
 }
 

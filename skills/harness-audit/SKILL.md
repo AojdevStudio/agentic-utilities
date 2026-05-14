@@ -44,7 +44,6 @@ Numeric aliases:
 | `focus:6` | `pr-review` |
 | `focus:7` | `repo-skills` |
 | `focus:8` | `gc-cadence` |
-| `focus:api-doc-policy` | `api-doc-policy` |
 | `focus:symphony-1` | `workflow-contract` |
 | `focus:symphony-2` | `workspace-bootstrap` |
 | `focus:symphony-3` | `validate-loop` |

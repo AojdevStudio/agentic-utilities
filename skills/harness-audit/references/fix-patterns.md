@@ -88,7 +88,7 @@ Do NOT duplicate rules across files — pick one home, point everywhere else.
 
 Use when: `focus:api-doc-policy` is requested, or the audit finds a repo with meaningful exported APIs but no API documentation policy, ADR, tooling, or baseline report.
 
-```
+```markdown
 Add the smallest policy/tooling surface that lets agents understand and improve public API documentation without forcing a giant one-shot docstring cleanup.
 
 Universal requirements:

@@ -9,6 +9,7 @@ Covers: Node, Deno, Bun. Most patterns assume Node + npm/pnpm/yarn or Bun.
 | Lint + format | Biome (single tool, fast) | ESLint + Prettier (more rules, more config) |
 | Test runner | Vitest (TS-native, Vite-compat) | Jest (mature), `bun test` (Bun-native), `node:test` |
 | Type checker | `tsc --noEmit` | tsgo (10× faster, experimental) |
+| API docs | TypeDoc + custom missing-docs report | `eslint-plugin-jsdoc`, API Extractor, package-specific docs |
 | Pre-commit | Husky + lint-staged | lefthook (Go-based, parallel) |
 | E2E | Playwright | Cypress |
 | Package manager | Detect from lockfile | bun.lockb / pnpm-lock.yaml / yarn.lock / package-lock.json |
@@ -27,6 +28,32 @@ Covers: Node, Deno, Bun. Most patterns assume Node + npm/pnpm/yarn or Bun.
 - `jest.config.*` or `jest` key in package.json → Jest
 - `bun test` referenced in package.json scripts → Bun native
 - `node --test` → Node native runner
+
+## API documentation policy checks
+
+For TypeScript repos with exported package APIs, check for:
+
+- `typedoc.json` or `typedoc` config in `package.json`
+- `package.json` scripts such as `docs:api`, `docs:api:check`, `docs:api:report`, or `docs:api:strict`
+- `docs/api-documentation-policy.md` or `rules/api-documentation.md`
+- `docs/adr/*api*documentation*` or `docs/decisions/*api*documentation*`
+- a generated missing-docs report, usually `docs/api-documentation-report.md`
+- optional lint support through `eslint-plugin-jsdoc` or a custom rule when the repo already uses ESLint
+
+Recommended shape for Bun/TypeScript packages:
+
+```json
+{
+  "scripts": {
+    "docs:api": "typedoc --options typedoc.json",
+    "docs:api:check": "typedoc --options typedoc.json --emit none",
+    "docs:api:report": "bun scripts/api-docs-report.ts --write docs/api-documentation-report.md",
+    "docs:api:strict": "bun scripts/api-docs-report.ts --fail-on-missing && typedoc --options typedoc.json --emit none --treatValidationWarningsAsErrors"
+  }
+}
+```
+
+Do not wire `docs:api:strict` into CI while the baseline report still has known debt. The useful first step is making the debt explicit and giving agents a contract for documenting new or changed exports.
 
 ## Pre-commit pattern (bun + Biome)
 
@@ -98,6 +125,7 @@ jobs:
 - **No `noUncheckedIndexedAccess`** — for data-heavy apps (financial, ML), this is a meaningful safety gap even with `strict: true`.
 - **Lockfile committed but ignored in CI** — `bun install` without `--frozen-lockfile` lets versions drift between dev and CI.
 - **Workspaces with no shared tsconfig** — each package has divergent compiler options, agent edits one config and breaks another.
+- **Doc coverage warning treated as mystery failure** — if CodeRabbit or CI flags missing JSDoc/TSDoc, check whether the repo has a policy, ADR, and generated backlog before asking agents to blindly edit every export.
 
 ## Custom rule patterns worth encoding
 
@@ -114,3 +142,4 @@ When auditing custom Biome / ESLint rules, recommend these patterns specifically
 - Package count
 - Path aliases / module resolution custom config
 - Tauri / Electron / Next.js / specific framework hints
+- API documentation contract (`typedoc.json`, `docs:api*` scripts, `docs/api-documentation-policy.md`, ADR/report)

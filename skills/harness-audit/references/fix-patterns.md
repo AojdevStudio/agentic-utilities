@@ -84,6 +84,49 @@ Do NOT duplicate rules across files — pick one home, point everywhere else.
 
 ---
 
+## `add-api-doc-policy`
+
+Use when: `focus:api-doc-policy` is requested, or the audit finds a repo with meaningful exported APIs but no API documentation policy, ADR, tooling, or baseline report.
+
+```
+Add the smallest policy/tooling surface that lets agents understand and improve public API documentation without forcing a giant one-shot docstring cleanup.
+
+Universal requirements:
+- Add a policy doc such as `docs/api-documentation-policy.md` or `rules/api-documentation.md`.
+- Add an ADR or decision note such as `docs/adr/0001-api-documentation-policy.md` when the repo already uses ADRs or decision docs.
+- Define what requires docs: exported package APIs, app/server entrypoints consumed by other packages, public types, config schemas, runner/tracker/workspace contracts, and error-prone lifecycle hooks.
+- Define what does not require docs: private helpers, obvious local constants, test-only fixtures, and symbols explicitly marked internal.
+- Explain the allowed internal marker for the stack, such as `@internal` for TSDoc/JSDoc.
+- Add a generated baseline report when a tool can produce one cheaply.
+- Do not wire a strict coverage gate into CI until the baseline backlog is low enough to keep CI actionable.
+
+For TypeScript/Bun repos:
+1. Add TypeDoc if it is not already present.
+2. Add `typedoc.json` using real package/app entrypoints.
+3. Add scripts shaped like:
+   - `docs:api`
+   - `docs:api:check`
+   - `docs:api:report`
+   - `docs:api:strict`
+4. If TypeDoc alone does not give a useful missing-docs backlog, add a small AST-based report script that scans exported top-level declarations and detects leading `/** ... */` comments.
+5. Add generated docs output such as `docs/api/` to `.gitignore`.
+6. Commit the baseline report, not the generated HTML/API site, unless the repo already tracks generated docs.
+
+For other stacks, adapt to the native documentation checker:
+- Python: Sphinx, pdoc, pydocstyle, interrogate, or docstring coverage tooling.
+- Swift: DocC plus SwiftLint documentation rules when useful.
+- Rust: rustdoc, `cargo doc`, and `#![deny(missing_docs)]` only after baseline debt is handled.
+- Go: godoc plus `golint`/staticcheck-style comments where the repo already uses those checks.
+
+Verification:
+- Run the report command and ensure it writes the expected baseline report.
+- Run the non-strict docs check.
+- Run the repo's typecheck/test/verify command if package config changed.
+- Run the strict docs command and treat failure as expected only when the report has known missing docs. State the exact missing count instead of claiming the repo is compliant.
+```
+
+---
+
 ## `add-rich-lint-messages`
 
 Use when: artifact #3 is ⚠️ Partial.
@@ -492,6 +535,8 @@ When running `audit+fix` mode and multiple gaps need fixing:
 - `setup-pre-commit` BEFORE `add-rich-lint-messages` (the second needs the first's lint config in place)
 - `wrap-test-runner` / `add-validate-loop` BEFORE `add-cold-start-brief` (the brief points at validation scripts)
 - `extract-rules-dir` BEFORE `add-rich-lint-messages` (lint messages point at rules)
+- `extract-rules-dir` BEFORE `add-api-doc-policy` when the API policy belongs under the rules directory
+- `add-api-doc-policy` BEFORE `setup-gc-cadence` when the GC routine should track documentation debt
 - `wrap-test-runner` / `add-validate-loop` / `add-disposable-bootstrap` BEFORE `add-workflow-contract` (workflow hooks should reference real commands)
 - `add-evidence-protocol` BEFORE `add-ticket-lifecycle-skill` (ticket skill should link to evidence rules)
 - `add-app-validation` BEFORE `add-ticket-lifecycle-skill` when ticket skill references UI/runtime proof

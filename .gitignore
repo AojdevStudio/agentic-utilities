@@ -32,3 +32,6 @@ CHANGES.md
 
 # Personal terms list for gitleaks — never commit. See .gitleaks.local.toml.example.
 .gitleaks.local.toml
+
+# Local research/reference clones — kept on disk for context, not shared.
+indydevdan/

@@ -42,6 +42,7 @@
   "scripts": {
     "check": "npm run lint && npm run typecheck && npm test && node scripts/list-resources.mjs",
     "list": "node scripts/list-resources.mjs",
+    "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
     "new:extension": "node scripts/new-extension.mjs",
     "new:skill": "node scripts/new-skill.mjs",
     "pack:dry": "npm pack --dry-run",
@@ -65,6 +66,7 @@
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-tui": "latest",
     "@types/node": "latest",
+    "@types/shell-quote": "^1.7.5",
     "husky": "9.1.7",
     "lint-staged": "16.4.0",
     "typebox": "latest",
@@ -75,6 +77,9 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
+  },
+  "dependencies": {
+    "shell-quote": "^1.8.3"
   },
   "overrides": {
     "protobufjs": ">=7.5.6"

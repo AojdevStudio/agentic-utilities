@@ -24,6 +24,8 @@
       "rules/**",
       "scripts/**",
       "skills/**",
+      "!skills/art/Tools",
+      "!skills/art/Lib",
       "themes/**",
       "!**/node_modules",
       "!**/opensrc"

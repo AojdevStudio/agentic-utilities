@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Keys that must never be copied from one object to another via dynamic
 // assignment — assigning to them invokes setters that mutate the prototype.

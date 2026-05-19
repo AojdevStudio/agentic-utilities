@@ -1,6 +1,6 @@
 ---
 name: harness-audit
-description: Audit a repository for autonomous-agent harness readiness and Symphony-style unattended ticket execution readiness across cold-start docs, rules, lint, hooks, tests, PR automation, repo skills, garbage-collection cadence, workflow contracts, evidence, observability, and smoke-ticket evals. Use for "harness audit", "agent-ready repo", "harness readiness", "make this repo agent-friendly", "Symphony readiness", "prepare this repo for Symphony", "ticket-level agent automation", or surgical fixes for top harness gaps.
+description: Audit a repository for autonomous-agent harness readiness and Symphony-style unattended ticket execution readiness across cold-start docs, rules, API documentation policy/ADRs, lint, hooks, tests, PR automation, repo skills, garbage-collection cadence, workflow contracts, evidence, observability, and smoke-ticket evals. Use for "harness audit", "agent-ready repo", "harness readiness", "make this repo agent-friendly", "API docs policy", "Symphony readiness", "prepare this repo for Symphony", "ticket-level agent automation", or surgical fixes for top harness gaps.
 ---
 
 # Harness Audit
@@ -30,7 +30,7 @@ Natural-language mapping:
 
 Tie-breaker: default to baseline modes unless the user explicitly says Symphony, ticket-level orchestration, unattended execution, scheduler, tracker workflow, or workflow contract.
 
-Accepted focus names: `cold-start-brief`, `rules-dir`, `lint-messages`, `pre-commit`, `test-suite`, `pr-review`, `repo-skills`, `gc-cadence`, `workflow-contract`, `workspace-bootstrap`, `validate-loop`, `app-validation`, `evidence-protocol`, `ticket-lifecycle`, `observability`, `safety-policy`, `smoke-ticket-eval`.
+Accepted focus names: `cold-start-brief`, `rules-dir`, `api-doc-policy`, `lint-messages`, `pre-commit`, `test-suite`, `pr-review`, `repo-skills`, `gc-cadence`, `workflow-contract`, `workspace-bootstrap`, `validate-loop`, `app-validation`, `evidence-protocol`, `ticket-lifecycle`, `observability`, `safety-policy`, `smoke-ticket-eval`.
 
 Numeric aliases:
 
@@ -61,13 +61,25 @@ When the user asks for readiness but also asks you to change files, prefer the m
 For each artifact, score `✅ Present / ⚠️ Partial / ❌ Missing` with concrete path evidence and a one-line gap.
 
 1. **Cold-start brief** — root `AGENTS.md` / `CLAUDE.md` / operator docs. Tells an agent what this is, how to build, how to test, where rules live, and gotchas. Lean, not marketing.
-2. **Rules directory** — per-domain coding standards in `rules/`, `.cursor/rules/`, `docs/rules/`, `docs/solutions/`, etc. Imperative rules with reasoning.
+2. **Rules directory** — per-domain coding standards in `rules/`, `.cursor/rules/`, `docs/rules/`, `docs/solutions/`, etc. Imperative rules with reasoning. For repos with exported APIs, this includes an API documentation policy or ADR.
 3. **Lint config with rich error messages** — ESLint / Biome / SwiftLint / ruff / clippy with custom rules whose messages explain why and how to fix.
 4. **Pre-commit hooks** — Husky / lefthook / pre-commit / native git hooks running formatters, type checks, or targeted tests before push/commit.
 5. **Test suite agents can drive** — one-liner to run tests (`npm test`, `./scripts/test.sh`, `cargo test`, etc.). Fast enough and deterministic enough for agents.
 6. **PR review automation** — CodeRabbit, AI reviewer workflows, persona reviewers, or at minimum CI that gates PRs.
 7. **Repo-scoped skills/prompts** — `.agents/skills/`, `.pi/skills/`, `.claude/skills/`, `.codex/`, `.pi/prompts/`, or package-scoped resources. Prefer 5-10 deep resources over many shallow ones.
 8. **Garbage-collection cadence** — documented recurring loop that converts agent/PR feedback into permanent rules, lints, docs, or skills.
+
+## Cross-cutting API documentation check
+
+When a repo exposes package, library, service, or app APIs that agents edit across package boundaries, inspect API documentation as a first-class harness surface:
+
+- policy: `docs/api-documentation-policy.md`, `rules/api-documentation.md`, or equivalent
+- decision record: `docs/adr/*api*documentation*`, `docs/decisions/*api*documentation*`, or equivalent
+- tooling: TypeDoc, DocC, Sphinx/pdoc, rustdoc, godoc, or stack-native equivalent
+- report/backlog: generated missing-docs report or coverage output that separates existing debt from new regressions
+- commands: one-liners such as `docs:api`, `docs:api:check`, `docs:api:report`, or a documented equivalent
+
+Treat a missing API documentation policy as a high-leverage rules/GC gap for repos with meaningful exported surfaces. Do not require full coverage before policy exists; prefer a baseline report plus a strict command that can be enabled once debt is paid down.
 
 ## Symphony readiness overlay
 
@@ -186,6 +198,7 @@ Focus/fix-template map:
 | --- | --- |
 | `cold-start-brief` | `add-cold-start-brief` |
 | `rules-dir` | `extract-rules-dir` |
+| `api-doc-policy` | `add-api-doc-policy` |
 | `lint-messages` | `add-rich-lint-messages` |
 | `pre-commit` | `setup-pre-commit` |
 | `test-suite` | `wrap-test-runner` |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { resolve } from "path";
-import { parseArgs } from "util";
+import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import { listProfiles, resolveProfiles } from "./profiles.js";
 import { runSlicer } from "./slicer.js";
 

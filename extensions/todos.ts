@@ -729,7 +729,7 @@ class TodoDetailOverlayComponent {
  */
 function getTodosDir(cwd: string): string {
   const overridePath = process.env[TODO_PATH_ENV];
-  if (overridePath && overridePath.trim()) {
+  if (overridePath?.trim()) {
     return path.resolve(cwd, overridePath.trim());
   }
   return path.resolve(cwd, TODO_DIR_NAME);
@@ -737,7 +737,7 @@ function getTodosDir(cwd: string): string {
 
 function getTodosDirLabel(cwd: string): string {
   const overridePath = process.env[TODO_PATH_ENV];
-  if (overridePath && overridePath.trim()) {
+  if (overridePath?.trim()) {
     return path.resolve(cwd, overridePath.trim());
   }
   return TODO_DIR_NAME;
@@ -1641,7 +1641,7 @@ export default function todosExtension(pi: ExtensionAPI) {
           const result = await withTodoLock(todosDir, normalizedId, ctx, async () => {
             const existing = await ensureTodoExists(filePath, normalizedId);
             if (!existing) return { error: `Todo ${displayId} not found` } as const;
-            if (!params.body || !params.body.trim()) {
+            if (!params.body?.trim()) {
               return existing;
             }
             const updated = await appendTodoBody(filePath, existing, params.body);

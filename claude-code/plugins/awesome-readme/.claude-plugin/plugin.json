@@ -1,0 +1,22 @@
+{
+  "name": "awesome-readme",
+  "version": "0.1.0",
+  "description": "Create GitHub READMEs that earn stars. Auto-classifies your project as Story-mode (real pain point + narrative arc), Utility-mode (single-purpose tool, visuals do the work), or Hybrid. Routes README visuals through the gpt-image-2 skill (ChatGPT Images 2.0 via the Codex CLI) for diagrams with ~99% text fidelity, with explicit fallback guidance when the user has a different image-gen backend.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/awesome-readme",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "readme",
+    "documentation",
+    "github",
+    "markdown",
+    "story-driven",
+    "utility-readme",
+    "gpt-image-2",
+    "diagrams",
+    "content-creation"
+  ]
+}

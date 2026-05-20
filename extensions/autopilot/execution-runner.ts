@@ -1,20 +1,18 @@
 import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type {
-  NativeRunnerConfig,
-  RunnerFailureReason,
-  WorkerCommandContext,
-  WorkerCommandResult,
-} from "./v2.ts";
+import type { NativeRunnerConfig, RunnerFailureReason, WorkerCommandContext, WorkerCommandResult } from "./v2.ts";
 import { buildWorkerCommand, defaultNativeRunnerConfig, nowIso } from "./v2.ts";
 
-export type CommandExecutor = (command: string, options: {
-  cwd: string;
-  timeoutMs: number;
-  logPath?: string;
-  env?: NodeJS.ProcessEnv;
-}) => Promise<WorkerCommandResult>;
+export type CommandExecutor = (
+  command: string,
+  options: {
+    cwd: string;
+    timeoutMs: number;
+    logPath?: string;
+    env?: NodeJS.ProcessEnv;
+  },
+) => Promise<WorkerCommandResult>;
 
 export type NativeRunnerOptions = {
   config?: Partial<NativeRunnerConfig>;
@@ -104,7 +102,10 @@ function copyRepoSnapshot(source: string, target: string): void {
 
 function normalizeStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
-  const items = value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  const items = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
   return items.length ? items : null;
 }
 
@@ -129,12 +130,15 @@ function positiveInteger(value: unknown, fallback: number): number {
   return Math.floor(numeric);
 }
 
-export async function executeShellCommand(command: string, options: {
-  cwd: string;
-  timeoutMs: number;
-  logPath?: string;
-  env?: NodeJS.ProcessEnv;
-}): Promise<WorkerCommandResult> {
+export async function executeShellCommand(
+  command: string,
+  options: {
+    cwd: string;
+    timeoutMs: number;
+    logPath?: string;
+    env?: NodeJS.ProcessEnv;
+  },
+): Promise<WorkerCommandResult> {
   const startedAt = nowIso();
   const chunks: string[] = [];
   const errChunks: string[] = [];

@@ -7,7 +7,7 @@ const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 if (!name || !kebabCase.test(name)) {
   console.error("Usage: npm run new:skill -- <kebab-name> [description]");
-  console.error("Example: npm run new:skill -- release-checklist \"Use when preparing a release.\"");
+  console.error('Example: npm run new:skill -- release-checklist "Use when preparing a release."');
   process.exit(1);
 }
 
@@ -41,11 +41,7 @@ await writeFile(
   "utf8",
 );
 
-await writeFile(
-  join(dir, "README.md"),
-  `# ${name}\n\n${description}\n`,
-  "utf8",
-);
+await writeFile(join(dir, "README.md"), `# ${name}\n\n${description}\n`, "utf8");
 
 console.log(`Created ${dir}`);
 console.log("Next: update docs/catalog.md, then run npm run list.");

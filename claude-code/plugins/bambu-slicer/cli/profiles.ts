@@ -1,5 +1,5 @@
-import { homedir } from "os";
-import { join } from "path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // Override these via env vars to support non-P2S Bambu printers.
 // Default targets a P2S with 0.4 mm nozzle on macOS.

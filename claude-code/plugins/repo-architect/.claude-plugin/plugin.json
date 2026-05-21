@@ -1,0 +1,24 @@
+{
+  "name": "repo-architect",
+  "version": "0.1.0",
+  "description": "Repository organization expert — structure, audit, and refactor via 8 framework archetypes. Bundles 4 workflow playbooks (NewProject, AuditRepo, RefactorPlan, ExecuteRefactor), a framework selection cheatsheet, health check suite, CI/CD guardrails templates, move map migration spec, and a working-tree indexer tool.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/repo-architect",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "repo",
+    "architecture",
+    "refactor",
+    "organization",
+    "framework-archetype",
+    "health-check",
+    "move-map",
+    "scaffold",
+    "module-first",
+    "monorepo",
+    "audit"
+  ]
+}

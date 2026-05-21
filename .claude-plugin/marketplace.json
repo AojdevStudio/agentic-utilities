@@ -106,6 +106,211 @@
         "diagrams",
         "content-creation"
       ]
+    },
+    {
+      "name": "adversarial-review",
+      "description": "Deep implementation review skill that sends a structured adversarial prompt to a heavyweight reviewer (codex gpt-5.5, Gemini 3 Pro, or Opus 4.7) to catch real bugs before they hit production. Returns a trinary verdict with file:line citations and a prioritized P0/P1/P2 fix list.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/adversarial-review",
+      "category": "analysis",
+      "license": "MIT",
+      "keywords": [
+        "code-review",
+        "adversarial",
+        "bug-hunting",
+        "ship-readiness",
+        "implementation-audit",
+        "codex",
+        "quality",
+        "testing"
+      ]
+    },
+    {
+      "name": "babysit-pr",
+      "description": "Babysit a PR end-to-end — push the branch, poll CI on a 3-minute cron, auto-fix red checks, address and validate PR comments, then alert or auto-merge when ready. Runs unattended until merged, closed, or cancelled.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/babysit-pr",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "gh",
+        "ci",
+        "pr",
+        "auto-merge",
+        "coderabbit",
+        "pull-request",
+        "babysit",
+        "github-actions",
+        "cron",
+        "workflow"
+      ]
+    },
+    {
+      "name": "gitworkflow",
+      "description": "Smart Git workflow engine — repo-aware Git Flow branching, CI monitoring & auto-merge, submodule handling, issue analysis/routing across coding-agent worktrees, deploy-workflow isolation, and changelog awareness. Bundles 8 workflow playbooks (Commit, Branch, Release, PullRequest, CIMerge, Submodule, IssueAnalysis, DeployWorkflow) plus a reusable issue-labeler GitHub Action template.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/gitworkflow",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "git-flow",
+        "github",
+        "pull-request",
+        "ci",
+        "auto-merge",
+        "coderabbit",
+        "submodules",
+        "release",
+        "changelog",
+        "issue-routing",
+        "workflow"
+      ]
+    },
+    {
+      "name": "gpt-image-2",
+      "description": "Generate images with GPT Image 2 inside Claude Code using your existing ChatGPT Plus or Pro subscription — no separate OpenAI API key, no per-image billing. Supports text-to-image, image-to-image editing, style transfer, and multi-reference composition via the local Codex CLI.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/gpt-image-2",
+      "category": "content-creation",
+      "license": "MIT",
+      "keywords": [
+        "image-generation",
+        "gpt-image-2",
+        "chatgpt-images",
+        "codex-cli",
+        "no-api-billing",
+        "text-to-image",
+        "image-to-image",
+        "style-transfer",
+        "openai",
+        "chatgpt"
+      ]
+    },
+    {
+      "name": "harness-audit",
+      "description": "Audit a repository for autonomous-agent harness readiness across cold-start docs, rules, API documentation policy, lint, hooks, tests, PR automation, repo skills, and garbage-collection cadence. Adds a Symphony-style unattended ticket-execution overlay: workflow contract, disposable bootstrap, validation/evidence, ticket lifecycle, observability, safety, and smoke-ticket eval. Bundles 11 reference files covering 5 stacks (TypeScript, Swift, Python, Rust, Go) plus the full Symphony readiness and fix-pattern libraries.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/harness-audit",
+      "category": "analysis",
+      "license": "MIT",
+      "keywords": [
+        "harness",
+        "audit",
+        "agent-ready",
+        "symphony-readiness",
+        "api-doc-policy",
+        "harness-engineering",
+        "autonomous-agents",
+        "fix-patterns",
+        "pre-commit",
+        "codebase-health"
+      ]
+    },
+    {
+      "name": "harness-worktrees",
+      "description": "Set up parallel git worktrees of the same repo, one per coding harness (Claude Code, Codex CLI, Cursor, etc.), so multiple AI tools can edit, typecheck, and test in parallel without trampling each other's node_modules, build artifacts, or branches. Audits shared-state hazards first, documents gotchas in CLAUDE.md/AGENTS.md, then creates durable work/<tool> branches and sibling worktrees with per-stack installs. Bundles an audit-hazards.sh script and a reset-worktree-to-main.sh script.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/harness-worktrees",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "worktree",
+        "git-worktree",
+        "parallel",
+        "multi-harness",
+        "claude-code",
+        "codex",
+        "harness",
+        "isolation",
+        "workflow"
+      ]
+    },
+    {
+      "name": "linear",
+      "description": "Linear issue management via linearis CLI — create, update, close, resolve, and plan issues with team inference, TDD-driven resolution, CI monitoring, and PR review handling. Bundles 12 workflow playbooks (CreateIssue, UpdateIssue, CloseIssue, ListIssues, ResolveIssue, PlanProject, CreateProject, ShipDaily, ManageInitiatives, ManageMilestones, MonitorCI, ReviewPR) plus a reusable GraphQL helper script.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/linear",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "linear",
+        "issues",
+        "tasks",
+        "project-management",
+        "linearis",
+        "tdd",
+        "ci",
+        "pull-request",
+        "backlog",
+        "sprint"
+      ]
+    },
+    {
+      "name": "repo-architect",
+      "description": "Repository organization expert — structure, audit, and refactor via 8 framework archetypes. Bundles 4 workflow playbooks (NewProject, AuditRepo, RefactorPlan, ExecuteRefactor), a framework selection cheatsheet, health check suite, CI/CD guardrails templates, move map migration spec, and a working-tree indexer tool.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/repo-architect",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "repo",
+        "architecture",
+        "refactor",
+        "organization",
+        "framework-archetype",
+        "health-check",
+        "move-map",
+        "scaffold",
+        "module-first",
+        "monorepo",
+        "audit"
+      ]
+    },
+    {
+      "name": "saas-standards",
+      "description": "Enforce non-negotiable SaaS application standards — signup, mandatory onboarding, route guards, database schema, backend/ORM selection, and state-management architecture. Prevents the #1 failure mode: signup flows with only email/password and zero onboarding. Bundles 4 workflow playbooks (AuditSignupFlow, ScaffoldAuth, AuditStateManagement, SelectDataLayer) plus reference docs for signup/onboarding, route guards, healthcare SaaS, data layer, and state management.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/saas-standards",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "saas",
+        "authentication",
+        "onboarding",
+        "route-guards",
+        "state-management",
+        "database",
+        "orm",
+        "standards"
+      ]
     }
   ]
 }

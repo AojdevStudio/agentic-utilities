@@ -1,0 +1,22 @@
+{
+  "name": "harness-worktrees",
+  "version": "0.1.0",
+  "description": "Set up parallel git worktrees of the same repo, one per coding harness (Claude Code, Codex CLI, Cursor, etc.), so multiple AI tools can edit, typecheck, and test in parallel without trampling each other's node_modules, build artifacts, or branches. Audits shared-state hazards first, documents gotchas in CLAUDE.md/AGENTS.md, then creates durable work/<tool> branches and sibling worktrees with per-stack installs. Bundles an audit-hazards.sh script and a reset-worktree-to-main.sh script.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/harness-worktrees",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "worktree",
+    "git-worktree",
+    "parallel",
+    "multi-harness",
+    "claude-code",
+    "codex",
+    "harness",
+    "isolation",
+    "workflow"
+  ]
+}

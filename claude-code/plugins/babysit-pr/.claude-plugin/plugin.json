@@ -1,0 +1,23 @@
+{
+  "name": "babysit-pr",
+  "version": "0.1.0",
+  "description": "Babysit a PR end-to-end — push the branch, poll CI on a 3-minute cron, auto-fix red checks, address and validate PR comments, then alert or auto-merge when ready. Runs unattended until merged, closed, or cancelled.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/babysit-pr",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "gh",
+    "ci",
+    "pr",
+    "auto-merge",
+    "coderabbit",
+    "pull-request",
+    "babysit",
+    "github-actions",
+    "cron",
+    "workflow"
+  ]
+}

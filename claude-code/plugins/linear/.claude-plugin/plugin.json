@@ -1,0 +1,23 @@
+{
+  "name": "linear",
+  "version": "0.1.0",
+  "description": "Linear issue management via linearis CLI — create, update, close, resolve, and plan issues with team inference, TDD-driven resolution, CI monitoring, and PR review handling. Bundles 12 workflow playbooks (CreateIssue, UpdateIssue, CloseIssue, ListIssues, ResolveIssue, PlanProject, CreateProject, ShipDaily, ManageInitiatives, ManageMilestones, MonitorCI, ReviewPR) plus a reusable GraphQL helper script.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/linear",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "linear",
+    "issues",
+    "tasks",
+    "project-management",
+    "linearis",
+    "tdd",
+    "ci",
+    "pull-request",
+    "backlog",
+    "sprint"
+  ]
+}

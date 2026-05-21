@@ -1,0 +1,21 @@
+{
+  "name": "saas-standards",
+  "version": "0.1.0",
+  "description": "Enforce non-negotiable SaaS application standards — signup, mandatory onboarding, route guards, database schema, backend/ORM selection, and state-management architecture. Prevents the #1 failure mode: signup flows with only email/password and zero onboarding. Bundles 4 workflow playbooks (AuditSignupFlow, ScaffoldAuth, AuditStateManagement, SelectDataLayer) plus reference docs for signup/onboarding, route guards, healthcare SaaS, data layer, and state management.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/saas-standards",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "saas",
+    "authentication",
+    "onboarding",
+    "route-guards",
+    "state-management",
+    "database",
+    "orm",
+    "standards"
+  ]
+}

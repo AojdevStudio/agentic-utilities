@@ -1,0 +1,23 @@
+{
+  "name": "gpt-image-2",
+  "version": "0.1.0",
+  "description": "Generate images with GPT Image 2 inside Claude Code using your existing ChatGPT Plus or Pro subscription — no separate OpenAI API key, no per-image billing. Supports text-to-image, image-to-image editing, style transfer, and multi-reference composition via the local Codex CLI.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/gpt-image-2",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "image-generation",
+    "gpt-image-2",
+    "chatgpt-images",
+    "codex-cli",
+    "no-api-billing",
+    "text-to-image",
+    "image-to-image",
+    "style-transfer",
+    "openai",
+    "chatgpt"
+  ]
+}

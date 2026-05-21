@@ -1,0 +1,21 @@
+{
+  "name": "adversarial-review",
+  "version": "0.1.0",
+  "description": "Deep implementation review skill that sends a structured adversarial prompt to a heavyweight reviewer (codex gpt-5.5, Gemini 3 Pro, or Opus 4.7) to catch real bugs before they hit production. Returns a trinary verdict with file:line citations and a prioritized P0/P1/P2 fix list.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/adversarial-review",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "code-review",
+    "adversarial",
+    "bug-hunting",
+    "ship-readiness",
+    "implementation-audit",
+    "codex",
+    "quality",
+    "testing"
+  ]
+}

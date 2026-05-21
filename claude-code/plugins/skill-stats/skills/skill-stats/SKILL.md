@@ -5,7 +5,7 @@ description: "Report Claude Code skill-usage telemetry — top used, recently ac
 
 # skill-stats — Usage & Dormancy Report
 
-Aggregates skill-invocation telemetry written by this plugin's bundled PreToolUse hook (`hooks/log-skill.ts`) and cross-references against the on-disk skill catalog at `~/.claude/skills/` and `~/.claude/plugins/marketplaces/`.
+Aggregates skill-invocation telemetry written by this plugin's bundled PreToolUse hook (`${CLAUDE_PLUGIN_ROOT}/scripts/log-skill.ts`) and cross-references against the on-disk skill catalog at `~/.claude/skills/` and `~/.claude/plugins/marketplaces/`.
 
 ## How it works
 

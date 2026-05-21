@@ -26,8 +26,21 @@ Keep this as the human-readable record of what lives in the package.
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
 | `critical-bug-hunt.prompt` | Prompt | `prompts/critical-bug-hunt.prompt.md` | active | Recent-commit audit prompt for high-severity correctness bugs and minimal fixes. |
-| `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
+| `adversarial-review` | Claude Code Plugin | `claude-code/plugins/adversarial-review/.claude-plugin/plugin.json` | active | Adversarial implementation review — sends a structured prompt to a heavyweight reviewer to catch real bugs, returning a trinary verdict and a P0/P1/P2 fix list. |
+| `ask-codex` | Claude Code Plugin | `claude-code/plugins/ask-codex/.claude-plugin/plugin.json` | active | OpenAI Codex CLI integration — wraps `codex exec` / `codex resume` with model, reasoning-effort, and sandbox control. |
 | `awesome-readme` | Claude Code Plugin | `claude-code/plugins/awesome-readme/.claude-plugin/plugin.json` | active | Story/Utility/Hybrid README generator. Routes diagrams through the `gpt-image-2` skill (Codex CLI + ChatGPT Plus) by default; documents Gemini-API fallback and text-only mode for users without that backend. |
+| `babysit-pr` | Claude Code Plugin | `claude-code/plugins/babysit-pr/.claude-plugin/plugin.json` | active | Babysits a PR end-to-end — pushes, polls CI, auto-fixes red checks, addresses review comments, then alerts or auto-merges. |
+| `bambu-slicer` | Claude Code Plugin | `claude-code/plugins/bambu-slicer/.claude-plugin/plugin.json` | active | Unified Bambu Lab 3D-printing pipeline — OpenSCAD design, MakerWorld browsing, OrcaSlicer CLI slicing, plate arrangement, and printer control. |
+| `deep-dive` | Claude Code Plugin | `claude-code/plugins/deep-dive/.claude-plugin/plugin.json` | active | Opinionated deep-dive analysis — one clear recommendation grounded in the user's stack, scaled to quick/standard/exhaustive depth. |
+| `gitworkflow` | Claude Code Plugin | `claude-code/plugins/gitworkflow/.claude-plugin/plugin.json` | active | Smart Git workflow engine — Git Flow branching, CI monitoring/auto-merge, submodules, and issue routing; bundles 8 workflow playbooks. |
+| `gpt-image-2` | Claude Code Plugin | `claude-code/plugins/gpt-image-2/.claude-plugin/plugin.json` | active | Generate images with GPT Image 2 via an existing ChatGPT Plus/Pro subscription through the local Codex CLI — no OpenAI API key. |
+| `harness-audit` | Claude Code Plugin | `claude-code/plugins/harness-audit/.claude-plugin/plugin.json` | active | Audits a repo for autonomous-agent harness readiness, with an optional Symphony-style unattended ticket-execution overlay. |
+| `harness-worktrees` | Claude Code Plugin | `claude-code/plugins/harness-worktrees/.claude-plugin/plugin.json` | active | Sets up parallel per-harness git worktrees so multiple AI coding tools share a repo without trampling each other. |
+| `linear` | Claude Code Plugin | `claude-code/plugins/linear/.claude-plugin/plugin.json` | active | Linear issue management via the `linearis` CLI — create/update/resolve/plan issues; bundles 12 workflow playbooks. |
+| `repo-architect` | Claude Code Plugin | `claude-code/plugins/repo-architect/.claude-plugin/plugin.json` | active | Repository organization expert — structure, audit, and refactor via 8 framework archetypes; bundles 4 workflow playbooks. |
+| `saas-standards` | Claude Code Plugin | `claude-code/plugins/saas-standards/.claude-plugin/plugin.json` | active | Enforces non-negotiable SaaS standards — signup, mandatory onboarding, route guards, schema, backend/ORM, and state management. |
+| `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report — top-used, recently-active, dormant, and phantom skills. |
+| `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
 
 ## Status labels
 

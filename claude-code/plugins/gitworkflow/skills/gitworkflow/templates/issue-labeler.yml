@@ -1,0 +1,96 @@
+# Issue Auto-Labeler
+# Drop this into .github/workflows/ and create .github/labeler-config.json
+# Triggers on issue open/edit. Deterministic keyword-based classification.
+# Structured for future AI swap-in (see inline comments).
+
+name: Issue Auto-Labeler
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # Job 1: Deterministic keyword-based classification
+  # ═══════════════════════════════════════════════════════════════════════════════
+  #
+  # To swap in AI classification later:
+  #   1. Add a new job (e.g., `ai-classify`) that runs in parallel.
+  #   2. That job calls an LLM API (OpenAI, Anthropic, etc.) with the issue
+  #      title + body + the label taxonomy from labeler-config.json.
+  #   3. The LLM returns a JSON array of suggested labels.
+  #   4. In the `apply-labels` job below, merge `needs.keyword-labels.outputs.labels`
+  #      with `needs.ai-classify.outputs.labels` before calling the GitHub API.
+  #   5. Add a `workflow_dispatch` input to toggle between keyword / AI / both.
+  #
+  keyword-labels:
+    runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.classify.outputs.labels }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Classify issue via keywords
+        id: classify
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const issue = context.payload.issue;
+            const text = `${issue.title}\n${issue.body || ''}`;
+
+            const config = JSON.parse(fs.readFileSync('.github/labeler-config.json', 'utf8'));
+            const settings = config.settings || {};
+            const wholeWord = settings.wholeWord ?? true;
+            const caseInsensitive = settings.caseInsensitive ?? true;
+            const maxLabels = settings.maxLabels ?? 3;
+
+            const scores = new Map();
+
+            for (const rule of config.labels) {
+              let score = 0;
+              for (const kw of rule.keywords) {
+                const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const pattern = wholeWord ? `\\b${escaped}\\b` : escaped;
+                const flags = caseInsensitive ? 'gi' : 'g';
+                const matches = text.match(new RegExp(pattern, flags));
+                if (matches) score += matches.length;
+              }
+              if (score > 0) scores.set(rule.name, score);
+            }
+
+            const sorted = [...scores.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, maxLabels)
+              .map(([name]) => name);
+
+            console.log('Matched labels:', sorted);
+            core.setOutput('labels', JSON.stringify(sorted));
+
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # Job 2: Apply labels to the issue
+  # ═══════════════════════════════════════════════════════════════════════════════
+  apply-labels:
+    runs-on: ubuntu-latest
+    needs: keyword-labels
+    if: needs.keyword-labels.outputs.labels != '[]'
+    steps:
+      - name: Add labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = JSON.parse('${{ needs.keyword-labels.outputs.labels }}');
+            if (labels.length === 0) return;
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels,
+            });
+
+            console.log(`Applied labels: ${labels.join(', ')}`);

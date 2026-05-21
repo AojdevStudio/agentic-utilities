@@ -1,0 +1,42 @@
+# Agentic Utilities
+
+This context describes the language for reusable Pi extensions, agent skills, prompt templates, and related agent-facing utilities maintained in this package.
+
+## Language
+
+**Pi Extension**:
+A TypeScript module loaded by Pi to add tools, commands, UI, providers, or event interception.
+_Avoid_: Plugin, script, hook when referring specifically to Pi-loaded extension modules.
+
+**Search Backend**:
+A web search provider used behind an agent-facing search tool, such as Brave Search, Tavily, or Google Custom Search.
+_Avoid_: Search tool when discussing the provider rather than the Pi tool surface.
+
+**Google CSE Credentials**:
+The Google Custom Search API key plus Programmable Search Engine ID (`cx`) required to query Google Custom Search JSON API.
+_Avoid_: Google key alone, CSE token.
+
+**Smart Fetch**:
+A browser-fingerprinted URL fetch and extraction flow that returns agent-usable content rather than just raw HTTP bytes.
+_Avoid_: Web search, crawl.
+
+**PDF Extraction**:
+Converting a fetched PDF document into text or markdown content for agent use.
+_Avoid_: PDF download when the primary result is extracted content.
+
+## Relationships
+
+- A **Pi Extension** can expose one or more agent-facing tools.
+- A search **Pi Extension** can route one tool through multiple **Search Backends**.
+- **Google CSE Credentials** enable Google Custom Search as an optional **Search Backend**.
+- **Smart Fetch** may use **PDF Extraction** when the fetched URL resolves to a PDF.
+
+## Example dialogue
+
+> **Dev:** "Should Google be our default web search?"
+> **Domain expert:** "No — keep Brave as the default **Search Backend**, and use Google only when **Google CSE Credentials** are configured or explicitly requested."
+
+## Flagged ambiguities
+
+- "Google credentials" was clarified to mean **Google CSE Credentials**: both `GOOGLE_SEARCH_API_KEY` and `GOOGLE_CSE_ID` / `GOOGLE_CUSTOM_SEARCH_ENGINE_ID` are required.
+- "Fetch a PDF" was clarified to mean **PDF Extraction** by default, not only downloading the PDF file.

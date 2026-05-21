@@ -1,0 +1,54 @@
+{
+  "_comment": "Deterministic keyword rules for issue auto-labeling. Customize labels and keywords per repo. For AI swap-in later, an LLM job can read this same JSON as its taxonomy.",
+  "labels": [
+    {
+      "name": "bug",
+      "keywords": [
+        "bug",
+        "crash",
+        "error",
+        "fail",
+        "broken",
+        "not working",
+        "exception",
+        "stack trace",
+        "regression",
+        "fix"
+      ]
+    },
+    {
+      "name": "enhancement",
+      "keywords": ["feature", "request", "add", "support", "implement", "would be nice", "improve", "upgrade"]
+    },
+    {
+      "name": "documentation",
+      "keywords": ["docs", "readme", "documentation", "guide", "tutorial", "wiki", "explain"]
+    },
+    {
+      "name": "security",
+      "keywords": ["security", "vulnerability", "auth", "xss", "injection", "exploit", "sanitize", "credential", "leak"]
+    },
+    {
+      "name": "performance",
+      "keywords": ["performance", "slow", "latency", "bottleneck", "optimize", "memory leak", "cache", "speed"]
+    },
+    {
+      "name": "infrastructure",
+      "keywords": ["ci", "cd", "build", "workflow", "action", "deploy", "terraform", "docker", "environment", "repo"]
+    },
+    {
+      "name": "dependencies",
+      "keywords": ["dependency", "dependencies", "bump", "update", "upgrade", "npm", "pip", "cargo", "gem", "outdated"]
+    },
+    {
+      "name": "tests",
+      "keywords": ["test", "testing", "spec", "coverage", "jest", "vitest", "pytest", "unit test", "e2e", "integration"]
+    }
+  ],
+  "settings": {
+    "wholeWord": true,
+    "caseInsensitive": true,
+    "maxLabels": 3,
+    "excludedLabels": ["duplicate", "good first issue", "help wanted", "invalid", "wontfix", "question"]
+  }
+}

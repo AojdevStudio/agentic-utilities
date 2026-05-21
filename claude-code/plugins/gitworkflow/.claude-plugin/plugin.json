@@ -1,0 +1,25 @@
+{
+  "name": "gitworkflow",
+  "version": "0.1.0",
+  "description": "Smart Git workflow engine — repo-aware Git Flow branching, CI monitoring & auto-merge, submodule handling, issue analysis/routing across coding-agent worktrees, deploy-workflow isolation, and changelog awareness. Bundles 8 workflow playbooks (Commit, Branch, Release, PullRequest, CIMerge, Submodule, IssueAnalysis, DeployWorkflow) plus a reusable issue-labeler GitHub Action template.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/gitworkflow",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "git-flow",
+    "github",
+    "pull-request",
+    "ci",
+    "auto-merge",
+    "coderabbit",
+    "submodules",
+    "release",
+    "changelog",
+    "issue-routing",
+    "workflow"
+  ]
+}

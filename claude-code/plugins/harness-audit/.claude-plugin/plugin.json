@@ -1,0 +1,23 @@
+{
+  "name": "harness-audit",
+  "version": "0.1.0",
+  "description": "Audit a repository for autonomous-agent harness readiness across cold-start docs, rules, API documentation policy, lint, hooks, tests, PR automation, repo skills, and garbage-collection cadence. Adds a Symphony-style unattended ticket-execution overlay: workflow contract, disposable bootstrap, validation/evidence, ticket lifecycle, observability, safety, and smoke-ticket eval. Bundles 11 reference files covering 5 stacks (TypeScript, Swift, Python, Rust, Go) plus the full Symphony readiness and fix-pattern libraries.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/harness-audit",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "harness",
+    "audit",
+    "agent-ready",
+    "symphony-readiness",
+    "api-doc-policy",
+    "harness-engineering",
+    "autonomous-agents",
+    "fix-patterns",
+    "pre-commit",
+    "codebase-health"
+  ]
+}

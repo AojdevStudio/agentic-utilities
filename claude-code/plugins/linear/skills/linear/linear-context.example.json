@@ -1,0 +1,100 @@
+{
+  "user": {
+    "id": "<YOUR_LINEAR_USER_UUID>",
+    "name": "<Your Name>",
+    "displayName": "<your-display-name>",
+    "email": "<your-email@example.com>"
+  },
+  "routing": {
+    "defaultTeam": "<DefaultTeamName>",
+    "defaultTeamKey": "<KEY>",
+    "note": "Add your active teams here. Deprecated teams can be kept as read-only references.",
+    "activeTeams": ["<TeamName1>", "<TeamName2>"]
+  },
+  "automations": {
+    "codex": {
+      "active": false,
+      "note": "Set to true if OpenAI Codex is connected to your Linear workspace and may autonomously pick up issues."
+    }
+  },
+  "teams": {
+    "<TeamName1>": {
+      "id": "<team-uuid>",
+      "key": "<KEY>",
+      "active": true
+    },
+    "<OldTeamName>": {
+      "id": "<team-uuid>",
+      "key": "<OLDKEY>",
+      "deprecated": true,
+      "deprecatedDate": "YYYY-MM-DD",
+      "routeTo": "<TeamName1>"
+    }
+  },
+  "projects": {
+    "<Project Name>": {
+      "id": "<project-uuid>",
+      "team": "<TeamName1>",
+      "status": "In Progress",
+      "repoPath": "~/Projects/<repo-name>",
+      "github": "<org>/<repo>",
+      "note": "Brief description of this project.",
+      "triggers": ["keyword1", "keyword2", "keyword3"]
+    },
+    "<Consulting Project>": {
+      "id": "<project-uuid>",
+      "team": "<TeamName1>",
+      "status": "In Progress",
+      "repoPath": null,
+      "github": null,
+      "note": "Non-code consulting project. ResolveIssue skips these.",
+      "triggers": ["client name", "deliverable"]
+    }
+  },
+  "labels": {
+    "Bug": {
+      "triggers": ["bug", "error", "broken", "fix", "crash", "regression"]
+    },
+    "Feature": {
+      "triggers": ["feature", "new capability", "new feature"]
+    },
+    "Improvement": {
+      "triggers": ["improvement", "optimization", "refactoring", "refactor", "optimize"]
+    },
+    "Deliverable": {
+      "triggers": ["deliverable"]
+    },
+    "Client-Facing": {
+      "triggers": ["client", "share with", "for client", "client deliverable"]
+    },
+    "HR/Compensation": {
+      "triggers": ["hr", "compensation", "benefits", "salary", "payroll"]
+    },
+    "Operations": {
+      "triggers": ["sop", "workflow", "process", "business workflow"]
+    },
+    "Training": {
+      "triggers": ["training", "onboarding", "learning"]
+    },
+    "Milestone": {
+      "triggers": ["milestone", "checkpoint", "review"]
+    }
+  },
+  "issueCreation": {
+    "requiredFields": ["title", "team", "project", "assignee", "priority", "dueDate"],
+    "recommendedFields": ["estimate", "labels", "description"],
+    "defaults": {
+      "assignee": "<YOUR_LINEAR_USER_UUID>",
+      "team": "<DefaultTeamName>",
+      "teamKey": "<KEY>",
+      "priority": 3
+    },
+    "storyPoints": [1, 2, 3, 5, 8],
+    "priorities": {
+      "1": "Urgent",
+      "2": "High",
+      "3": "Normal",
+      "4": "Low"
+    }
+  }
+}

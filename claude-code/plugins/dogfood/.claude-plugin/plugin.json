@@ -1,0 +1,20 @@
+{
+  "name": "dogfood",
+  "version": "0.1.0",
+  "description": "Systematically explore and QA a web application in a real browser, find bugs and UX issues, and produce a structured report with full reproduction evidence: step-by-step screenshots, repro GIFs when recording is available, and detailed repro steps for every finding. Drives Claude in Chrome (mcp__claude-in-chrome__*) for interactive/authenticated flows and the Playwright CLI for deterministic headless screenshots, so findings can be handed straight to the responsible team.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/dogfood",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "dogfood",
+    "qa",
+    "exploratory-testing",
+    "bug-hunt",
+    "web-testing",
+    "browser-automation",
+    "repro-evidence"
+  ]
+}

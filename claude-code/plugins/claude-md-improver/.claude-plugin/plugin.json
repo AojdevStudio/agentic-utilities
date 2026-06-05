@@ -1,0 +1,20 @@
+{
+  "name": "claude-md-improver",
+  "version": "0.1.0",
+  "description": "Audit and improve CLAUDE.md / AGENTS.md instruction files against modern harness engineering principles: leanness, anti-staleness, discoverability, and failure-driven gotchas. Scores each file on a 100-point rubric, flags volatile data that will rot, detects fast-moving frameworks (Next.js, Tailwind, React 19) and recommends training-cutoff-honesty blocks, then applies targeted cut/point/add edits after approval.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/claude-md-improver",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "claude-md",
+    "agents-md",
+    "documentation",
+    "harness-engineering",
+    "audit",
+    "context-engineering",
+    "agent-instructions"
+  ]
+}

@@ -117,21 +117,6 @@ Conventions in one breath:
 
 Full conventions: [`docs/conventions.md`](docs/conventions.md). Authoritative rule files: [`rules/`](rules/).
 
-## Verify before shipping
-
-```bash
-npm install
-npm run lint
-npm run typecheck
-npm test
-npm run validate:skills
-npm run check         # bundles lint + typecheck + tests + resource validation
-npm run pack:dry      # confirm tarball contents
-pi -e .               # smoke-test the package
-```
-
-A gitleaks pre-commit hook plus a CI `secret-scan` job block accidental secret/PII commits — see the "Secret + PII gate" section in [`AGENTS.md`](AGENTS.md) for how to extend it with personal terms.
-
 ## Project docs
 
 | Doc | What it covers |
@@ -147,17 +132,6 @@ A gitleaks pre-commit hook plus a CI `secret-scan` job block accidental secret/P
 - **Pi runtime** — declared via `peerDependencies`: `@mariozechner/pi-coding-agent`, `@mariozechner/pi-ai`, `@mariozechner/pi-tui`, `typebox`.
 - **Claude Code** — plugins follow the [Claude Code marketplace schema](https://anthropic.com/claude-code/marketplace.schema.json).
 - **Node** — runtime npm dependencies used by extensions belong in `dependencies`; pin sparingly.
-
-## Source code reference
-
-`opensrc/sources.json` lists fetched dependency source trees. To add another:
-
-```bash
-npx opensrc <package>            # npm
-npx opensrc pypi:<package>       # PyPI
-npx opensrc crates:<package>     # crates.io
-npx opensrc <owner>/<repo>       # GitHub
-```
 
 ## Contributing
 

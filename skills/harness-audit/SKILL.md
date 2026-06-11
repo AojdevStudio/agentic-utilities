@@ -1,6 +1,7 @@
 ---
 name: harness-audit
 description: Audit a repository for autonomous-agent harness readiness and Symphony-style unattended ticket execution readiness across cold-start docs, rules, API documentation policy/ADRs, lint, hooks, tests, PR automation, repo skills, garbage-collection cadence, workflow contracts, evidence, observability, and smoke-ticket evals. Use for "harness audit", "agent-ready repo", "harness readiness", "make this repo agent-friendly", "API docs policy", "Symphony readiness", "prepare this repo for Symphony", "ticket-level agent automation", or surgical fixes for top harness gaps.
+disable-model-invocation: true
 ---
 
 # Harness Audit

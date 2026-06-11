@@ -16,6 +16,10 @@ _Avoid_: Search tool when discussing the provider rather than the Pi tool surfac
 The Google Custom Search API key plus Programmable Search Engine ID (`cx`) required to query Google Custom Search JSON API.
 _Avoid_: Google key alone, CSE token.
 
+**Conditional Hook**:
+A user-configured policy that watches Pi events and may run a side-effect command after a matching event.
+_Avoid_: Built-in hook when the behavior comes from JSON config.
+
 **Smart Fetch**:
 A browser-fingerprinted URL fetch and extraction flow that returns agent-usable content rather than just raw HTTP bytes.
 _Avoid_: Web search, crawl.

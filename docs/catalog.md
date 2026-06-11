@@ -9,6 +9,7 @@ Keep this as the human-readable record of what lives in the package.
 | `anti-hedging` | Extension | `extensions/anti-hedging.ts` | active | Injects concise anti-hedging response guidance for sharper agent answers. |
 | `autopilot` | Extension | `extensions/autopilot/index.ts` | active | Autopilot workflow extension with approvals, preferences, continuation manifests, v2 workflow support, and command docs in `docs/autopilot.md`. |
 | `bash-guard` | Extension | `extensions/bash-guard/index.ts` | active | Prompts before risky bash commands, blocks catastrophic subagent commands, and guards sensitive read/write/edit paths with optional JSON policy files. |
+| `conditional-hooks` | Extension | `extensions/conditional-hooks/index.ts` | active | Loads Conditional Hook JSON config, merges global and trusted-project hook policy, and reports active/disabled hooks through `/conditional-hooks`. |
 | `hello` | Extension | `extensions/hello/index.ts` | example | Smoke-test extension that exposes `/agentic-utilities` and `agentic_utilities_ping`. |
 | `interactive-artifacts` | Extension | `extensions/interactive-artifacts/index.ts` | active | Publishes browser-based interactive concept explainer artifacts from Pi. |
 | `question` | Extension | `extensions/question.ts` | active | Adds interactive single-question and batch-question UI tools. |

@@ -19,8 +19,10 @@
 | Resource | Type | Purpose |
 | --- | --- | --- |
 | [`autopilot`](extensions/autopilot/) | Pi Extension | Approval-gated workflow runner with continuation manifests and v2 flow. |
+| [`question`](extensions/question.ts) | Pi Extension | Recommendation-first user questions, browser batch questionnaires, and rpiv-style TUI questionnaires with tabs, previews, notes, and `ask_user_question` compatibility. |
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
-| [`harness-audit`](skills/harness-audit/) | Skill (global-first) | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
+| [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
+| [`grill-with-docs`](skills/grill-with-docs/) | Skill | Stress-tests plans against project domain language and captures resolved terms/ADRs. |
 | [`scaffold-notes`](skills/scaffold-notes/) | Skill | Maintenance helper for adding resources to this repo consistently. |
 | [`youtube-analyzer`](claude-code/plugins/youtube-analyzer/) | Claude Code plugin | Format-aware YouTube video analysis with multi-agent transcript chunking. |
 | [`critical-bug-hunt`](prompts/critical-bug-hunt.prompt.md) | Prompt template | Recent-commit audit for high-severity correctness bugs and minimal fixes. |
@@ -46,6 +48,24 @@ Once published:
 pi install git:github.com/AojdevStudio/agentic-utilities
 pi install git:github.com/AojdevStudio/agentic-utilities@v0.1.0
 ```
+
+### As Agent Skills / skills CLI
+
+The root [`skills/`](skills/) directory is compatible with the Agent Skills CLI. To inspect what the CLI sees from this checkout:
+
+```bash
+npx skills add . --list
+```
+
+To inspect the canonical GitHub repository:
+
+```bash
+npx skills add AojdevStudio/agentic-utilities --list
+```
+
+Use the skills CLI for discovery and repo-page telemetry. For this user's isolated daily setup, copy from this repo into harness-specific inventories (`~/.pi/agent/skills`, `~/.codex/skills`, `~/.claude/skills`) instead of relying on a shared `~/.agents` bridge. The current CLI can still choose shared Agent Skills paths for some agent targets, so verify install output before using it as an installer.
+
+The [`skills.sh.json`](skills.sh.json) file only customizes the repository page on skills.sh; it does not change install behavior.
 
 ### As a Claude Code marketplace
 
@@ -87,7 +107,7 @@ npm run list                                # inventory check
 Conventions in one breath:
 
 - **Extensions** → `extensions/<kebab-name>/index.ts`. Tool names use snake_case and are globally namespaced (e.g. `agentic_utilities_ping`).
-- **Skills** → `skills/<kebab-name>/SKILL.md`, frontmatter `name` matches the directory. Daily-use skills are global-first: develop under `~/.pi/agent/skills/<name>/`, then keep canonical files here and symlink the global skill back so Pi loads it globally and `npm pack` ships it.
+- **Skills** → `skills/<kebab-name>/SKILL.md`, frontmatter `name` matches the directory. Keep canonical shared skills here, then copy them into harness-specific inventories (`~/.pi/agent/skills`, `~/.codex/skills`, `~/.claude/skills`) when Pi, Codex, and Claude Code should diverge. Use symlinks only when you intentionally want coupled behavior.
 - **Prompts** → `prompts/<name>.prompt.md` (the `.prompt.md` suffix keeps READMEs out of the prompt list).
 - **Themes** → `themes/<name>.json`.
 - **Claude Code plugins** → `claude-code/plugins/<name>/`, registered in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
@@ -101,7 +121,8 @@ npm install
 npm run lint
 npm run typecheck
 npm test
-npm run check         # bundles lint + typecheck + tests
+npm run validate:skills
+npm run check         # bundles lint + typecheck + tests + resource validation
 npm run pack:dry      # confirm tarball contents
 pi -e .               # smoke-test the package
 ```

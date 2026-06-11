@@ -16,12 +16,14 @@
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
+    "codex",
     "docs",
     "extensions",
     "prompts",
     "rules",
     "scripts",
     "skills",
+    "skills.sh.json",
     "themes"
   ],
   "pi": {
@@ -40,7 +42,7 @@
     ]
   },
   "scripts": {
-    "check": "npm run lint && npm run typecheck && npm test && npm run validate:plugins && node scripts/list-resources.mjs",
+    "check": "npm run lint && npm run typecheck && npm test && npm run validate:plugins && npm run validate:skills && node scripts/list-resources.mjs",
     "list": "node scripts/list-resources.mjs",
     "validate:plugins": "node scripts/validate-plugin-ports.mjs",
     "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
@@ -51,8 +53,9 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs",
-    "typecheck": "tsc --noEmit"
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs",
+    "typecheck": "tsc --noEmit",
+    "validate:skills": "node scripts/validate-agent-skills.mjs"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
@@ -80,6 +83,7 @@
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
   },
   "dependencies": {
+    "@juicesharp/rpiv-config": "^1.15.0",
     "shell-quote": "^1.8.3"
   },
   "overrides": {

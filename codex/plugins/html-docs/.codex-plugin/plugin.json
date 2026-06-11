@@ -1,0 +1,37 @@
+{
+  "name": "html-docs",
+  "version": "0.1.0",
+  "description": "Convert Markdown plans, reports, PR writeups, research notes, and general docs into rich, standalone adjacent HTML artifacts.",
+  "author": {
+    "name": "AOJDevStudio"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/codex/plugins/html-docs",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "markdown",
+    "html",
+    "documentation",
+    "plans",
+    "reports",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "HTML Docs",
+    "shortDescription": "Turn Markdown docs into readable standalone HTML.",
+    "longDescription": "HTML Docs converts Markdown plans, status reports, PR writeups, research notes, and general documentation into polished self-contained HTML files written beside the source document.",
+    "developerName": "AOJDevStudio",
+    "category": "Productivity",
+    "capabilities": [
+      "Write",
+      "Local Files"
+    ],
+    "brandColor": "#0F766E",
+    "defaultPrompt": [
+      "Convert this Markdown plan into HTML.",
+      "Make a readable HTML PR writeup.",
+      "Port this research doc to HTML."
+    ]
+  }
+}

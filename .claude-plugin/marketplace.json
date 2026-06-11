@@ -311,6 +311,46 @@
         "orm",
         "standards"
       ]
+    },
+    {
+      "name": "claude-md-improver",
+      "description": "Audit and improve CLAUDE.md / AGENTS.md instruction files against modern harness engineering principles: leanness, anti-staleness, discoverability, and failure-driven gotchas. Scores each file on a 100-point rubric, flags volatile data that will rot, detects fast-moving frameworks (Next.js, Tailwind, React 19) and recommends training-cutoff-honesty blocks, then applies targeted cut/point/add edits after approval.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/claude-md-improver",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "claude-md",
+        "agents-md",
+        "documentation",
+        "harness-engineering",
+        "audit",
+        "context-engineering",
+        "agent-instructions"
+      ]
+    },
+    {
+      "name": "dogfood",
+      "description": "Systematically explore and QA a web application in a real browser, find bugs and UX issues, and produce a structured report with full reproduction evidence: step-by-step screenshots, repro GIFs when recording is available, and detailed repro steps for every finding. Drives Claude in Chrome for interactive/authenticated flows and the Playwright CLI for deterministic headless screenshots.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/dogfood",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "dogfood",
+        "qa",
+        "exploratory-testing",
+        "bug-hunt",
+        "web-testing",
+        "browser-automation",
+        "repro-evidence"
+      ]
     }
   ]
 }

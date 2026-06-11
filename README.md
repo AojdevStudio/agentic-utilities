@@ -20,6 +20,7 @@
 | --- | --- | --- |
 | [`autopilot`](extensions/autopilot/) | Pi Extension | Approval-gated workflow runner with continuation manifests and v2 flow. |
 | [`question`](extensions/question.ts) | Pi Extension | Recommendation-first user questions, browser batch questionnaires, and rpiv-style TUI questionnaires with tabs, previews, notes, and `ask_user_question` compatibility. |
+| [`conditional-hooks`](extensions/conditional-hooks/) | Pi Extension | Loads explicit JSON hook policy, including the documented worktree-GC-on-merge example. |
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
 | [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
 | [`grill-with-docs`](skills/grill-with-docs/) | Skill | Stress-tests plans against project domain language and captures resolved terms/ADRs. |
@@ -41,6 +42,8 @@ pi install -l .            # install into the current project's .pi/settings.jso
 ```
 
 After edits inside a running Pi session, run `/reload`.
+
+For Conditional Hooks, put global config in `~/.pi/agent/conditional-hooks.json` or trusted project config in `.pi/conditional-hooks.json`; see [`extensions/conditional-hooks/README.md`](extensions/conditional-hooks/README.md).
 
 Once published:
 

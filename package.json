@@ -53,7 +53,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:skills": "node scripts/validate-agent-skills.mjs"
   },

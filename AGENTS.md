@@ -7,14 +7,14 @@ This repo is for agentic engineering. It includes a Pi package for reusable Pi e
 Authoritative rule files live under `rules/`:
 
 - `rules/package-resources.md` — Pi package manifest, catalog, prompt, and dependency rules.
-- `rules/global-skills.md` — global-first daily skill workflow.
+- `rules/global-skills.md` — harness-isolated daily skill workflow.
 - `rules/extensions.md` — extension naming, schema, mutation, and output rules.
 - `rules/identity-verification.md` — source-of-truth checks for identity-bearing values.
 
 Quick rules:
 
 - Keep resources discoverable through `package.json#pi`.
-- Daily-use skills are global-first: import/test them under `~/.pi/agent/skills/<name>/` first. When sharing one from this repo, keep the real files in `skills/<name>/` and symlink the global skill back to that repo path so Pi loads it globally and `npm pack` includes it. Do not maintain two copies; copies drift.
+- Daily-use skills are harness-isolated by default: keep canonical shared files in `skills/<name>/`, then copy them into `~/.pi/agent/skills/<name>/`, `~/.codex/skills/<name>/`, or `~/.claude/skills/<name>/` as needed. Use symlinks only when you intentionally want coupled behavior and have documented the source of truth.
 - Do not commit secrets, API keys, credentials, session files, or machine-local config. A gitleaks pre-commit hook + CI gate enforces this — see "Secret + PII gate" below.
 - Extension names and skill names use kebab-case directories.
 - Tool names inside extensions should use snake_case and be globally specific, e.g. `agentic_utilities_ping`.
@@ -32,6 +32,7 @@ Run before shipping changes:
 ```bash
 npm run check
 npm run pack:dry
+codegraph status .
 pi -e .
 ```
 
@@ -57,25 +58,21 @@ To extend protection with your own private terms (skill names, internal codename
 
 Run the weekly or post-failure garbage-collection ritual in `docs/garbage-collection.md` to convert repeated agent friction into rules, lints, docs, tests, prompts, or skills.
 
-<!-- opensrc:start -->
+## Agent skills
 
-## Source Code Reference
+### Issue tracker
 
-Source code for dependencies is available in `opensrc/` for deeper understanding of implementation details.
+Issues live in GitHub Issues for `AojdevStudio/agentic-utilities`. See `docs/agents/issue-tracker.md`.
 
-See `opensrc/sources.json` for the list of available packages and their versions.
+### Agent workflow
 
-Use this source code when you need to understand how a package works internally, not just its types/interface.
+Agents use GitHub Issues, the `agentic-utilities Backlog` GitHub Project, branches, pull requests, self-review, and review-comment follow-up. See `docs/agents/workflow.md`.
 
-### Fetching Additional Source Code
+### Triage labels
 
-To fetch source code for a package or repository you need to understand, run:
+Use the repo's canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 
-```bash
-npx opensrc <package>           # npm package (e.g., npx opensrc zod)
-npx opensrc pypi:<package>      # Python package (e.g., npx opensrc pypi:requests)
-npx opensrc crates:<package>    # Rust crate (e.g., npx opensrc crates:serde)
-npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc vercel/ai)
-```
+### Project context docs
 
-<!-- opensrc:end -->
+This is a single-context repo with root `CONTEXT.md` and `docs/adr/`; product/design docs are absent until needed. See `docs/agents/domain.md`.
+

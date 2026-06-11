@@ -1,0 +1,50 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Coding Workflows",
+      "description": "Skills for implementation, Git, docs lookup, and harness operations.",
+      "skills": [
+        "find-docs",
+        "gitworkflow",
+        "harness-audit",
+        "harness-worktrees",
+        "scaffold-notes",
+        "ask-codex",
+        "babysit-pr",
+        "linear",
+        "repo-architect",
+        "saas-standards",
+        "skill-stats"
+      ]
+    },
+    {
+      "title": "Review & Planning",
+      "description": "Skills for reviews, deep dives, and design stress tests.",
+      "skills": [
+        "adversarial-review",
+        "deep-dive",
+        "grill-me",
+        "grill-with-docs"
+      ]
+    },
+    {
+      "title": "Content & Media",
+      "description": "Skills for READMEs, visuals, images, and video analysis.",
+      "skills": [
+        "art",
+        "awesome-readme",
+        "gpt-image-2",
+        "youtube-analyzer"
+      ]
+    },
+    {
+      "title": "Hardware",
+      "description": "Skills for physical-world workflows.",
+      "skills": [
+        "bambu-slicer"
+      ]
+    }
+  ]
+}

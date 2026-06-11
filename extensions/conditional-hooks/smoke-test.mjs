@@ -13,7 +13,9 @@ function writeJson(filePath, value) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "conditional-hooks-"));
+const originalHome = process.env.HOME;
 try {
+  process.env.HOME = path.join(tmp, "home");
   const cwd = path.join(tmp, "repo");
   const globalPath = path.join(tmp, "home", ".pi", "agent", "conditional-hooks.json");
   const projectPath = path.join(cwd, ".pi", "conditional-hooks.json");
@@ -515,5 +517,7 @@ try {
 
   console.log("conditional-hooks smoke tests passed");
 } finally {
+  if (typeof originalHome === "string") process.env.HOME = originalHome;
+  else delete process.env.HOME;
   fs.rmSync(tmp, { recursive: true, force: true });
 }

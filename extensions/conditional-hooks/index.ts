@@ -25,6 +25,7 @@ export type ConditionalHookRun = {
   timeout?: number;
   ignoreFailure?: boolean;
   runOnError?: boolean;
+  appendToToolResult?: boolean;
   [key: string]: unknown;
 };
 
@@ -59,15 +60,29 @@ type ExecLike = (
 
 type WarningSink = (warning: string, hook: ConditionalHook) => void | Promise<void>;
 
+type ConditionalHookEvent = "tool_result" | "tool_execution_end";
+
 type BashSource = {
+  eventType: ConditionalHookEvent;
+  toolCallId?: string;
   toolName: string;
   command: string;
   cwd: string;
   isError: boolean;
 };
 
+export type ConditionalHookRunResult = {
+  hookName: string;
+  stdout: string;
+  warning?: string;
+  appendToToolResult: boolean;
+};
+
 const CONFIG_BASENAME = "conditional-hooks.json";
+const MAX_TRACKED_TOOL_CALLS = 500;
 let latestState: ConditionalHooksState = emptyState();
+const toolStartCache = new Map<string, BashSource>();
+const completedHookRuns = new Set<string>();
 
 function emptyState(): ConditionalHooksState {
   return {
@@ -265,7 +280,11 @@ function formatNames(hooks: ConditionalHook[]): string {
   return hooks.length ? hooks.map((hook) => hook.name).join(", ") : "(none)";
 }
 
-export function extractBashSource(event: unknown, ctxCwd?: string): BashSource | null {
+export function extractBashSource(
+  event: unknown,
+  ctxCwd?: string,
+  eventType: ConditionalHookEvent = "tool_result",
+): BashSource | null {
   const record = isRecord(event) ? event : {};
   const toolName = typeof record.toolName === "string" ? record.toolName : "";
   if (!isBashLikeToolName(toolName)) return null;
@@ -278,6 +297,8 @@ export function extractBashSource(event: unknown, ctxCwd?: string): BashSource |
   if (!command) return null;
 
   return {
+    eventType,
+    toolCallId: typeof record.toolCallId === "string" ? record.toolCallId : undefined,
     toolName,
     command,
     cwd: firstString(input?.cwd, args?.cwd, toolInput?.cwd, ctxCwd, ".") ?? ".",
@@ -320,7 +341,7 @@ async function hookMatchesSource(
   source: BashSource,
   exec: ExecLike,
 ): Promise<{ matches: boolean; repoRoot: string | null }> {
-  if (!hook.events?.includes("tool_result")) return { matches: false, repoRoot: null };
+  if (!hook.events?.includes(source.eventType)) return { matches: false, repoRoot: null };
 
   const runOnError = hook.runOnError === true || hook.run?.runOnError === true;
   if (source.isError && !runOnError) return { matches: false, repoRoot: null };
@@ -338,19 +359,55 @@ async function hookMatchesSource(
   return { matches: true, repoRoot: null };
 }
 
+function markHookRun(source: BashSource, hook: ConditionalHook, dedupe?: Set<string>): boolean {
+  if (!source.toolCallId || !dedupe) return true;
+  const key = `${source.toolCallId}:${hook.name}`;
+  if (dedupe.has(key)) return false;
+  dedupe.add(key);
+  pruneTrackedSet(dedupe);
+  return true;
+}
+
+function pruneTrackedSet(set: Set<string>): void {
+  while (set.size > MAX_TRACKED_TOOL_CALLS) {
+    const oldest = set.values().next().value;
+    if (typeof oldest !== "string") break;
+    set.delete(oldest);
+  }
+}
+
+function pruneToolStartCache(): void {
+  while (toolStartCache.size > MAX_TRACKED_TOOL_CALLS) {
+    const oldest = toolStartCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    cleanupToolCallTracking(oldest);
+  }
+}
+
+function cleanupToolCallTracking(toolCallId: string): void {
+  toolStartCache.delete(toolCallId);
+  for (const key of Array.from(completedHookRuns)) {
+    if (key.startsWith(`${toolCallId}:`)) completedHookRuns.delete(key);
+  }
+}
+
 export async function runMatchingConditionalHooks(options: {
   hooks: ConditionalHook[];
   event: unknown;
   ctxCwd?: string;
   exec: ExecLike;
   warn?: WarningSink;
-}): Promise<void> {
-  const source = extractBashSource(options.event, options.ctxCwd);
-  if (!source) return;
+  source?: BashSource;
+  dedupe?: Set<string>;
+}): Promise<ConditionalHookRunResult[]> {
+  const source = options.source ?? extractBashSource(options.event, options.ctxCwd);
+  if (!source) return [];
 
+  const results: ConditionalHookRunResult[] = [];
   for (const hook of options.hooks) {
     const { matches, repoRoot } = await hookMatchesSource(hook, source, options.exec);
     if (!matches) continue;
+    if (!markHookRun(source, hook, options.dedupe)) continue;
 
     const command = hook.run?.command;
     if (typeof command !== "string" || command.trim() === "") continue;
@@ -362,20 +419,62 @@ export async function runMatchingConditionalHooks(options: {
     try {
       const result = await options.exec("sh", ["-lc", command], { cwd, timeout: hook.run?.timeout });
       const exitCode = typeof result.code === "number" ? result.code : result.exitCode;
+      const stdout = String(result.stdout ?? "");
       if (exitCode && exitCode !== 0) {
         if (hook.run?.ignoreFailure === true) continue;
         const stderr = String(result.stderr ?? "").trim();
-        await options.warn?.(
-          `Conditional Hook "${hook.name}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ""}`,
-          hook,
-        );
+        const warning = `Conditional Hook "${hook.name}" failed with exit code ${exitCode}${stderr ? `: ${stderr}` : ""}`;
+        await options.warn?.(warning, hook);
+        results.push({
+          hookName: hook.name,
+          stdout: "",
+          warning,
+          appendToToolResult: hook.run?.appendToToolResult === true,
+        });
+        continue;
       }
+      results.push({ hookName: hook.name, stdout, appendToToolResult: hook.run?.appendToToolResult === true });
     } catch (error) {
       if (hook.run?.ignoreFailure === true) continue;
       const message = error instanceof Error ? error.message : String(error);
-      await options.warn?.(`Conditional Hook "${hook.name}" failed: ${message}`, hook);
+      const warning = `Conditional Hook "${hook.name}" failed: ${message}`;
+      await options.warn?.(warning, hook);
+      results.push({
+        hookName: hook.name,
+        stdout: "",
+        warning,
+        appendToToolResult: hook.run?.appendToToolResult === true,
+      });
     }
   }
+  return results;
+}
+
+export function formatHookOutputSections(results: ConditionalHookRunResult[]): string {
+  return results
+    .filter((result) => result.stdout.trim() !== "")
+    .map((result) => `[${result.hookName}]\n${result.stdout.trimEnd()}`)
+    .join("\n\n");
+}
+
+function appendHookOutputToContent(
+  content: Array<{ type: string; text?: string }>,
+  results: ConditionalHookRunResult[],
+) {
+  const appendable = results.filter((result) => result.appendToToolResult && result.stdout.trim() !== "");
+  if (!appendable.length) return content;
+
+  const hookText = formatHookOutputSections(appendable);
+  const nextContent = content.map((item) => ({ ...item }));
+  for (let index = nextContent.length - 1; index >= 0; index--) {
+    const item = nextContent[index];
+    if (item?.type === "text" && typeof item.text === "string") {
+      item.text = `${item.text}\n\n${hookText}`;
+      return nextContent;
+    }
+  }
+  nextContent.push({ type: "text", text: hookText });
+  return nextContent;
 }
 
 export function formatConditionalHooksStatus(state: ConditionalHooksState): string {
@@ -403,12 +502,21 @@ export default function (pi: ExtensionAPI) {
     latestState = loadConditionalHooksState(ctx.cwd, isProjectTrusted(ctx));
   });
 
+  pi.on("tool_execution_start", async (event, ctx) => {
+    const source = extractBashSource(event, ctx.cwd, "tool_execution_end");
+    if (source?.toolCallId) {
+      toolStartCache.set(source.toolCallId, source);
+      pruneToolStartCache();
+    }
+  });
+
   pi.on("tool_result", async (event, ctx) => {
-    await runMatchingConditionalHooks({
+    const results = await runMatchingConditionalHooks({
       hooks: latestState.activeHooks,
       event,
       ctxCwd: ctx.cwd,
       exec: (command, args, options) => pi.exec(command, args, options as any),
+      dedupe: completedHookRuns,
       warn: async (warning, hook) => {
         latestState.warnings.push(warning);
         if (ctx.hasUI) ctx.ui.notify(warning, "warning");
@@ -420,6 +528,47 @@ export default function (pi: ExtensionAPI) {
         });
       },
     });
+
+    const content = appendHookOutputToContent(event.content, results);
+    if (content !== event.content) return { content: content as typeof event.content };
+  });
+
+  pi.on("tool_execution_end", async (event, ctx) => {
+    const record: Record<string, unknown> = isRecord(event as unknown)
+      ? (event as unknown as Record<string, unknown>)
+      : {};
+    const toolCallId = typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+    const cached = toolCallId ? toolStartCache.get(toolCallId) : undefined;
+    const source = cached
+      ? { ...cached, eventType: "tool_execution_end" as const, isError: record.isError === true }
+      : extractBashSource(event, ctx.cwd, "tool_execution_end");
+    const warnings: string[] = [];
+    const results = await runMatchingConditionalHooks({
+      hooks: latestState.activeHooks,
+      event,
+      ctxCwd: ctx.cwd,
+      source: source ?? undefined,
+      exec: (command, args, options) => pi.exec(command, args, options as any),
+      dedupe: completedHookRuns,
+      warn: async (warning) => {
+        latestState.warnings.push(warning);
+        warnings.push(warning);
+        if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+      },
+    });
+
+    if (toolCallId) cleanupToolCallTracking(toolCallId);
+
+    const output = formatHookOutputSections(results);
+    const message = [output, ...warnings].filter(Boolean).join("\n\n");
+    if (message) {
+      pi.sendMessage({
+        customType: "conditional-hook-output",
+        content: message,
+        display: true,
+        details: { toolCallId, timestamp: Date.now() },
+      });
+    }
   });
 
   pi.registerCommand("conditional-hooks", {

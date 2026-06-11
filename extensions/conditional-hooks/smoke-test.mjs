@@ -125,14 +125,14 @@ try {
       if (command === "sh" && failShell) return { stdout: "", stderr: "hook failed", code: 1 };
       return { stdout: "hook output\n", stderr: "", code: 0 };
     };
-    await conditionalHooks.runMatchingConditionalHooks({
+    const results = await conditionalHooks.runMatchingConditionalHooks({
       hooks,
       event,
       ctxCwd: cwd,
       exec,
       warn: (warning) => warnings.push(warning),
     });
-    return { calls, warnings };
+    return { calls, warnings, results };
   }
 
   for (const toolName of ["bash", "Bash", "functions.bash"]) {
@@ -332,6 +332,186 @@ try {
   });
   assert.equal(failingEvent.isError, false, "hook failure must not mutate original result isError");
   assert.match(failure.warnings.join("\n"), /Conditional Hook "bash-hook" failed/);
+
+  const appendResult = await runHookScenario({
+    hooks: [{ ...bashHook, run: { command: "echo hook", appendToToolResult: true, ignoreFailure: true } }],
+    event: {
+      type: "tool_result",
+      toolName: "bash",
+      input: { command: "git merge --ff-only HEAD", cwd },
+      isError: false,
+    },
+  });
+  assert.match(conditionalHooks.formatHookOutputSections(appendResult.results), /\[bash-hook\]\nhook output/);
+
+  const emptyOutput = conditionalHooks.formatHookOutputSections([
+    { hookName: "empty-hook", stdout: "", appendToToolResult: true },
+  ]);
+  assert.equal(emptyOutput, "", "empty stdout should not add hook sections");
+
+  const handlerCwd = path.join(tmp, "handler-repo");
+  fs.mkdirSync(path.join(handlerCwd, ".pi"), { recursive: true });
+  writeJson(path.join(handlerCwd, ".pi", "conditional-hooks.json"), {
+    hooks: [
+      {
+        ...bashHook,
+        run: { command: "echo visible", appendToToolResult: true, ignoreFailure: true },
+      },
+    ],
+  });
+  const handlerPi = {
+    events: new Map(),
+    messages: [],
+    on(eventName, handler) {
+      this.events.set(eventName, handler);
+    },
+    registerCommand() {},
+    sendMessage(message) {
+      this.messages.push(message);
+    },
+    async exec(command, args) {
+      if (command === "sh") return { stdout: "visible output\n", stderr: "", code: 0 };
+      return { stdout: `${repoRoot}\n`, stderr: "", code: 0 };
+    },
+  };
+  conditionalHooks.default(handlerPi);
+  await handlerPi.events.get("session_start")({}, { cwd: handlerCwd, hasUI: false, isProjectTrusted: () => true });
+
+  const appendEvent = {
+    type: "tool_result",
+    toolCallId: "append-1",
+    toolName: "bash",
+    input: { command: "git merge --ff-only HEAD", cwd },
+    isError: false,
+    content: [{ type: "text", text: "original result" }],
+  };
+  const appendPatch = await handlerPi.events.get("tool_result")(appendEvent, { cwd: handlerCwd, hasUI: false });
+  assert.match(appendPatch.content[0].text, /original result\n\n\[bash-hook\]\nvisible output/);
+
+  const noBlankPatch = await handlerPi.events.get("tool_result")(
+    { ...appendEvent, toolCallId: "append-2", content: [{ type: "text", text: "original" }] },
+    { cwd: handlerCwd, hasUI: false },
+  );
+  assert.equal(
+    noBlankPatch.content[0].text.includes("\n\n\n"),
+    false,
+    "append formatting should not add blank sections",
+  );
+
+  const dedupePi = {
+    events: new Map(),
+    messages: [],
+    shellRuns: 0,
+    on(eventName, handler) {
+      this.events.set(eventName, handler);
+    },
+    registerCommand() {},
+    sendMessage(message) {
+      this.messages.push(message);
+    },
+    async exec(command) {
+      if (command === "sh") {
+        this.shellRuns += 1;
+        return { stdout: `run ${this.shellRuns}\n`, stderr: "", code: 0 };
+      }
+      return { stdout: `${repoRoot}\n`, stderr: "", code: 0 };
+    },
+  };
+  conditionalHooks.default(dedupePi);
+  await dedupePi.events.get("session_start")({}, { cwd, hasUI: false, isProjectTrusted: () => false });
+  const state = conditionalHooks.loadConditionalHooksState(cwd, false, { globalPath, projectPath });
+  state.activeHooks = [
+    {
+      ...bashHook,
+      name: "dual-hook",
+      events: ["tool_result", "tool_execution_end"],
+      run: { command: "echo dual", ignoreFailure: true },
+    },
+    {
+      ...bashHook,
+      name: "second-hook",
+      events: ["tool_result", "tool_execution_end"],
+      run: { command: "echo second", ignoreFailure: true },
+    },
+  ];
+  // Seed internal state through command registration path by directly invoking runner helper for scoped dedupe.
+  const dedupeSet = new Set();
+  await conditionalHooks.runMatchingConditionalHooks({
+    hooks: state.activeHooks,
+    event: {
+      type: "tool_result",
+      toolCallId: "dual-1",
+      toolName: "bash",
+      input: { command: "git merge --ff-only HEAD", cwd },
+      isError: false,
+    },
+    exec: dedupePi.exec.bind(dedupePi),
+    dedupe: dedupeSet,
+  });
+  await conditionalHooks.runMatchingConditionalHooks({
+    hooks: state.activeHooks,
+    source: {
+      eventType: "tool_execution_end",
+      toolCallId: "dual-1",
+      toolName: "bash",
+      command: "git merge --ff-only HEAD",
+      cwd,
+      isError: false,
+    },
+    event: {},
+    exec: dedupePi.exec.bind(dedupePi),
+    dedupe: dedupeSet,
+  });
+  assert.equal(dedupePi.shellRuns, 2, "two different hooks run once each; dual events do not duplicate per hook");
+
+  const fallbackCwd = path.join(tmp, "fallback-repo");
+  fs.mkdirSync(path.join(fallbackCwd, ".pi"), { recursive: true });
+  writeJson(path.join(fallbackCwd, ".pi", "conditional-hooks.json"), {
+    hooks: [
+      {
+        ...bashHook,
+        name: "fallback-hook",
+        events: ["tool_execution_end"],
+        run: { command: "echo fallback", ignoreFailure: true },
+      },
+    ],
+  });
+  const fallbackPi = {
+    events: new Map(),
+    messages: [],
+    shellRuns: 0,
+    on(eventName, handler) {
+      this.events.set(eventName, handler);
+    },
+    registerCommand() {},
+    sendMessage(message) {
+      this.messages.push(message);
+    },
+    async exec(command) {
+      if (command === "sh") {
+        this.shellRuns += 1;
+        return { stdout: "fallback output\n", stderr: "", code: 0 };
+      }
+      return { stdout: `${repoRoot}\n`, stderr: "", code: 0 };
+    },
+  };
+  conditionalHooks.default(fallbackPi);
+  await fallbackPi.events.get("session_start")({}, { cwd: fallbackCwd, hasUI: false, isProjectTrusted: () => true });
+  await fallbackPi.events.get("tool_execution_start")(
+    {
+      type: "tool_execution_start",
+      toolCallId: "fallback-1",
+      toolName: "bash",
+      input: { command: "git merge --ff-only HEAD", cwd },
+    },
+    { cwd: fallbackCwd, hasUI: false },
+  );
+  await fallbackPi.events.get("tool_execution_end")(
+    { type: "tool_execution_end", toolCallId: "fallback-1", toolName: "bash", isError: false },
+    { cwd: fallbackCwd, hasUI: false },
+  );
+  assert.equal(fallbackPi.shellRuns, 1, "tool_execution_end fallback source can match cached start metadata");
+  assert.match(fallbackPi.messages[0]?.content ?? "", /\[fallback-hook\]\nfallback output/);
 
   console.log("conditional-hooks smoke tests passed");
 } finally {

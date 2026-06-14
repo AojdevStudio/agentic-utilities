@@ -80,7 +80,7 @@
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}": "biome check --write --no-errors-on-unmatched"
   },
   "dependencies": {
-    "shell-quote": "^1.8.3"
+    "shell-quote": "^1.8.4"
   },
   "overrides": {
     "protobufjs": ">=7.5.6"

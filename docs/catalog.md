@@ -42,6 +42,7 @@ Keep this as the human-readable record of what lives in the package.
 | `linear` | Claude Code Plugin | `claude-code/plugins/linear/.claude-plugin/plugin.json` | active | Linear issue management via the `linearis` CLI — create/update/resolve/plan issues; bundles 12 workflow playbooks. |
 | `repo-architect` | Claude Code Plugin | `claude-code/plugins/repo-architect/.claude-plugin/plugin.json` | active | Repository organization expert — structure, audit, and refactor via 8 framework archetypes; bundles 4 workflow playbooks. |
 | `saas-standards` | Claude Code Plugin | `claude-code/plugins/saas-standards/.claude-plugin/plugin.json` | active | Enforces non-negotiable SaaS standards — signup, mandatory onboarding, route guards, schema, backend/ORM, and state management. |
+| `ship-issue` | Claude Code Plugin | `claude-code/plugins/ship-issue/.claude-plugin/plugin.json` | active | Executes GitHub issues one at a time as vertical slices: sync, branch, TDD each criterion, verify, self-review, open PR, then babysit to a terminal state before the next. |
 | `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report — top-used, recently-active, dormant, and phantom skills. |
 | `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
 

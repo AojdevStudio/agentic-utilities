@@ -313,6 +313,29 @@
       ]
     },
     {
+      "name": "ship-issue",
+      "description": "Execute GitHub issues one at a time as vertical slices — sync, fetch, branch, TDD each acceptance criterion, functionally verify, self-review, open the PR, then babysit it to a terminal state before starting the next. Keeps `to-issues`-style slices from being re-horizontalized during execution: one issue, one branch, one PR, sequential. Bundles the full procedural playbook with completion-state and agent-delegation guidance.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/ship-issue",
+      "category": "workflow",
+      "license": "MIT",
+      "keywords": [
+        "gh",
+        "github",
+        "issues",
+        "tdd",
+        "pull-request",
+        "vertical-slice",
+        "ship",
+        "sequential",
+        "workflow",
+        "pr"
+      ]
+    },
+    {
       "name": "claude-md-improver",
       "description": "Audit and improve CLAUDE.md / AGENTS.md instruction files against modern harness engineering principles: leanness, anti-staleness, discoverability, and failure-driven gotchas. Scores each file on a 100-point rubric, flags volatile data that will rot, detects fast-moving frameworks (Next.js, Tailwind, React 19) and recommends training-cutoff-honesty blocks, then applies targeted cut/point/add edits after approval.",
       "version": "0.1.0",

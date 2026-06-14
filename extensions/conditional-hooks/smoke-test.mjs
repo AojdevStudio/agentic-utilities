@@ -13,6 +13,20 @@ function writeJson(filePath, value) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "conditional-hooks-"));
+
+// Isolate os.homedir() for the duration of the test. The default extension
+// handlers (session_start) read the global config from os.homedir()/.pi/agent,
+// so without isolation a real ~/.pi/agent/conditional-hooks.json on the
+// developer's machine leaks in. A real global hook whose command regex also
+// matches a fixture command (e.g. a worktree-gc-on-merge hook matching
+// "git merge") then runs alongside the fixture hook and inflates shellRuns,
+// failing the dedupe/fallback assertions locally while passing on clean CI.
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const isolatedHome = path.join(tmp, "isolated-home");
+fs.mkdirSync(isolatedHome, { recursive: true });
+process.env.HOME = isolatedHome;
+process.env.USERPROFILE = isolatedHome;
 try {
   const cwd = path.join(tmp, "repo");
   const globalPath = path.join(tmp, "home", ".pi", "agent", "conditional-hooks.json");
@@ -515,5 +529,9 @@ try {
 
   console.log("conditional-hooks smoke tests passed");
 } finally {
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   fs.rmSync(tmp, { recursive: true, force: true });
 }

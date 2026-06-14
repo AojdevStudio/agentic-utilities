@@ -7,6 +7,13 @@ import { createJiti } from "@mariozechner/jiti";
 const jiti = createJiti(import.meta.url);
 const conditionalHooks = await jiti.import("./index.ts");
 
+/**
+ * Write a value as pretty-printed JSON to a path, creating parent dirs as needed.
+ *
+ * @param {string} filePath Absolute path of the JSON file to write.
+ * @param {unknown} value Value serialized with JSON.stringify (2-space indent).
+ * @returns {void}
+ */
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
@@ -127,6 +134,19 @@ try {
     run: { command: "echo hook", ignoreFailure: true },
   };
 
+  /**
+   * Run runMatchingConditionalHooks against a fake exec and capture its effects.
+   *
+   * The fake exec resolves "git" to repoRoot (or throws when repoRoot is unset),
+   * and resolves "sh" to either a failing or succeeding hook command per failShell.
+   *
+   * @param {object} options Scenario inputs.
+   * @param {unknown} options.event Tool event passed to the hook runner.
+   * @param {object[]} [options.hooks] Hooks to evaluate (defaults to [bashHook]).
+   * @param {string} [options.repoRoot] Repo root returned by the fake "git" exec.
+   * @param {boolean} [options.failShell] When true, the fake "sh" exec fails.
+   * @returns {Promise<{results: unknown, calls: object[], warnings: string[]}>} Captured run output.
+   */
   async function runHookScenario({ event, hooks = [bashHook], repoRoot, failShell = false }) {
     const calls = [];
     const warnings = [];

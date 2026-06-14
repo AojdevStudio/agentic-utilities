@@ -1,0 +1,23 @@
+{
+  "name": "ship-issue",
+  "version": "0.1.0",
+  "description": "Execute GitHub issues one at a time as vertical slices — sync, fetch, branch, TDD each acceptance criterion, functionally verify, self-review, open the PR, then babysit it to a terminal state before starting the next. Keeps `to-issues`-style slices from being re-horizontalized during execution: one issue, one branch, one PR, sequential. Bundles the full procedural playbook with completion-state and agent-delegation guidance.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/ship-issue",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "gh",
+    "github",
+    "issues",
+    "tdd",
+    "pull-request",
+    "vertical-slice",
+    "ship",
+    "sequential",
+    "workflow",
+    "pr"
+  ]
+}

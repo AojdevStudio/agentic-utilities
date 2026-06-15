@@ -26,6 +26,7 @@ Keep this as the human-readable record of what lives in the package.
 | `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Global-first skill with `~/.pi/agent/skills/harness-audit` symlinked here; audits repo harness readiness and fix gaps. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
+| `skill-inspector` | Skill | `skills/skill-inspector/SKILL.md` | active | Global-first skill (symlinked into `~/.claude/skills/skill-inspector`); security-scans agent skills with the `skillspector` CLI and renders a plain-English verdict report (safe/caution/do-not-install, threat breakdown, top findings) for chat. |
 | `critical-bug-hunt.prompt` | Prompt | `prompts/critical-bug-hunt.prompt.md` | active | Recent-commit audit prompt for high-severity correctness bugs and minimal fixes. |
 | `adversarial-review` | Claude Code Plugin | `claude-code/plugins/adversarial-review/.claude-plugin/plugin.json` | active | Adversarial implementation review — sends a structured prompt to a heavyweight reviewer to catch real bugs, returning a trinary verdict and a P0/P1/P2 fix list. |
 | `ask-codex` | Claude Code Plugin | `claude-code/plugins/ask-codex/.claude-plugin/plugin.json` | active | OpenAI Codex CLI integration — wraps `codex exec` / `codex resume` with model, reasoning-effort, and sandbox control. |

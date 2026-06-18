@@ -44,7 +44,8 @@ Keep this as the human-readable record of what lives in the package.
 | `repo-architect` | Claude Code Plugin | `claude-code/plugins/repo-architect/.claude-plugin/plugin.json` | active | Repository organization expert — structure, audit, and refactor via 8 framework archetypes; bundles 4 workflow playbooks. |
 | `saas-standards` | Claude Code Plugin | `claude-code/plugins/saas-standards/.claude-plugin/plugin.json` | active | Enforces non-negotiable SaaS standards — signup, mandatory onboarding, route guards, schema, backend/ORM, and state management. |
 | `ship-issue` | Claude Code Plugin | `claude-code/plugins/ship-issue/.claude-plugin/plugin.json` | active | Executes GitHub issues one at a time as vertical slices: sync, branch, TDD each criterion, verify, self-review, open PR, then babysit to a terminal state before the next. |
-| `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report — top-used, recently-active, dormant, and phantom skills. |
+| `skill-inspector` | Claude Code Plugin | `claude-code/plugins/skill-inspector/.claude-plugin/plugin.json` | active | Security-scans an agent skill with the `skillspector` CLI and renders a plain-English verdict (SAFE/CAUTION/DO_NOT_INSTALL): capability-clustered, intent-weighted scoring with confirmed source-to-sink exfiltration as the do-not-install trigger; flags degraded static-only scans. |
+| `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report: top-used, recently-active, dormant, and phantom skills. |
 | `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
 
 ## Status labels

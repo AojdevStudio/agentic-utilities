@@ -374,6 +374,29 @@
         "browser-automation",
         "repro-evidence"
       ]
+    },
+    {
+      "name": "skill-inspector",
+      "description": "Security-inspect an AI agent skill with the skillspector CLI, then render a plain-English verdict (SAFE / CAUTION / DO_NOT_INSTALL) with a threat breakdown, the top findings to check first, and file hotspots. Capability-clustered, intent-weighted scoring with confirmed source-to-sink exfiltration chains as the categorical do-not-install trigger; flags degraded static-only scans so an unreliable verdict is never mistaken for a trustworthy one.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ossie Irondi"
+      },
+      "source": "./claude-code/plugins/skill-inspector",
+      "category": "security",
+      "license": "MIT",
+      "keywords": [
+        "skillspector",
+        "security",
+        "skill-audit",
+        "malware-scan",
+        "supply-chain",
+        "prompt-injection",
+        "data-exfiltration",
+        "agent-skills",
+        "static-analysis",
+        "yara"
+      ]
     }
   ]
 }

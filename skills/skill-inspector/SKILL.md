@@ -9,8 +9,8 @@ Wraps the `skillspector` security scanner and renders its output as a report a h
 
 ## When to reach for which mode
 
-- **Fast (default):** static + YARA rules only. No API keys, no cost, deterministic, always works. Use this for quick "is this safe?" checks. Pass `--no-llm`.
-- **Deep:** adds LLM analysis (intent classification, subtler findings). Needs a *working* provider + model in the environment. Slower, costs tokens. Only use when the fast scan is ambiguous and the extra depth is worth it.
+- **Deep (default — Ossie's standing preference):** static + YARA + LLM intent classification. The static-only pass floods the report with false positives (security *vocabulary* in a skill's own docs trips the rules), so a fast scan routinely lands a benign skill in DO_NOT_INSTALL and wastes a round-trip. Deep reads intent and clears those. Always run deep unless explicitly told to go fast. Requires loading the verified LLM config (see Workflow).
+- **Fast (only on request):** static + YARA only, `--no-llm`. No keys, deterministic. Use only when Ossie explicitly asks for a quick/static check, or when the LLM provider is genuinely unavailable. Expect false positives; do not deliver a fast-scan verdict as final.
 
 ## Workflow
 
@@ -18,26 +18,35 @@ Run the scanner, capture JSON + stderr, then render. Use a slug from the target 
 
 ```bash
 # skillspector binary: prefer PATH; otherwise the agentic-utilities repo venv.
+SKILLSPEC_DIR="$HOME/Projects/agentic-utilities/skillspector"
 SKILLSPEC="$(command -v skillspector || true)"
-[ -z "$SKILLSPEC" ] && SKILLSPEC="$HOME/Projects/agentic-utilities/skillspector/.venv/bin/skillspector"
+[ -z "$SKILLSPEC" ] && SKILLSPEC="$SKILLSPEC_DIR/.venv/bin/skillspector"
 
 # This skill's render script lives in scripts/ next to this SKILL.md.
 # Set SKILL_DIR to the directory this SKILL.md loaded from.
 SKILL_DIR="<dir-containing-this-SKILL.md>"
 SLUG=<short-name-of-target>          # e.g. agent-reach
 
-# 1. Scan (fast/static default). Accepts a Git URL, local dir, zip, .md, or file URL.
+# 1. Load the VERIFIED LLM config (deep scan needs it; the shell's own
+#    OPENAI_API_KEY/SKILLSPECTOR_MODEL are often empty or stale and 404).
+#    This .env pins gpt-5.4, which is confirmed working on the key. Load only
+#    the four LLM vars and strip inline comments — don't blanket-source it.
+set -a
+eval "$(grep -E '^(SKILLSPECTOR_PROVIDER|SKILLSPECTOR_MODEL|OPENAI_API_KEY|OPENAI_BASE_URL)=' "$SKILLSPEC_DIR/.env" | sed 's/[[:space:]]*#.*//')"
+set +a
+
+# 2. Scan (DEEP/LLM default — no --no-llm). Accepts a Git URL, local dir, zip, .md, or file URL.
 #    Use 2>| (not 2>) so a re-scan with the same slug isn't blocked by zsh noclobber.
-"$SKILLSPEC" scan "<TARGET>" --no-llm \
+"$SKILLSPEC" scan "<TARGET>" \
   --format json --output "/tmp/skillspector-$SLUG.json" \
   2>| "/tmp/skillspector-$SLUG.stderr"
 
-# 2. Render the readable report
+# 3. Render the readable report
 python3 "$SKILL_DIR/scripts/render_report.py" \
   "/tmp/skillspector-$SLUG.json" --scan-log "/tmp/skillspector-$SLUG.stderr"
 ```
 
-For a **deep** scan, drop `--no-llm`. The scan exits non-zero whenever findings exist, which is normal, not a failure. Always render the JSON regardless of exit code.
+For a **fast/static** scan (only when explicitly requested), add `--no-llm` and skip step 1. The scan exits non-zero whenever findings exist, which is normal, not a failure. Always render the JSON regardless of exit code. Confirm `model=gpt-5.4` in the config echo before trusting a deep verdict — if the key/model didn't load, the scan errors out (good) rather than silently degrading.
 
 ## Present the report
 
@@ -45,14 +54,15 @@ The renderer prints chat-ready Markdown. **Paste it straight into the reply.** D
 
 ## How to read the result (so you can explain it)
 
-- **Verdict** is derived purely from the score band: SAFE (score 0-20), CAUTION (21-50), DO_NOT_INSTALL (51+). It's a heuristic, not a human judgment.
-- **The score saturates.** Each HIGH adds 25, each CRITICAL 50, capped at 100, then multiplied by 1.3 if the skill ships executable scripts. Two HIGH findings already max a small skill into the danger band. So 100/100 means "many red flags," not "maximally evil." The *findings* carry the signal, not the number. The report says this; reinforce it.
-- **Findings can be false positives.** A YARA `info_stealer` hit on a binary asset or a changelog, or "Env Variable Harvesting" inside a test file, is often benign. Static analysis flags patterns, not proven intent. Judge each cluster; don't treat every finding as a confirmed threat.
-- **Scan health matters.** If the report's "Scan health" section says the LLM fell back, a deep scan silently degraded to static. Say so, and offer to re-run once the provider is fixed.
+- **Verdict** is derived from the score band: SAFE (0-14), CAUTION (15-49), DO_NOT_INSTALL (50+). It's a heuristic, not a human judgment.
+- **The v2 score is capability-clustered, not a severity sum.** Findings are grouped into capability clusters (one cookie-read capability = one issue, not N hits), each weighted by confidence × LLM-assessed intent (malicious/negligent/benign), combined with diminishing returns so finding *count* no longer pins the score to 100. A **confirmed source→sink exfiltration chain** (taint rules TT3/TT4/TT5) is the categorical DO_NOT_INSTALL trigger — that's the line between "reads X" and "steals X".
+- **A 100/100 now almost always means a degraded (static-only) scan**, not a maximally-evil skill. With no LLM, findings get no intent and many static clusters drive the score up. The renderer flags this loudly; treat a degraded verdict as unreliable and re-run with the LLM.
+- **Capability ≠ confirmed theft.** The report separates "capability present" (code that *can* read credentials) from "confirmed exfiltration" (a taint chain where data actually leaves). Most credential-access findings are the former — dual-use, often safe to run sandboxed. Judge each cluster; don't treat capability as proven malice.
+- **Posture matters.** The "Using it safely" section reframes the same findings for sharing-with-others vs. running-it-yourself-isolated. A capability-only skill is usually fine to run in a container/VM that's denied the real secrets.
 
 ## Gotchas
 
-- **Broken LLM config is common.** If the environment sets `SKILLSPECTOR_MODEL` to a model the provider doesn't serve (a model that 404s), a non-`--no-llm` scan still produces a report but quietly falls back to static. The renderer detects this from stderr and flags it. Prefer `--no-llm` unless deep analysis is specifically wanted.
-- **Don't source a project `.env` just to scan.** The fast path needs no credentials. Sourcing a `.env` can drag in a broken `SKILLSPECTOR_MODEL`/provider and degrade the scan. Run clean.
+- **Use the pinned model, not the shell's.** The shell often carries an empty `OPENAI_API_KEY` or a stale/uppercase `SKILLSPECTOR_MODEL` that 404s. The `skillspector/.env` pins `gpt-5.4` (verified on the key) — load those four vars as in the Workflow, don't rely on the ambient env. `gpt-5.5` 404s on this key; don't switch to it.
+- **Load only the four LLM vars from `.env`, not the whole file.** Blanket-sourcing drags in LangChain/other config and noise. The `grep | sed` one-liner pulls just provider/model/key/base-url and strips inline comments.
 - **Exit code 1 is expected** when findings exist. Check that the JSON file was written, not the exit status.
 - **Big repos produce big JSON.** The raw report can be hundreds of KB. Never read it whole into context. The renderer reads it; you read the renderer's output. Point the user to the JSON path for full detail.

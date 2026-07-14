@@ -44,7 +44,7 @@
   "scripts": {
     "check": "npm run lint && npm run typecheck && npm test && npm run validate:plugins && npm run validate:skills && node scripts/list-resources.mjs",
     "list": "node scripts/list-resources.mjs",
-    "validate:plugins": "node scripts/validate-plugin-ports.mjs",
+    "validate:plugins": "node scripts/validate-plugin-ports.mjs && node scripts/validate-codex-plugins.mjs",
     "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
     "new:extension": "node scripts/new-extension.mjs",
     "new:skill": "node scripts/new-skill.mjs",

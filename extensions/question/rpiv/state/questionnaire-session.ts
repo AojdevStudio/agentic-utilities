@@ -1,6 +1,13 @@
 import type { Theme } from "@mariozechner/pi-coding-agent";
 import { getKeybindings, type Input } from "@mariozechner/pi-tui";
-import type { QuestionData, QuestionnaireResult, QuestionParams } from "../tool/types.js";
+import { clampInput } from "../../limits.js";
+import {
+  MAX_CUSTOM_ANSWER_LENGTH,
+  MAX_NOTES_LENGTH,
+  type QuestionData,
+  type QuestionnaireResult,
+  type QuestionParams,
+} from "../tool/types.js";
 import type { WrappingSelectItem } from "../view/components/wrapping-select.js";
 import { COLLAPSED_HINT } from "../view/dialog-builder.js";
 import type { QuestionnairePropsAdapter } from "../view/props-adapter.js";
@@ -128,7 +135,9 @@ export class QuestionnaireSession {
   }
 
   private mirrorNotesDraft(s: QuestionnaireState): QuestionnaireState {
-    const draft = this.notesInput.getValue();
+    const rawDraft = this.notesInput.getValue();
+    const draft = clampInput(rawDraft, MAX_NOTES_LENGTH);
+    if (draft !== rawDraft) this.notesInput.setValue(draft);
     return s.notesDraft === draft ? s : { ...s, notesDraft: draft };
   }
 
@@ -147,9 +156,12 @@ export class QuestionnaireSession {
       case "set_notes_focused":
         this.notesInput.focused = effect.focused;
         return;
-      case "forward_notes_keystroke":
+      case "forward_notes_keystroke": {
         this.notesInput.handleInput(effect.data);
+        const bounded = clampInput(this.notesInput.getValue(), MAX_NOTES_LENGTH);
+        if (bounded !== this.notesInput.getValue()) this.notesInput.setValue(bounded);
         return;
+      }
       case "done":
         this.done(effect.result);
         return;
@@ -172,6 +184,8 @@ export class QuestionnaireSession {
   private handleIgnoreInline(data: string): void {
     if (!this.state.inputMode) return;
     this.inlineInput.handleInput(data);
+    const bounded = clampInput(this.inlineInput.getValue(), MAX_CUSTOM_ANSWER_LENGTH);
+    if (bounded !== this.inlineInput.getValue()) this.inlineInput.setValue(bounded);
     this.viewAdapter.apply(this.state);
   }
 

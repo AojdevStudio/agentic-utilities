@@ -15,11 +15,11 @@ Verification performed with `npm view @juicesharp/rpiv-ask-user-question@1.15.0`
 The upstream package contents are vendored under `extensions/question/rpiv/`, excluding package metadata but preserving the upstream MIT license at `extensions/question/rpiv/LICENSE`. The vendored source was adapted to:
 
 - use this repo's `@mariozechner/*` Pi package imports instead of upstream `@earendil-works/*` imports;
-- keep `extensions/question.ts` as the single Pi-loaded question extension entrypoint;
-- register upstream-compatible `ask_user_question` alongside legacy `AskUserQuestion` and `AskBatchQuestions`;
+- use `extensions/question/index.ts` as the single Pi-loaded question extension entrypoint;
+- retain the upstream parameter contract under the repository-compliant `agentic_utilities_ask_user_question` name alongside legacy `AskUserQuestion` and `AskBatchQuestions`;
 - expose the upstream TUI executor for `AskBatchQuestions({ presentation: "tui" })`;
 - keep localization optional through runtime dynamic import shims.
 
 ## Compatibility notes
 
-If a user also installs `@juicesharp/rpiv-ask-user-question`, both packages try to register `ask_user_question`. Pi tool registration is last-registration-wins, so extension load order can decide which implementation is active.
+The vendored tool is deliberately namespaced. Installing `@juicesharp/rpiv-ask-user-question` can therefore expose both tools without last-registration-wins behavior; callers must use the appropriate tool name.

@@ -78,18 +78,12 @@ Use `prompts/<name>.prompt.md`. Keep prompts short and task-specific.
 
 Use `themes/<name>.json`. Include screenshots or notes in `docs/` rather than inside `themes/`.
 
-## CodeGraph
-
-This repo tracks an initialized CodeGraph snapshot in `.codegraph/codegraph.db` so agents can start with structural code context immediately. When the CodeGraph MCP daemon is active, its file watcher auto-syncs the graph on source changes. Before committing changes that should affect the graph, run `codegraph status .` and make sure the index is up to date.
-
-Volatile sidecars (`*.db-wal`, `*.db-shm`, locks, logs, and cache files) stay ignored under `.codegraph/`.
-
 ## Local quality gates
 
 - `npm test` runs behavioral smoke tests.
 - `npm run lint` runs Biome linting.
 - `npm run typecheck` runs TypeScript checks.
+- `npm run validate:plugins` validates Claude Code ports plus Codex manifests, declared skills, local references, catalog wiring, junk artifacts, and bundled fixture verifiers.
 - `npm run validate:skills` checks `skills/**/SKILL.md` frontmatter against the Agent Skills baseline used by the skills CLI.
 - `npm run check` runs lint, typecheck, tests, plugin validation, skill validation, and resource inventory.
-- `codegraph status .` confirms the tracked CodeGraph snapshot is current.
 - Husky + lint-staged run Biome on staged files before commit, then typecheck and smoke tests.

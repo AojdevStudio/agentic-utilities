@@ -39,8 +39,11 @@ python3 ~/plugins/html-docs/scripts/markdown_to_html.py docs/VISION.md --force
 
 ## Verify
 
+From this repository, validate the experimental plugin package and its fixtures:
+
 ```bash
-python3 ~/plugins/html-docs/scripts/verify_fixtures.py
+npm run validate:plugins
+python3 codex/plugins/html-docs/scripts/verify_fixtures.py
 ```
 
-The fixture suite covers implementation plans, weekly/status reports, PR writeups, and research explainers.
+The local Codex validator checks the manifest, declared skills, local references, catalog wiring, junk artifacts, and invokes the fixture verifier. It is repository validation, not evidence from an external official `plugin-validator`. The fixture suite covers implementation plans, weekly/status reports, PR writeups, and research explainers.

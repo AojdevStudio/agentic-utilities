@@ -1,11 +1,17 @@
 import { type Static, Type } from "typebox";
+import { QUESTION_LIMITS } from "../../limits.js";
 import { LABELS_BY_KIND, ROW_INTENT_META } from "../state/row-intent.js";
 
 export const MAX_QUESTIONS = 4;
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 4;
 export const MAX_HEADER_LENGTH = 16;
-export const MAX_LABEL_LENGTH = 60;
+export const MAX_LABEL_LENGTH = QUESTION_LIMITS.optionLabel;
+export const MAX_QUESTION_LENGTH = QUESTION_LIMITS.questionText;
+export const MAX_DESCRIPTION_LENGTH = QUESTION_LIMITS.optionDescription;
+export const MAX_PREVIEW_LENGTH = QUESTION_LIMITS.previewContent;
+export const MAX_CUSTOM_ANSWER_LENGTH = QUESTION_LIMITS.customAnswer;
+export const MAX_NOTES_LENGTH = QUESTION_LIMITS.noteBody;
 
 /**
  * User-facing labels for the three runtime sentinel rows, keyed by their
@@ -48,21 +54,21 @@ export const OptionSchema = Type.Object({
     description: `MAX ${MAX_LABEL_LENGTH} CHARACTERS — hard limit, requests over the limit are rejected. The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.`,
   }),
   description: Type.String({
-    description:
-      "Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.",
+    maxLength: MAX_DESCRIPTION_LENGTH,
+    description: `MAX ${MAX_DESCRIPTION_LENGTH} CHARACTERS — hard limit. Explanation of what this option means or what will happen if chosen.`,
   }),
   preview: Type.Optional(
     Type.String({
-      description:
-        "Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.",
+      maxLength: MAX_PREVIEW_LENGTH,
+      description: `MAX ${MAX_PREVIEW_LENGTH} CHARACTERS — hard limit. Optional preview content rendered when this option is focused.`,
     }),
   ),
 });
 
 export const QuestionSchema = Type.Object({
   question: Type.String({
-    description:
-      'The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"',
+    maxLength: MAX_QUESTION_LENGTH,
+    description: `MAX ${MAX_QUESTION_LENGTH} CHARACTERS — hard limit. The complete question to ask the user.`,
   }),
   header: Type.String({
     maxLength: MAX_HEADER_LENGTH,
@@ -134,7 +140,10 @@ export type QuestionnaireError =
   | "too_many_options"
   | "duplicate_question"
   | "duplicate_option_label"
-  | "reserved_label";
+  | "reserved_label"
+  | "invalid_length"
+  | "input_too_large"
+  | "result_too_large";
 
 export interface QuestionnaireResult {
   answers: QuestionAnswer[];

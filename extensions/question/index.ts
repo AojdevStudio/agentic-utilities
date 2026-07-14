@@ -12,10 +12,11 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { clampInput, hasBoundedStrings, isBoundedRecord, QUESTION_LIMITS } from "./limits.js";
 import {
   executeAskUserQuestionnaire,
   registerAskUserQuestionTool as registerRpivAskUserQuestionTool,
-} from "./question/rpiv/ask-user-question.js";
+} from "./rpiv/ask-user-question.js";
 
 type QuestionType = "decision" | "single-choice" | "multi-select" | "text";
 type Presentation = "auto" | "tui" | "browser";
@@ -50,46 +51,81 @@ const NoteToneSchema = StringEnum(["info", "warning", "success", "danger"] as co
 
 const PreviewSchema = Type.Object({
   kind: PreviewKindSchema,
-  title: Type.Optional(Type.String({ description: "Optional preview title" })),
-  content: Type.Optional(Type.String({ description: "Preview content shown beside the options" })),
-  language: Type.Optional(Type.String({ description: "Language for code previews" })),
-  path: Type.Optional(Type.String({ description: "Optional local/example path referenced by the preview" })),
-  url: Type.Optional(Type.String({ description: "Optional URL referenced by the preview" })),
+  title: Type.Optional(Type.String({ maxLength: QUESTION_LIMITS.previewTitle, description: "Optional preview title" })),
+  content: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewContent, description: "Preview content shown beside the options" }),
+  ),
+  language: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewMetadata, description: "Language for code previews" }),
+  ),
+  path: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.previewMetadata,
+      description: "Optional local/example path referenced by the preview",
+    }),
+  ),
+  url: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewMetadata, description: "Optional URL referenced by the preview" }),
+  ),
   collapsed: Type.Optional(Type.Boolean({ description: "Whether to start the preview collapsed" })),
-  i18nKey: Type.Optional(Type.String({ description: "Optional localization key for preview text" })),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for preview text" }),
+  ),
 });
 
 const NoteSchema = Type.Object({
-  title: Type.Optional(Type.String({ description: "Optional note title" })),
-  body: Type.String({ description: "Short context, warning, or trade-off note" }),
+  title: Type.Optional(Type.String({ maxLength: QUESTION_LIMITS.noteTitle, description: "Optional note title" })),
+  body: Type.String({ maxLength: QUESTION_LIMITS.noteBody, description: "Short context, warning, or trade-off note" }),
   tone: Type.Optional(NoteToneSchema),
-  i18nKey: Type.Optional(Type.String({ description: "Optional localization key for note text" })),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for note text" }),
+  ),
 });
 
+const I18nRecordSchema = Type.Record(
+  Type.String({ maxLength: QUESTION_LIMITS.i18nKey }),
+  Type.String({ maxLength: QUESTION_LIMITS.i18nValue }),
+  { maxProperties: QUESTION_LIMITS.i18nEntries },
+);
+
 const I18nSchema = Type.Object({
-  locale: Type.Optional(Type.String({ description: "Optional locale code" })),
-  namespace: Type.Optional(Type.String({ description: "Optional localization namespace" })),
-  strings: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Inline localization strings" })),
-  keys: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Localization key mapping" })),
+  locale: Type.Optional(Type.String({ maxLength: 50, description: "Optional locale code" })),
+  namespace: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization namespace" }),
+  ),
+  strings: Type.Optional(I18nRecordSchema),
+  keys: Type.Optional(I18nRecordSchema),
 });
 
 const OptionSchema = Type.Object({
-  label: Type.String({ description: "Display label shown to the user" }),
-  value: Type.Optional(Type.String({ description: "Optional stable value returned for this option" })),
-  description: Type.Optional(Type.String({ description: "Optional secondary description" })),
+  label: Type.String({ maxLength: QUESTION_LIMITS.optionLabel, description: "Display label shown to the user" }),
+  value: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Optional stable value returned for this option",
+    }),
+  ),
+  description: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.optionDescription, description: "Optional secondary description" }),
+  ),
   preview: Type.Optional(PreviewSchema),
-  notes: Type.Optional(Type.Array(NoteSchema, { description: "Optional notes or trade-offs for this option" })),
-  i18nKey: Type.Optional(Type.String({ description: "Optional localization key for this option" })),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this option" }),
+  ),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this option" }),
+  ),
 });
 
 const AskUserQuestionParams = Type.Object({
-  question: Type.String({ description: "The question to ask the user" }),
+  question: Type.String({ maxLength: QUESTION_LIMITS.questionText, description: "The question to ask the user" }),
   type: Type.Optional(QuestionTypeSchema, {
     description:
       "Question type. Use 'single-choice' for one option, 'multi-select' for multiple options, or 'text' for fill-in-the-blank input. Defaults to 'text' when no options are provided, otherwise 'single-choice'.",
   }),
   options: Type.Optional(
     Type.Array(OptionSchema, {
+      maxItems: QUESTION_LIMITS.optionsPerQuestion,
       description: "Optional choices. If omitted, the user gets a free-form input box.",
     }),
   ),
@@ -99,36 +135,50 @@ const AskUserQuestionParams = Type.Object({
         "When options are provided, also allow a free-form 'Type something...' answer (default: true). For multi-select, custom text can be combined with selected options.",
     }),
   ),
-  placeholder: Type.Optional(Type.String({ description: "Placeholder text for free-form input" })),
-  recommendedOption: Type.Optional(Type.String({ description: "Stable value or label for the recommended option" })),
+  placeholder: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.placeholder, description: "Placeholder text for free-form input" }),
+  ),
+  recommendedOption: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Stable value or label for the recommended option",
+    }),
+  ),
   preview: Type.Optional(PreviewSchema),
-  notes: Type.Optional(Type.Array(NoteSchema, { description: "Optional notes or trade-offs for this question" })),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this question" }),
+  ),
   allowUserNote: Type.Optional(
     Type.Boolean({ description: "Allow the user to attach a note to their answer when supported" }),
   ),
-  i18nKey: Type.Optional(Type.String({ description: "Optional localization key for this question" })),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this question" }),
+  ),
   i18n: Type.Optional(I18nSchema),
   mermaid: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.previewContent,
       description:
         "Optional Mermaid diagram source to help the user understand relationships, flows, or architecture before answering.",
     }),
   ),
   recommendation: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.recommendation,
       description: "Agent's recommendation for this question based on scope and context.",
     }),
   ),
 });
 
 const QuestionItemSchema = Type.Object({
-  question: Type.String({ description: "The question to ask the user" }),
+  question: Type.String({ maxLength: QUESTION_LIMITS.questionText, description: "The question to ask the user" }),
   type: Type.Optional(QuestionTypeSchema, {
     description:
       "Question type. Use 'single-choice' for one option, 'multi-select' for multiple options, or 'text' for fill-in-the-blank input. Defaults to 'text' when no options are provided, otherwise 'single-choice'.",
   }),
   options: Type.Optional(
     Type.Array(OptionSchema, {
+      maxItems: QUESTION_LIMITS.optionsPerQuestion,
       description: "Optional choices. If omitted, the user gets a free-form input box.",
     }),
   ),
@@ -138,31 +188,47 @@ const QuestionItemSchema = Type.Object({
         "When options are provided, also allow a free-form custom answer. For multi-select, custom text can be combined with selected options.",
     }),
   ),
-  placeholder: Type.Optional(Type.String({ description: "Placeholder text for free-form input" })),
-  recommendedOption: Type.Optional(Type.String({ description: "Stable value or label for the recommended option" })),
+  placeholder: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.placeholder, description: "Placeholder text for free-form input" }),
+  ),
+  recommendedOption: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Stable value or label for the recommended option",
+    }),
+  ),
   preview: Type.Optional(PreviewSchema),
-  notes: Type.Optional(Type.Array(NoteSchema, { description: "Optional notes or trade-offs for this question" })),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this question" }),
+  ),
   allowUserNote: Type.Optional(
     Type.Boolean({ description: "Allow the user to attach a note to their answer when supported" }),
   ),
-  i18nKey: Type.Optional(Type.String({ description: "Optional localization key for this question" })),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this question" }),
+  ),
   recommendation: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.recommendation,
       description: "Agent's recommendation for this question based on scope and context.",
     }),
   ),
 });
 
 const AskBatchQuestionsParams = Type.Object({
-  title: Type.String({ description: "Title for the questionnaire" }),
-  description: Type.Optional(Type.String({ description: "Description or context for the questionnaire" })),
+  title: Type.String({ maxLength: QUESTION_LIMITS.title, description: "Title for the questionnaire" }),
+  description: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.description,
+      description: "Description or context for the questionnaire",
+    }),
+  ),
   questions: Type.Array(QuestionItemSchema, {
+    minItems: 1,
+    maxItems: QUESTION_LIMITS.batchQuestions,
     description: "Array of questions to ask the user",
   }),
   presentation: Type.Optional(PresentationSchema),
-  preview: Type.Optional(PreviewSchema),
-  notes: Type.Optional(Type.Array(NoteSchema, { description: "Optional notes for the whole questionnaire" })),
-  i18n: Type.Optional(I18nSchema),
 });
 
 interface MermaidVisualDetails {
@@ -248,17 +314,23 @@ interface QuestionItem {
   i18nKey?: string;
 }
 
-const PrimitiveAnswerSchema = Type.Union([Type.String(), Type.Array(Type.String()), Type.Null()]);
+const BoundedAnswerStringSchema = Type.String({ maxLength: QUESTION_LIMITS.customAnswer });
+const BoundedAnswerArraySchema = Type.Array(BoundedAnswerStringSchema, {
+  maxItems: QUESTION_LIMITS.optionsPerQuestion + 1,
+});
+const PrimitiveAnswerSchema = Type.Union([BoundedAnswerStringSchema, BoundedAnswerArraySchema, Type.Null()]);
+const NullableAnswerStringSchema = Type.Union([BoundedAnswerStringSchema, Type.Null()]);
+const NullableAnswerArraySchema = Type.Union([BoundedAnswerArraySchema, Type.Null()]);
 
 const BatchQuestionAnswerSchema = Type.Object(
   {
-    question: Type.String(),
+    question: Type.String({ maxLength: QUESTION_LIMITS.questionText }),
     questionType: QuestionTypeSchema,
     answer: PrimitiveAnswerSchema,
     value: PrimitiveAnswerSchema,
-    selectedLabel: Type.Union([Type.String(), Type.Null()]),
-    selectedLabels: Type.Union([Type.Array(Type.String()), Type.Null()]),
-    selectedValues: Type.Union([Type.Array(Type.String()), Type.Null()]),
+    selectedLabel: NullableAnswerStringSchema,
+    selectedLabels: NullableAnswerArraySchema,
+    selectedValues: NullableAnswerArraySchema,
     isCustomInput: Type.Boolean(),
   },
   { additionalProperties: false },
@@ -267,7 +339,7 @@ const BatchQuestionAnswerSchema = Type.Object(
 const BatchSubmitPayloadSchema = Type.Object(
   {
     cancelled: Type.Boolean(),
-    answers: Type.Array(BatchQuestionAnswerSchema),
+    answers: Type.Array(BatchQuestionAnswerSchema, { maxItems: QUESTION_LIMITS.batchQuestions }),
   },
   { additionalProperties: false },
 );
@@ -276,7 +348,7 @@ const OTHER_LABEL = "Type something...";
 const DONE_LABEL = "Submit selection";
 const MAX_PROMPT_DIAGRAM_LINES = 18;
 const MAX_PROMPT_DIAGRAM_CHARS = 4000;
-const MAX_RESULT_BODY_BYTES = 1024 * 1024;
+const MAX_RESULT_BODY_BYTES = 128 * 1024;
 const QUESTIONNAIRE_TIMEOUT_MS = 300000;
 
 let mermaidRendererPromise: Promise<((source: string) => string) | null> | null = null;
@@ -310,6 +382,23 @@ function formatAnswer(answer: PrimitiveAnswer): string {
   return answer ?? "(no answer)";
 }
 
+function validateToolParams(schema: unknown, params: unknown): string | undefined {
+  if (!Value.Check(schema as never, params)) return "Questionnaire input violates a field or collection limit.";
+  if (!hasBoundedStrings(params, QUESTION_LIMITS.totalQuestionnaireInput)) {
+    return `Questionnaire input exceeds the ${QUESTION_LIMITS.totalQuestionnaireInput}-character aggregate limit.`;
+  }
+  const i18n = (params as { i18n?: { strings?: unknown; keys?: unknown } } | undefined)?.i18n;
+  if (i18n && (!isBoundedRecord(i18n.strings) || !isBoundedRecord(i18n.keys))) {
+    return "Questionnaire localization entries violate count, key, or value limits.";
+  }
+  return undefined;
+}
+
+function boundedContent(text: string): string {
+  if (text.length <= QUESTION_LIMITS.toolContent) return text;
+  return `Error: questionnaire output exceeds the ${QUESTION_LIMITS.toolContent}-character content limit.`;
+}
+
 async function readTrimmedInput(
   ctx: QuestionExecutionContext,
   prompt: string,
@@ -319,6 +408,10 @@ async function readTrimmedInput(
     const answer = await ctx.ui.input(prompt, placeholder ?? "Type your answer");
     if (answer === undefined) return undefined;
     const trimmed = answer.trim();
+    if (trimmed.length > QUESTION_LIMITS.customAnswer) {
+      ctx.ui.notify(`Answer must be at most ${QUESTION_LIMITS.customAnswer} characters.`, "warning");
+      continue;
+    }
     if (trimmed) return trimmed;
     ctx.ui.notify("Answer cannot be blank.", "warning");
   }
@@ -385,7 +478,11 @@ async function buildMermaidVisual(
   }
 
   try {
-    const ascii = renderer(mermaid);
+    const renderedAscii = renderer(mermaid);
+    const ascii =
+      renderedAscii.length <= QUESTION_LIMITS.previewContent
+        ? renderedAscii
+        : `${renderedAscii.slice(0, QUESTION_LIMITS.previewContent - 24)}\n[diagram output bounded]`;
     return {
       visual: {
         source: mermaid,
@@ -819,7 +916,7 @@ export function generateBatchQuestionsHTML(params: {
               questionType === "text" || q.allowOther !== false || !q.options?.length
                 ? `
               <div class="custom-input">
-                <textarea id="textarea-${index}" placeholder="${escapeHtml(q.placeholder || "Type your answer here...")}"></textarea>
+                <textarea id="textarea-${index}" maxlength="${QUESTION_LIMITS.customAnswer}" placeholder="${escapeHtml(q.placeholder || "Type your answer here...")}"></textarea>
                 <div class="help-text">${questionType === "multi-select" ? "Optional: add custom text in addition to checked options." : questionType === "single-choice" ? "Optional: type a custom answer instead of selecting an option." : "Fill in your answer."}</div>
               </div>
             `
@@ -1097,13 +1194,16 @@ export function generateBatchQuestionsHTML(params: {
 </html>`;
 }
 
-function parseBatchSubmission(
+export function parseBatchSubmission(
   body: string,
 ): { ok: true; value: BatchSubmitPayload } | { ok: false; status: number; error: string } {
   try {
     const parsed: unknown = JSON.parse(body);
     if (!Value.Check(BatchSubmitPayloadSchema, parsed)) {
       return { ok: false, status: 400, error: "Invalid submission payload" };
+    }
+    if (!hasBoundedStrings(parsed, QUESTION_LIMITS.totalUserOutput)) {
+      return { ok: false, status: 413, error: "Submission exceeds aggregate answer limits" };
     }
     return { ok: true, value: parsed as BatchSubmitPayload };
   } catch {
@@ -1259,15 +1359,18 @@ function openHtmlFile(htmlPath: string): void {
 
 function previewToMarkdown(preview?: QuestionPreview | string): string | undefined {
   if (!preview) return undefined;
-  if (typeof preview === "string") return preview.trim() || undefined;
-  if (preview.kind === "mermaid" && preview.content) return `\`\`\`mermaid\n${preview.content}\n\`\`\``;
-  if (preview.kind === "code" && preview.content) return `\`\`\`${preview.language ?? ""}\n${preview.content}\n\`\`\``;
-  return (
-    [preview.title ? `### ${preview.title}` : "", preview.content, preview.url, preview.path]
-      .filter(Boolean)
-      .join("\n\n")
-      .trim() || undefined
-  );
+  const rendered =
+    typeof preview === "string"
+      ? preview.trim()
+      : preview.kind === "mermaid" && preview.content
+        ? `\`\`\`mermaid\n${preview.content}\n\`\`\``
+        : preview.kind === "code" && preview.content
+          ? `\`\`\`${preview.language ?? ""}\n${preview.content}\n\`\`\``
+          : [preview.title ? `### ${preview.title}` : "", preview.content, preview.url, preview.path]
+              .filter(Boolean)
+              .join("\n\n")
+              .trim();
+  return rendered ? clampInput(rendered, QUESTION_LIMITS.previewContent) : undefined;
 }
 
 function makeHeader(question: QuestionItem, index: number): string {
@@ -1292,22 +1395,30 @@ function toRpivQuestions(questions: QuestionItem[]): { questions: any[] } {
       const recommendedOption = question.recommendedOption;
       const questionPreview = previewToMarkdown(question.preview);
       return {
-        question: question.recommendation
-          ? `${question.question}\n\nRecommendation: ${question.recommendation}`
-          : question.question,
+        question: clampInput(
+          question.recommendation
+            ? `${question.question}\n\nRecommendation: ${question.recommendation}`
+            : question.question,
+          QUESTION_LIMITS.questionText,
+        ),
         header: makeHeader(question, index),
         multiSelect: question.type === "multi-select",
         options: options.map((option, optionIndex) => {
           const isRecommended = optionMatchesRecommendation(option, recommendedOption);
-          const label =
-            isRecommended && !/\(Recommended\)/i.test(option.label) ? `${option.label} (Recommended)` : option.label;
+          const label = clampInput(
+            isRecommended && !/\(Recommended\)/i.test(option.label) ? `${option.label} (Recommended)` : option.label,
+            QUESTION_LIMITS.optionLabel,
+          );
           const notes = [
             ...(option.notes ?? []).map((note) => `${note.title ? `${note.title}: ` : ""}${note.body}`),
             ...(option.description ? [option.description] : []),
           ];
           return {
             label,
-            description: notes.join(" ").trim() || option.value || option.label,
+            description: clampInput(
+              notes.join(" ").trim() || option.value || option.label,
+              QUESTION_LIMITS.optionDescription,
+            ),
             preview: previewToMarkdown(option.preview) ?? (optionIndex === 0 ? questionPreview : undefined),
           };
         }),
@@ -1337,6 +1448,24 @@ export default function question(pi: ExtensionAPI) {
     parameters: AskUserQuestionParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: QuestionExecutionContext) {
+      const inputError = validateToolParams(AskUserQuestionParams, params);
+      if (inputError) {
+        return {
+          content: [{ type: "text", text: `Error: ${inputError}` }],
+          details: {
+            question: "",
+            questionType: "text",
+            options: [],
+            answer: null,
+            value: null,
+            selectedLabels: null,
+            selectedValues: null,
+            cancelled: true,
+            mode: "unavailable",
+          } satisfies AskUserQuestionDetails,
+        };
+      }
+
       const normalized = normalizeQuestionItem({
         question: params.question,
         type: params.type,
@@ -1436,7 +1565,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User answered: ${answer}` }],
+          content: [{ type: "text", text: boundedContent(`User answered: ${answer}`) }],
           details: {
             ...detailsBase,
             answer,
@@ -1469,7 +1598,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User selected: ${result.labels.join(", ")}` }],
+          content: [{ type: "text", text: boundedContent(`User selected: ${result.labels.join(", ")}`) }],
           details: {
             ...detailsBase,
             answer: result.labels,
@@ -1519,7 +1648,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User answered: ${answer}` }],
+          content: [{ type: "text", text: boundedContent(`User answered: ${answer}`) }],
           details: {
             ...detailsBase,
             answer,
@@ -1534,7 +1663,7 @@ export default function question(pi: ExtensionAPI) {
 
       const matched = options.find((option) => option.label === selection) ?? { label: selection, value: selection };
       return {
-        content: [{ type: "text", text: `User selected: ${matched.label}` }],
+        content: [{ type: "text", text: boundedContent(`User selected: ${matched.label}`) }],
         details: {
           ...detailsBase,
           answer: matched.label,
@@ -1613,6 +1742,20 @@ export default function question(pi: ExtensionAPI) {
     parameters: AskBatchQuestionsParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: QuestionExecutionContext) {
+      const inputError = validateToolParams(AskBatchQuestionsParams, params);
+      if (inputError) {
+        return {
+          content: [{ type: "text", text: `Error: ${inputError}` }],
+          details: {
+            title: "",
+            description: null,
+            questions: [],
+            cancelled: true,
+            presentation: "browser",
+          } satisfies AskBatchQuestionsDetails,
+        };
+      }
+
       const presentation = (params.presentation ?? "browser") as Presentation;
       if (presentation === "tui" || (presentation === "auto" && ctx.hasUI)) {
         const rpivResult = await executeAskUserQuestionnaire(
@@ -1634,15 +1777,30 @@ export default function question(pi: ExtensionAPI) {
               isCustomInput: answer.kind === "custom" || answer.kind === "chat",
             }))
           : [];
+        const details = {
+          title: params.title,
+          description: params.description ?? null,
+          questions: answers,
+          cancelled: Boolean(rpivResult.details?.cancelled),
+          presentation,
+        } satisfies AskBatchQuestionsDetails;
+        if (!hasBoundedStrings(details, QUESTION_LIMITS.toolDetails)) {
+          return {
+            content: [{ type: "text", text: "Error: questionnaire result exceeds aggregate output limits." }],
+            details: {
+              title: params.title,
+              description: null,
+              questions: [],
+              cancelled: true,
+              presentation,
+            } satisfies AskBatchQuestionsDetails,
+          };
+        }
         return {
-          content: rpivResult.content,
-          details: {
-            title: params.title,
-            description: params.description ?? null,
-            questions: answers,
-            cancelled: Boolean(rpivResult.details?.cancelled),
-            presentation,
-          } satisfies AskBatchQuestionsDetails,
+          content: rpivResult.content.map((item) =>
+            item.type === "text" ? { ...item, text: boundedContent(item.text) } : item,
+          ),
+          details,
         };
       }
 
@@ -1710,15 +1868,22 @@ export default function question(pi: ExtensionAPI) {
           ...result.answers.map((answer, index) => `${index + 1}. ${answer.question} → ${formatAnswer(answer.answer)}`),
         ];
 
+        const details = {
+          title: params.title,
+          description: params.description ?? null,
+          questions: result.answers,
+          cancelled: false,
+          presentation,
+        } satisfies AskBatchQuestionsDetails;
+        if (!hasBoundedStrings(details, QUESTION_LIMITS.toolDetails)) {
+          return {
+            content: [{ type: "text", text: "Error: questionnaire result exceeds aggregate output limits." }],
+            details: { title: params.title, description: null, questions: [], cancelled: true, presentation },
+          };
+        }
         return {
-          content: [{ type: "text", text: summaryLines.join("\n") }],
-          details: {
-            title: params.title,
-            description: params.description ?? null,
-            questions: result.answers,
-            cancelled: false,
-            presentation,
-          } satisfies AskBatchQuestionsDetails,
+          content: [{ type: "text", text: boundedContent(summaryLines.join("\n")) }],
+          details,
         };
       } catch (error) {
         try {
@@ -1731,7 +1896,12 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: boundedContent(`Error: ${error instanceof Error ? error.message : String(error)}`),
+            },
+          ],
           details: {
             title: params.title,
             description: params.description ?? null,

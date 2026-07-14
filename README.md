@@ -19,7 +19,7 @@
 | Resource | Type | Purpose |
 | --- | --- | --- |
 | [`autopilot`](extensions/autopilot/) | Pi Extension | Approval-gated workflow runner with continuation manifests and v2 flow. |
-| [`question`](extensions/question.ts) | Pi Extension | Recommendation-first user questions, browser batch questionnaires, and rpiv-style TUI questionnaires with tabs, previews, notes, and `ask_user_question` compatibility. |
+| [`question`](extensions/question/) | Pi Extension | Recommendation-first user questions, bounded browser batch questionnaires, and an rpiv-contract TUI exposed as `agentic_utilities_ask_user_question`. |
 | [`conditional-hooks`](extensions/conditional-hooks/) | Pi Extension | Loads explicit JSON hook policy, including the documented worktree-GC-on-merge example. |
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
 | [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |

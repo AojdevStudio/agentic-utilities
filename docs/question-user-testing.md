@@ -2,6 +2,8 @@
 
 Use `pi -e .` from this repo, then ask the agent to call each tool shape below. Do not paste local paths, private hostnames, or real credentials into results.
 
+All three tools enforce the field, collection, aggregate-input, user-output, content, and details bounds defined in `extensions/question/limits.ts`. Oversized model input or browser/TUI answers are rejected or capped before they can become an unbounded tool result.
+
 ## Matrix
 
 ### 1. Legacy single-choice with recommendation
@@ -75,7 +77,7 @@ AskBatchQuestions({
       type: "decision",
       recommendedOption: "compatible",
       recommendation: "Keep legacy tools and add snake_case alias to avoid breaking skills.",
-      preview: { kind: "markdown", content: "```ts\nAskUserQuestion(...)\nask_user_question(...)\n```" },
+      preview: { kind: "markdown", content: "```ts\nAskUserQuestion(...)\nagentic_utilities_ask_user_question(...)\n```" },
       options: [
         { label: "Compatible alias (Recommended)", value: "compatible", description: "Best migration path." },
         { label: "Replace old tools", value: "replace", description: "Cleaner API but breaking." }
@@ -94,12 +96,12 @@ AskBatchQuestions({
 })
 ```
 
-### 6. rpiv-compatible alias
+### 6. Namespaced rpiv-contract tool
 
-Expected: same TUI overlay as upstream `@juicesharp/rpiv-ask-user-question`.
+Expected: same parameter contract and TUI behavior as upstream `@juicesharp/rpiv-ask-user-question`, under a collision-free repository namespace.
 
 ```ts
-ask_user_question({
+agentic_utilities_ask_user_question({
   questions: [
     {
       question: "Which review lens should run first?",

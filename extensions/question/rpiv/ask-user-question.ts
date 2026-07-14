@@ -34,6 +34,7 @@ function emitAskUserPromptEvent(pi: ExtensionAPI, params: QuestionParams): void 
 }
 
 const ERROR_NO_UI = "Error: UI not available (running in non-interactive mode)";
+export const ASK_USER_QUESTION_TOOL_NAME = "agentic_utilities_ask_user_question";
 
 export function buildItemsForQuestion(question: QuestionData): WrappingSelectItem[] {
   const items: WrappingSelectItem[] = question.options.map((o) => ({
@@ -50,10 +51,10 @@ export function buildItemsForQuestion(question: QuestionData): WrappingSelectIte
 
 export const DEFAULT_PROMPT_SNIPPET = `Ask the user up to ${MAX_QUESTIONS} structured questions (${MIN_OPTIONS}-${MAX_OPTIONS} options each) when requirements are ambiguous`;
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-  `Use ask_user_question whenever the user's request is underspecified and you cannot proceed without concrete decisions — you can ask up to ${MAX_QUESTIONS} questions per invocation.`,
+  `Use ${ASK_USER_QUESTION_TOOL_NAME} whenever the user's request is underspecified and you cannot proceed without concrete decisions — you can ask up to ${MAX_QUESTIONS} questions per invocation.`,
   `Each question MUST have ${MIN_OPTIONS}-${MAX_OPTIONS} options. Every option requires a concise label (1-5 words) and a description explaining what the choice means or its trade-offs. The user can additionally type a custom answer ("Type something." row is appended automatically to single-select questions) or pick "Chat about this" to abandon the questionnaire.`,
   `Set multiSelect: true when multiple answers are valid; this suppresses the "Type something." row. Provide an options[].preview markdown string when an option benefits from richer side-by-side context (mockups, code snippets, diagrams, configs) — single-select only. NOTE: any non-empty preview on a single-select question ALSO suppresses the "Type something." row (no room in the side-by-side layout); "Chat about this" remains the escape hatch. If you recommend a specific option, make it the first option and append "(Recommended)" to its label.`,
-  "Do not stack multiple ask_user_question calls back-to-back — group all clarifying questions into one invocation.",
+  `Do not stack multiple ${ASK_USER_QUESTION_TOOL_NAME} calls back-to-back — group all clarifying questions into one invocation.`,
 ];
 
 export async function executeAskUserQuestionnaire(pi: ExtensionAPI, params: QuestionParams, ctx: any) {
@@ -101,7 +102,7 @@ export async function executeAskUserQuestionnaire(pi: ExtensionAPI, params: Ques
 export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
   const guidance = validateGuidanceFields(loadConfig().guidance);
   pi.registerTool({
-    name: "ask_user_question",
+    name: ASK_USER_QUESTION_TOOL_NAME,
     label: "Ask User Question",
     description: `Ask the user one or more structured questions during execution. Use when you need to:
 1. Gather user preferences or requirements

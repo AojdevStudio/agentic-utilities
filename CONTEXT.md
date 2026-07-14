@@ -48,10 +48,6 @@ _Avoid_: Symlinked skill when discussing the policy decision rather than the mec
 A packaging path that exposes the same agent-facing resource to a specific ecosystem or installer.
 _Avoid_: Duplicate copy when the duplication is intentional packaging.
 
-**CodeGraph Snapshot**:
-A versioned repository graph used by agents for structural code discovery.
-_Avoid_: Cache when the graph is intentionally tracked with the repo.
-
 ## Relationships
 
 - A **Pi Extension** can expose one or more agent-facing tools.
@@ -62,7 +58,6 @@ _Avoid_: Cache when the graph is intentionally tracked with the repo.
 - A **Canonical Skill** can be copied into one or more **Harness Inventories**.
 - A **Coupled Inventory** is exceptional and should be intentional, not the default.
 - A **Canonical Skill** may appear in multiple **Distribution Lanes** when each lane serves a different installer or runtime.
-- A **CodeGraph Snapshot** should reflect the source tree that agents are expected to explore.
 
 ## Example dialogue
 

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createJiti } from "@mariozechner/jiti";
 
 const jiti = createJiti(import.meta.url);
-const extensionModule = await jiti.import("../question.ts");
+const extensionModule = await jiti.import("./index.ts");
+const limits = await jiti.import("./limits.ts");
 const types = await jiti.import("./rpiv/tool/types.ts");
 const validator = await jiti.import("./rpiv/tool/validate-questionnaire.ts");
 const response = await jiti.import("./rpiv/tool/response-envelope.ts");
@@ -68,6 +69,72 @@ const tooManyOptions = {
 };
 assert.equal(validator.validateQuestionnaire(tooManyOptions).error, "too_many_options");
 
+const maximumFieldQuestionnaire = {
+  questions: [
+    {
+      question: "q".repeat(types.MAX_QUESTION_LENGTH),
+      header: "h".repeat(types.MAX_HEADER_LENGTH),
+      options: [
+        {
+          label: "a".repeat(types.MAX_LABEL_LENGTH),
+          description: "d".repeat(types.MAX_DESCRIPTION_LENGTH),
+          preview: "p".repeat(types.MAX_PREVIEW_LENGTH),
+        },
+        { label: "Second", description: "d".repeat(types.MAX_DESCRIPTION_LENGTH) },
+      ],
+    },
+  ],
+};
+assert.deepEqual(validator.validateQuestionnaire(maximumFieldQuestionnaire), { ok: true });
+assert.equal(
+  validator.validateQuestionnaire({
+    questions: [{ ...maximumFieldQuestionnaire.questions[0], question: "q".repeat(types.MAX_QUESTION_LENGTH + 1) }],
+  }).error,
+  "invalid_length",
+);
+const aggregateTooLarge = {
+  questions: Array.from({ length: types.MAX_QUESTIONS }, (_, questionIndex) => ({
+    question: `Question ${questionIndex}?`,
+    header: `Q${questionIndex}`,
+    options: Array.from({ length: types.MAX_OPTIONS }, (_, optionIndex) => ({
+      label: `Option ${questionIndex}-${optionIndex}`,
+      description: "d".repeat(types.MAX_DESCRIPTION_LENGTH),
+      preview: "p".repeat(types.MAX_PREVIEW_LENGTH),
+    })),
+  })),
+};
+assert.equal(validator.validateQuestionnaire(aggregateTooLarge).error, "input_too_large");
+
+const maximumCollectionQuestionnaire = {
+  questions: Array.from({ length: types.MAX_QUESTIONS }, (_, questionIndex) => ({
+    question: `Bounded question ${questionIndex}?`,
+    header: `Q${questionIndex}`,
+    options: Array.from({ length: types.MAX_OPTIONS }, (_, optionIndex) => ({
+      label: `Option ${questionIndex}-${optionIndex}`,
+      description: "d".repeat(500),
+      preview: "p".repeat(500),
+    })),
+  })),
+};
+assert.deepEqual(validator.validateQuestionnaire(maximumCollectionQuestionnaire), { ok: true });
+const maximumCollectionEnvelope = response.buildQuestionnaireResponse(
+  {
+    cancelled: false,
+    answers: maximumCollectionQuestionnaire.questions.map((question, questionIndex) => ({
+      questionIndex,
+      question: question.question,
+      kind: "option",
+      answer: question.options[0].label,
+      preview: question.options[0].preview,
+      notes: "n".repeat(types.MAX_NOTES_LENGTH),
+    })),
+  },
+  maximumCollectionQuestionnaire,
+);
+assert.ok(maximumCollectionEnvelope.content[0].text.length <= limits.QUESTION_LIMITS.toolContent);
+assert.ok(JSON.stringify(maximumCollectionEnvelope.details).length <= limits.QUESTION_LIMITS.toolDetails);
+assert.equal(maximumCollectionEnvelope.details.cancelled, false);
+
 const envelope = response.buildQuestionnaireResponse(
   {
     cancelled: false,
@@ -89,6 +156,34 @@ assert.equal(envelope.details.cancelled, false);
 assert.equal(envelope.details.answers[0].notes, "Prefer this for Pi.");
 assert.match(envelope.content[0].text, /selected preview:/);
 assert.match(envelope.content[0].text, /user notes:/);
+assert.ok(envelope.content[0].text.length <= limits.QUESTION_LIMITS.toolContent);
+assert.ok(JSON.stringify(envelope.details).length <= limits.QUESTION_LIMITS.toolDetails);
+
+const oversizedResult = response.buildQuestionnaireResponse(
+  {
+    cancelled: false,
+    answers: Array.from({ length: types.MAX_QUESTIONS }, (_, questionIndex) => ({
+      questionIndex,
+      question: `Question ${questionIndex}?`,
+      kind: "custom",
+      answer: "a".repeat(types.MAX_CUSTOM_ANSWER_LENGTH),
+      notes: "n".repeat(types.MAX_NOTES_LENGTH),
+    })),
+  },
+  {
+    questions: Array.from({ length: types.MAX_QUESTIONS }, (_, questionIndex) => ({
+      question: `Question ${questionIndex}?`,
+      header: `Q${questionIndex}`,
+      options: [
+        { label: "One", description: "First." },
+        { label: "Two", description: "Second." },
+      ],
+    })),
+  },
+);
+assert.equal(oversizedResult.details.error, "result_too_large");
+assert.equal(oversizedResult.details.answers.length, 0);
+assert.ok(oversizedResult.content[0].text.length <= limits.QUESTION_LIMITS.toolContent);
 
 const tools = [];
 extensionModule.default({
@@ -103,8 +198,50 @@ extensionModule.default({
 });
 assert.deepEqual(
   tools.map((tool) => tool.name),
-  ["ask_user_question", "AskUserQuestion", "AskBatchQuestions"],
+  ["agentic_utilities_ask_user_question", "AskUserQuestion", "AskBatchQuestions"],
 );
+
+const singleTool = tools.find((tool) => tool.name === "AskUserQuestion");
+const oversizedSingle = await singleTool.execute(
+  "tool-call-id",
+  { question: "q".repeat(limits.QUESTION_LIMITS.questionText + 1), type: "text" },
+  new AbortController().signal,
+  () => {},
+  { hasUI: false, ui: {} },
+);
+assert.equal(oversizedSingle.details.cancelled, true);
+assert.match(oversizedSingle.content[0].text, /field or collection limit/);
+
+const oversizedBrowserAnswer = {
+  cancelled: false,
+  answers: [
+    {
+      question: "Bounded?",
+      questionType: "text",
+      answer: "a".repeat(limits.QUESTION_LIMITS.customAnswer + 1),
+      value: "a",
+      selectedLabel: null,
+      selectedLabels: null,
+      selectedValues: null,
+      isCustomInput: true,
+    },
+  ],
+};
+assert.equal(extensionModule.parseBatchSubmission(JSON.stringify(oversizedBrowserAnswer)).status, 400);
+const aggregateBrowserAnswer = {
+  cancelled: false,
+  answers: Array.from({ length: 3 }, (_, index) => ({
+    question: `Question ${index}?`,
+    questionType: "text",
+    answer: "a".repeat(limits.QUESTION_LIMITS.customAnswer),
+    value: "a".repeat(limits.QUESTION_LIMITS.customAnswer),
+    selectedLabel: null,
+    selectedLabels: null,
+    selectedValues: null,
+    isCustomInput: true,
+  })),
+};
+assert.equal(extensionModule.parseBatchSubmission(JSON.stringify(aggregateBrowserAnswer)).status, 413);
 
 const batchTool = tools.find((tool) => tool.name === "AskBatchQuestions");
 const noUiResult = await batchTool.execute(
@@ -115,7 +252,10 @@ const noUiResult = await batchTool.execute(
     questions: valid.questions.map((question) => ({
       question: question.question,
       type: "decision",
-      options: question.options,
+      options: question.options.map((option) => ({
+        ...option,
+        preview: option.preview ? { kind: "markdown", content: option.preview } : undefined,
+      })),
       recommendedOption: question.options[0].label,
       recommendation: "Use the first option.",
     })),

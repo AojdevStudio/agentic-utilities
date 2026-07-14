@@ -32,7 +32,6 @@ Run before shipping changes:
 ```bash
 npm run check
 npm run pack:dry
-codegraph status .
 pi -e .
 ```
 
@@ -75,4 +74,3 @@ Use the repo's canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`
 ### Project context docs
 
 This is a single-context repo with root `CONTEXT.md` and `docs/adr/`; product/design docs are absent until needed. See `docs/agents/domain.md`.
-

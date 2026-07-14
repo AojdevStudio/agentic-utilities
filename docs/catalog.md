@@ -7,7 +7,6 @@ Keep this as the human-readable record of what lives in the package.
 | `agentic-utilities` | Claude Code Marketplace | `.claude-plugin/marketplace.json` | active | Marketplace manifest exposing Claude Code plugins from this repo. |
 | `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `npx skills add . --list`. |
 | `html-docs` | Codex Plugin | `codex/plugins/html-docs/.codex-plugin/plugin.json` | experimental | Converts Markdown plans, reports, PR writeups, research notes, and general docs into standalone adjacent HTML artifacts. |
-| `grill-with-team` | Codex Plugin | `codex/plugins/grill-with-team/.codex-plugin/plugin.json` | experimental | Codex-native team grilling workflow with bundled prototype, setup, PRD, issue-slicing, triage, diagnosis, TDD, and zoom-out skills. |
 | `adversarial-review` | Extension | `extensions/adversarial-review.ts` | active | Runs adversarial implementation review workflows from Pi as extension tools/commands. |
 | `anti-hedging` | Extension | `extensions/anti-hedging.ts` | active | Injects concise anti-hedging response guidance for sharper agent answers. |
 | `autopilot` | Extension | `extensions/autopilot/index.ts` | active | Autopilot workflow extension with approvals, preferences, continuation manifests, v2 workflow support, and command docs in `docs/autopilot.md`. |
@@ -15,7 +14,7 @@ Keep this as the human-readable record of what lives in the package.
 | `conditional-hooks` | Extension | `extensions/conditional-hooks/index.ts` | active | Loads Conditional Hook JSON config, merges global and trusted-project hook policy, runs matching bash hooks, appends configured output, and documents explicit worktree-GC-on-merge config. |
 | `hello` | Extension | `extensions/hello/index.ts` | example | Smoke-test extension that exposes `/agentic-utilities` and `agentic_utilities_ping`. |
 | `interactive-artifacts` | Extension | `extensions/interactive-artifacts/index.ts` | active | Publishes browser-based interactive concept explainer artifacts from Pi. |
-| `question` | Extension | `extensions/question.ts` | active | Adds legacy `AskUserQuestion`/`AskBatchQuestions` plus rpiv-compatible `ask_user_question` with TUI tabs, previews, notes, optional i18n, and strict 2-4 option questionnaires; if upstream `@juicesharp/rpiv-ask-user-question` is also installed, `ask_user_question` is last-registration-wins by extension load order. |
+| `question` | Extension | `extensions/question/index.ts` | active | Adds bounded legacy `AskUserQuestion`/`AskBatchQuestions` tools plus the namespaced `agentic_utilities_ask_user_question` TUI, which retains the rpiv parameter contract without colliding with upstream. |
 | `todos` | Extension | `extensions/todos.ts` | active | Manages file-backed todos for agent task tracking. |
 | `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search, fetch, and related browser-grade research tools. |
 | `adversarial-review` | Skill | `skills/adversarial-review/SKILL.md` | active | Deep implementation review skill for bug hunting and ship-readiness checks. |

@@ -58,7 +58,8 @@ function referenceExists(pluginRoot, sourceFile, reference) {
   if (!clean || /^(?:https?:|mailto:|#)/.test(clean)) return true;
   const wildcard = clean.search(/[?*]/);
   const withoutGlob = wildcard === -1 ? clean : clean.slice(0, wildcard);
-  const targetFragment = wildcard === -1 ? withoutGlob : path.dirname(withoutGlob);
+  const targetFragment =
+    wildcard === -1 ? withoutGlob : withoutGlob.endsWith("/") ? withoutGlob.slice(0, -1) : path.dirname(withoutGlob);
   const bases = [path.dirname(sourceFile), pluginRoot];
   if (/^(?:scripts|assets|skills)\//.test(clean)) bases.reverse();
   return bases.some((base) => {
@@ -71,7 +72,7 @@ function checkReferences(plugin, pluginRoot, file) {
   const text = fs.readFileSync(file, "utf8");
   const references = new Set();
   for (const match of text.matchAll(/\]\(([^)\s]+)\)/g)) references.add(match[1]);
-  for (const match of text.matchAll(/(?:^|[\s`"'$])((?:scripts|references|assets|skills)\/[A-Za-z0-9._*?/-]+)/gm)) {
+  for (const match of text.matchAll(/(?:^|[\s`"'$/])((?:scripts|references|assets|skills)\/[A-Za-z0-9._*?/-]+)/gm)) {
     references.add(match[1]);
   }
   for (const reference of references) {

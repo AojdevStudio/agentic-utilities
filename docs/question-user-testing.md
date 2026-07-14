@@ -117,7 +117,7 @@ agentic_utilities_ask_user_question({
 
 ## Results
 
-- Environment: pending
-- Pi version: pending
-- Automated checks: pending
-- Manual result: pending
+- Environment: isolated `PI_CODING_AGENT_DIR`, offline, explicit package load
+- Pi version: `0.80.6` (verified with `pi --version`)
+- Automated checks: `npm test` and isolated non-interactive Pi startup passed
+- Manual interactive result: pending

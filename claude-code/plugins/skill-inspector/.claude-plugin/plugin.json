@@ -1,0 +1,23 @@
+{
+  "name": "skill-inspector",
+  "version": "0.1.0",
+  "description": "Security-inspect an AI agent skill with the skillspector CLI, then render a plain-English verdict report in chat: SAFE / CAUTION / DO_NOT_INSTALL, a threat breakdown, the top findings to check first, and file hotspots. Deep mode adds LLM intent classification; the verdict is capability-clustered and intent-weighted, with confirmed source-to-sink exfiltration chains as the categorical do-not-install trigger. Bundles the render script and flags degraded (static-only) scans so an unreliable verdict is never mistaken for a trustworthy one.",
+  "author": {
+    "name": "Ossie Irondi"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/claude-code/plugins/skill-inspector",
+  "repository": "https://github.com/AojdevStudio/agentic-utilities",
+  "license": "MIT",
+  "keywords": [
+    "skillspector",
+    "security",
+    "skill-audit",
+    "malware-scan",
+    "supply-chain",
+    "prompt-injection",
+    "data-exfiltration",
+    "agent-skills",
+    "static-analysis",
+    "yara"
+  ]
+}

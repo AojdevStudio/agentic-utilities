@@ -30,6 +30,7 @@ Keep this as the human-readable record of what lives in the package.
 | `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Audits repo harness readiness and fix gaps; copy into harness-specific inventories for daily use when isolation matters. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
+| `skill-inspector` | Skill | `skills/skill-inspector/SKILL.md` | active | Global-first skill (symlinked into `~/.claude/skills/skill-inspector`); security-scans agent skills with the `skillspector` CLI and renders a plain-English verdict report (safe/caution/do-not-install, threat breakdown, top findings) for chat. |
 | `critical-bug-hunt.prompt` | Prompt | `prompts/critical-bug-hunt.prompt.md` | active | Recent-commit audit prompt for high-severity correctness bugs and minimal fixes. |
 | `adversarial-review` | Claude Code Plugin | `claude-code/plugins/adversarial-review/.claude-plugin/plugin.json` | active | Adversarial implementation review — sends a structured prompt to a heavyweight reviewer to catch real bugs, returning a trinary verdict and a P0/P1/P2 fix list. |
 | `ask-codex` | Claude Code Plugin | `claude-code/plugins/ask-codex/.claude-plugin/plugin.json` | active | OpenAI Codex CLI integration — wraps `codex exec` / `codex resume` with model, reasoning-effort, and sandbox control. |
@@ -46,7 +47,9 @@ Keep this as the human-readable record of what lives in the package.
 | `linear` | Claude Code Plugin | `claude-code/plugins/linear/.claude-plugin/plugin.json` | active | Linear issue management via the `linearis` CLI — create/update/resolve/plan issues; bundles 12 workflow playbooks. |
 | `repo-architect` | Claude Code Plugin | `claude-code/plugins/repo-architect/.claude-plugin/plugin.json` | active | Repository organization expert — structure, audit, and refactor via 8 framework archetypes; bundles 4 workflow playbooks. |
 | `saas-standards` | Claude Code Plugin | `claude-code/plugins/saas-standards/.claude-plugin/plugin.json` | active | Enforces non-negotiable SaaS standards — signup, mandatory onboarding, route guards, schema, backend/ORM, and state management. |
-| `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report — top-used, recently-active, dormant, and phantom skills. |
+| `ship-issue` | Claude Code Plugin | `claude-code/plugins/ship-issue/.claude-plugin/plugin.json` | active | Executes GitHub issues one at a time as vertical slices: sync, branch, TDD each criterion, verify, self-review, open PR, then babysit to a terminal state before the next. |
+| `skill-inspector` | Claude Code Plugin | `claude-code/plugins/skill-inspector/.claude-plugin/plugin.json` | active | Security-scans an agent skill with the `skillspector` CLI and renders a plain-English verdict (SAFE/CAUTION/DO_NOT_INSTALL): capability-clustered, intent-weighted scoring with confirmed source-to-sink exfiltration as the do-not-install trigger; flags degraded static-only scans. |
+| `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report: top-used, recently-active, dormant, and phantom skills. |
 | `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
 
 ## Status labels

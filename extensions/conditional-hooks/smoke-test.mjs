@@ -7,15 +7,34 @@ import { createJiti } from "@mariozechner/jiti";
 const jiti = createJiti(import.meta.url);
 const conditionalHooks = await jiti.import("./index.ts");
 
+/**
+ * Write a value as pretty-printed JSON to a path, creating parent dirs as needed.
+ *
+ * @param {string} filePath Absolute path of the JSON file to write.
+ * @param {unknown} value Value serialized with JSON.stringify (2-space indent).
+ * @returns {void}
+ */
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "conditional-hooks-"));
+
+// Isolate os.homedir() for the duration of the test. The default extension
+// handlers (session_start) read the global config from os.homedir()/.pi/agent,
+// so without isolation a real ~/.pi/agent/conditional-hooks.json on the
+// developer's machine leaks in. A real global hook whose command regex also
+// matches a fixture command (e.g. a worktree-gc-on-merge hook matching
+// "git merge") then runs alongside the fixture hook and inflates shellRuns,
+// failing the dedupe/fallback assertions locally while passing on clean CI.
 const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const isolatedHome = path.join(tmp, "isolated-home");
+fs.mkdirSync(isolatedHome, { recursive: true });
+process.env.HOME = isolatedHome;
+process.env.USERPROFILE = isolatedHome;
 try {
-  process.env.HOME = path.join(tmp, "home");
   const cwd = path.join(tmp, "repo");
   const globalPath = path.join(tmp, "home", ".pi", "agent", "conditional-hooks.json");
   const projectPath = path.join(cwd, ".pi", "conditional-hooks.json");
@@ -115,6 +134,19 @@ try {
     run: { command: "echo hook", ignoreFailure: true },
   };
 
+  /**
+   * Run runMatchingConditionalHooks against a fake exec and capture its effects.
+   *
+   * The fake exec resolves "git" to repoRoot (or throws when repoRoot is unset),
+   * and resolves "sh" to either a failing or succeeding hook command per failShell.
+   *
+   * @param {object} options Scenario inputs.
+   * @param {unknown} options.event Tool event passed to the hook runner.
+   * @param {object[]} [options.hooks] Hooks to evaluate (defaults to [bashHook]).
+   * @param {string} [options.repoRoot] Repo root returned by the fake "git" exec.
+   * @param {boolean} [options.failShell] When true, the fake "sh" exec fails.
+   * @returns {Promise<{results: unknown, calls: object[], warnings: string[]}>} Captured run output.
+   */
   async function runHookScenario({ event, hooks = [bashHook], repoRoot, failShell = false }) {
     const calls = [];
     const warnings = [];
@@ -517,7 +549,9 @@ try {
 
   console.log("conditional-hooks smoke tests passed");
 } finally {
-  if (typeof originalHome === "string") process.env.HOME = originalHome;
-  else delete process.env.HOME;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   fs.rmSync(tmp, { recursive: true, force: true });
 }

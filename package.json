@@ -84,7 +84,7 @@
   },
   "dependencies": {
     "@juicesharp/rpiv-config": "^1.15.0",
-    "shell-quote": "^1.8.3"
+    "shell-quote": "^1.8.4"
   },
   "overrides": {
     "protobufjs": ">=7.5.6"

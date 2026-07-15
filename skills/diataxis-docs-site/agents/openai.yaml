@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diátaxis Docs Site"
+  short_description: "Build standard AOJ Diátaxis documentation sites"
+  default_prompt: "Use $diataxis-docs-site to build and publish a Diátaxis documentation site for this project."

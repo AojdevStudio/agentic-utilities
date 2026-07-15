@@ -51,7 +51,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && node scripts/validate-package-contents.mjs",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

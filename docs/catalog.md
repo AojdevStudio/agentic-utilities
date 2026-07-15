@@ -20,8 +20,10 @@ Keep this as the human-readable record of what lives in the package.
 | `awesome-readme` | Skill | `skills/awesome-readme/SKILL.md` | active | Creates, improves, and reviews GitHub README files with a story-first structure. |
 | `bambu-slicer` | Skill | `skills/bambu-slicer/SKILL.md` | active | Public-safe Agent Skill for Bambu Lab 3D-printing workflows: OpenSCAD design, MakerWorld browsing, OrcaSlicer CLI slicing, plate arrangement, and printer control. |
 | `deep-dive` | Skill | `skills/deep-dive/SKILL.md` | active | Produces structured deep-dive technical, operational, and strategic analysis. |
+| `diataxis-docs-site` | Skill | `skills/diataxis-docs-site/SKILL.md` | active | Builds and maintains source-backed documentation sites organized around tutorials, how-to guides, reference, and explanation. |
 | `find-docs` | Skill | `skills/find-docs/SKILL.md` | active | Retrieves authoritative, current technical docs and API references before answering or coding. |
 | `gitworkflow` | Skill | `skills/gitworkflow/SKILL.md` | active | Handles Git Flow branching, CI monitoring, PRs, merges, releases, submodules, and issue routing. |
+| `github-wiki` | Skill | `skills/github-wiki/SKILL.md` | active | Builds and maintains canonical, source-backed GitHub Wikis with rendered verification and event-driven maintenance. |
 | `grill-me` | Skill | `skills/grill-me/SKILL.md` | active | Stress-tests a plan or design through a rigorous user interview. |
 | `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Global-first skill with `~/.pi/agent/skills/harness-audit` symlinked here; audits repo harness readiness and fix gaps. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |

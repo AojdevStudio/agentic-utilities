@@ -46,6 +46,21 @@ function extract(text) {
 }
 
 {
+  // Terminal boundary: a coincidental prefix of a longer filename must not
+  // be truncated into a match for a shorter, unrelated real asset name.
+  const refs = extract("See `assets/logo.png.bak` for the backup.");
+  assert.equal(refs.length, 0, "assets/logo.png.bak must not extract as assets/logo.png");
+}
+
+{
+  // A safe leading "./" (same-directory prefix) is a common, harmless
+  // convention and must be captured, not silently unmatched.
+  const refs = extract("Run `./scripts/gen.sh` now.");
+  assert.equal(refs.length, 1, "./scripts/gen.sh must be extracted");
+  assert.deepEqual(refs[0], { prefixed: false, pathPart: "./scripts/gen.sh", ref: "./scripts/gen.sh" });
+}
+
+{
   // The exact adversarial case from the review: a ${CLAUDE_PLUGIN_ROOT}/../
   // reference must keep its traversal prefix attached to the captured
   // pathPart, not get reinterpreted as the bare tail `tools/outside.ts`.
@@ -87,6 +102,10 @@ for (const pathPart of ["scripts/../../secret/outside.md", "../../secret/outside
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "bundle-refs-"));
 const base = path.join(tmp, "skills", "fixture-plugin");
 fs.mkdirSync(path.join(base, "scripts"), { recursive: true });
+fs.mkdirSync(path.join(base, "assets"), { recursive: true });
+// A real file at the shorter, truncated path a terminal-boundary bug would
+// coincidentally match against (assets/logo.png.bak -> assets/logo.png).
+fs.writeFileSync(path.join(base, "assets", "logo.png"), "not a real png, just fixture bytes\n");
 fs.mkdirSync(path.join(base, "tools"), { recursive: true });
 fs.writeFileSync(path.join(base, "scripts", "gen.sh"), "#!/bin/sh\necho ok\n");
 // A directory whose name matches the reference vocabulary + extension
@@ -102,6 +121,19 @@ fs.mkdirSync(path.join(tmp, "secret"), { recursive: true });
 fs.writeFileSync(path.join(tmp, "secret", "real-target.md"), "should never be reachable\n");
 fs.symlinkSync(path.join(tmp, "secret", "real-target.md"), path.join(base, "scripts", "escape-link.md"));
 fs.symlinkSync(path.join(base, "scripts", "gen.sh"), path.join(base, "scripts", "safe-link.sh"));
+// A symlinked *parent directory* escaping the bundle, with an ordinary
+// regular file sitting behind it. lstat on the final component alone can't
+// see this: path resolution follows the intermediate symlink transparently,
+// so the final component looks like a plain contained file unless the whole
+// resolved path is realpath-checked.
+fs.mkdirSync(path.join(tmp, "secret", "linked-target"), { recursive: true });
+fs.writeFileSync(path.join(tmp, "secret", "linked-target", "payload.md"), "should never be reachable\n");
+fs.symlinkSync(path.join(tmp, "secret", "linked-target"), path.join(base, "scripts", "linked-dir"));
+// A dangling symlink (target does not exist).
+fs.symlinkSync(path.join(base, "scripts", "does-not-exist.sh"), path.join(base, "scripts", "dangling.sh"));
+// A cyclic symlink pair.
+fs.symlinkSync(path.join(base, "scripts", "cycle-b"), path.join(base, "scripts", "cycle-a"));
+fs.symlinkSync(path.join(base, "scripts", "cycle-a"), path.join(base, "scripts", "cycle-b"));
 
 {
   // missing: lexically contained, no file on disk.
@@ -134,6 +166,32 @@ fs.symlinkSync(path.join(base, "scripts", "gen.sh"), path.join(base, "scripts", 
   assert.equal(checkReferenceOnDisk(base, resolved).reason, "ok");
 }
 
+{
+  // The exact adversarial case from the review: an escaping *parent*
+  // directory symlink, reached through a final component that is itself a
+  // plain regular file (not a symlink).
+  const resolved = path.join(base, "scripts", "linked-dir", "payload.md");
+  assert.equal(
+    checkReferenceOnDisk(base, resolved).reason,
+    "symlink-escape",
+    "a file behind a symlinked parent directory must be rejected as escaping",
+  );
+}
+
+{
+  // A dangling symlink must fail as a controlled validation reason, not
+  // throw an uncaught ENOENT out of realpathSync.
+  const resolved = path.join(base, "scripts", "dangling.sh");
+  assert.equal(checkReferenceOnDisk(base, resolved).reason, "missing");
+}
+
+{
+  // A cyclic symlink pair must fail as a controlled validation reason, not
+  // throw an uncaught ELOOP out of realpathSync.
+  const resolved = path.join(base, "scripts", "cycle-a");
+  assert.equal(checkReferenceOnDisk(base, resolved).reason, "missing");
+}
+
 // --- End-to-end: extractor -> resolver -> on-disk check, chained exactly
 // the way validate-plugin-ports.mjs's checkSkillReferences runs them -------
 
@@ -157,6 +215,24 @@ assert.equal(
   "traversal",
   "production pipeline must reject the traversal reference even though tools/outside.ts genuinely exists in the bundle",
 );
+
+assert.equal(
+  validateReference("Run `./scripts/gen.sh` now.", base),
+  "ok",
+  "production pipeline must accept a safe leading ./ prefix",
+);
+
+{
+  // The exact terminal-boundary adversarial case, end to end: even with a
+  // real file sitting at the truncated path (assets/logo.png), the
+  // coincidental-prefix text must never extract a match to validate at all.
+  const refs = extract("See `assets/logo.png.bak` for the backup.");
+  assert.equal(
+    refs.length,
+    0,
+    "production pipeline must never match assets/logo.png.bak against the real assets/logo.png file",
+  );
+}
 
 fs.rmSync(tmp, { recursive: true, force: true });
 

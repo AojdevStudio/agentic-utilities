@@ -115,32 +115,32 @@ function checkSkillFrontmatter(plugin) {
 const REF_EXT = ["md", "ts", "tsx", "sh", "json", "js", "mjs", "cjs", "py", "png", "jpg", "jpeg", "gif", "svg", "webp"];
 const ALL_SUBDIRS = ["workflows", "references", "tools", "scripts", "cli", "assets", "hooks"];
 
-/** True if the real (symlink-resolved) path of `resolved` stays inside the real path of `base`. */
-function realpathContained(base, resolved) {
-  const realBase = fs.realpathSync(base);
-  const realResolved = fs.realpathSync(resolved);
-  const rel = path.relative(realBase, realResolved);
-  return !rel.startsWith("..") && !path.isAbsolute(rel);
-}
-
 /**
  * Filesystem-facing half of reference validation, applied only after
  * `resolveBundleReference` has already confirmed `resolved` is lexically
- * inside `base`. Requires an existing *regular file* whose real path (after
- * resolving symlinks) also stays inside `base` — a directory or a symlink
- * that escapes the bundle is rejected even though the lexical path was fine.
+ * inside `base`. `realpathSync` is required unconditionally (not just when
+ * the final path component is itself a symlink) because a symlinked
+ * *parent* directory resolves away silently otherwise: `lstatSync` on the
+ * final component follows all intermediate symlinks as a normal part of
+ * path resolution, so a plain file sitting behind a symlinked directory
+ * looks like an ordinary contained file unless the whole path is
+ * realpath-resolved and re-checked for containment. A dangling or cyclic
+ * symlink makes `realpathSync` throw (ENOENT / ELOOP); that is a controlled
+ * "missing" result here, not an uncaught crash.
  */
 export function checkReferenceOnDisk(base, resolved) {
-  let stat;
+  let real;
   try {
-    stat = fs.lstatSync(resolved);
+    real = fs.realpathSync(resolved);
   } catch {
     return { reason: "missing" };
   }
-  if (stat.isSymbolicLink() && !realpathContained(base, resolved)) {
+  const realBase = fs.realpathSync(base);
+  const rel = path.relative(realBase, real);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
     return { reason: "symlink-escape" };
   }
-  if (!fs.statSync(resolved).isFile()) {
+  if (!fs.statSync(real).isFile()) {
     return { reason: "not-a-file" };
   }
   return { reason: "ok" };
@@ -275,4 +275,23 @@ function main() {
   console.log(`✓ plugin-port validation passed (${plugins.length} plugins)`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// A plain `import.meta.url === \`file://${process.argv[1]}\`` string
+// comparison is not URL-safe: import.meta.url percent-encodes characters
+// like spaces, while the raw argv path does not, so a checkout path
+// containing a space silently fails the check and main() never runs.
+// Comparing filesystem paths instead of URL strings sidesteps encoding
+// entirely: fileURLToPath decodes import.meta.url back to a native path
+// (already realpath-resolved by Node for a directly-executed script — e.g.
+// through macOS's /tmp -> /private/tmp symlink), and realpathSync resolves
+// the same way on the argv side so both sides compare on equal footing
+// regardless of spaces, separators, or symlinked ancestor directories.
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) main();

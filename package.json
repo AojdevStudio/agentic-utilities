@@ -53,7 +53,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py",
     "typecheck": "tsc --noEmit",
     "validate:skills": "node scripts/validate-agent-skills.mjs"
   },

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "agentic-utilities",
   "description": "Curated Claude Code plugins from agentic-utilities — a harness-agnostic collection of skills, plugins, and extensions across pi, Claude Code, and Codex. This marketplace exposes the Claude Code plugins.",
   "owner": {
@@ -54,7 +54,7 @@
     },
     {
       "name": "ask-codex",
-      "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens.",
+      "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens. Requires the `codex` binary on PATH.",
       "version": "0.1.0",
       "author": {
         "name": "Ossie Irondi"

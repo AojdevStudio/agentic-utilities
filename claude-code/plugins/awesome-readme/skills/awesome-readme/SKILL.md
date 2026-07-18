@@ -60,7 +60,7 @@ If neither (1) nor (2) is set up and the user picks "Yes, generate via gpt-image
 When a workflow needs an image, invoke the **gpt-image-2** skill directly:
 
 ```bash
-bash scripts/gen.sh \
+bash gen.sh \
   --prompt "<descriptive prompt for the README element>" \
   --out docs/<descriptive-name>.png
 ```
@@ -68,7 +68,7 @@ bash scripts/gen.sh \
 For reference-image conditioning (remix an existing logo, restyle a screenshot, etc.):
 
 ```bash
-bash scripts/gen.sh \
+bash gen.sh \
   --prompt "<remix instruction>" \
   --ref /absolute/path/to/reference.png \
   --out docs/<descriptive-name>.png

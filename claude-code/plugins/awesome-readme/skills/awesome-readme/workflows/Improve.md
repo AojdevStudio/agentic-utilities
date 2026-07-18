@@ -130,24 +130,13 @@ For each section:
 
 If the user said yes in Step 3, invoke the **gpt-image-2** skill — once per visual. See SKILL.md "Image Generation" and Create.md Step 5 for the full pattern.
 
-```bash
-# Architecture diagram
-bash scripts/gen.sh \
-  --prompt "Architecture diagram for <project>. <ComponentA> connects to <ComponentB> via <ComponentC>. Excalidraw / hand-drawn style. Clear labels on each node." \
-  --out docs/architecture.png
+Invoke the installed gpt-image-2 skill (do not try to locate or run its script yourself):
 
-# Workflow illustration
-bash scripts/gen.sh \
-  --prompt "Workflow illustration: step 1 <X>, step 2 <Y>, step 3 <Z>. Numbered left-to-right flow with annotated arrows." \
-  --out docs/workflow.png
+- Architecture diagram: `--prompt "Architecture diagram for <project>. <ComponentA> connects to <ComponentB> via <ComponentC>. Excalidraw / hand-drawn style. Clear labels on each node." --out docs/architecture.png`
+- Workflow illustration: `--prompt "Workflow illustration: step 1 <X>, step 2 <Y>, step 3 <Z>. Numbered left-to-right flow with annotated arrows." --out docs/workflow.png`
+- Comparison visual (if applicable): `--prompt "Side-by-side comparison: '<A>' vs '<B>'. Two columns, contrasting treatment, clear winner indicated." --out docs/comparison.png`
 
-# Comparison visual (if applicable)
-bash scripts/gen.sh \
-  --prompt "Side-by-side comparison: '<A>' vs '<B>'. Two columns, contrasting treatment, clear winner indicated." \
-  --out docs/comparison.png
-```
-
-Pass the user's prompt through raw — only polish wording when they explicitly asked for it. Reference each output in the README with descriptive alt text. If `gen.sh` fails, name the failing layer in one sentence and ask the user how to proceed; do not silently fall back to a weaker model.
+Pass the user's prompt through raw. Only polish wording when they explicitly asked for it. Reference each output in the README with descriptive alt text. If image generation fails, name the failing layer in one sentence and ask the user how to proceed; do not silently fall back to a weaker model.
 
 ## Step 8: Validate and Deliver
 

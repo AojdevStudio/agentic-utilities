@@ -99,34 +99,15 @@ Follow this 10-section order — story before installation:
 
 If the user said yes in Step 2, invoke the **gpt-image-2** skill — once per visual. Pass the user's intent through raw; only polish wording when the user explicitly asked for "fancy" or "make it look great".
 
-**Pattern:**
-
-```bash
-bash scripts/gen.sh \
-  --prompt "<README element prompt — see SKILL.md 'Prompt patterns' table>" \
-  --out docs/<descriptive-name>.png
-```
+**Pattern:** invoke the installed gpt-image-2 skill (do not try to locate or run its script yourself) with `--prompt "<README element prompt: see SKILL.md 'Prompt patterns' table>"` and `--out docs/<descriptive-name>.png`.
 
 **Example invocations for a typical Story-mode README:**
 
-```bash
-# Hero banner with embedded tagline
-bash scripts/gen.sh \
-  --prompt "<project> README hero banner. <subject in one phrase>. Embedded tagline reads: '<the tagline>'." \
-  --out docs/hero.png
+- Hero banner with embedded tagline: `--prompt "<project> README hero banner. <subject in one phrase>. Embedded tagline reads: '<the tagline>'." --out docs/hero.png`
+- Architecture diagram: `--prompt "Architecture diagram for <project>. <ComponentA> connects to <ComponentB> via <ComponentC>. Excalidraw / hand-drawn style. Clear labels on each node." --out docs/architecture.png`
+- Workflow illustration: `--prompt "Workflow illustration: step 1 <X>, step 2 <Y>, step 3 <Z>. Numbered left-to-right flow with annotated arrows." --out docs/workflow.png`
 
-# Architecture diagram
-bash scripts/gen.sh \
-  --prompt "Architecture diagram for <project>. <ComponentA> connects to <ComponentB> via <ComponentC>. Excalidraw / hand-drawn style. Clear labels on each node." \
-  --out docs/architecture.png
-
-# Workflow illustration
-bash scripts/gen.sh \
-  --prompt "Workflow illustration: step 1 <X>, step 2 <Y>, step 3 <Z>. Numbered left-to-right flow with annotated arrows." \
-  --out docs/workflow.png
-```
-
-For reference-conditioned remixes (e.g., "restyle this existing logo as ukiyo-e"), add `--ref /absolute/path/to/reference.png`.
+For reference-conditioned remixes (e.g., "restyle this existing logo as ukiyo-e"), also pass `--ref /absolute/path/to/reference.png`.
 
 After each call:
 1. Confirm the output file exists at the `--out` path.

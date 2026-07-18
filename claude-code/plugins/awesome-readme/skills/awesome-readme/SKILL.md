@@ -57,24 +57,16 @@ If neither (1) nor (2) is set up and the user picks "Yes, generate via gpt-image
 
 ### How to invoke
 
-When a workflow needs an image, invoke the **gpt-image-2** skill directly:
+When a workflow needs an image, invoke the installed **gpt-image-2** skill directly (do not try to locate or run its script yourself; the skill loader resolves that). Pass:
 
-```bash
-bash gen.sh \
-  --prompt "<descriptive prompt for the README element>" \
-  --out docs/<descriptive-name>.png
-```
+- `--prompt "<descriptive prompt for the README element>"`
+- `--out docs/<descriptive-name>.png`
 
-For reference-image conditioning (remix an existing logo, restyle a screenshot, etc.):
+For reference-image conditioning (remix an existing logo, restyle a screenshot, etc.), also pass:
 
-```bash
-bash gen.sh \
-  --prompt "<remix instruction>" \
-  --ref /absolute/path/to/reference.png \
-  --out docs/<descriptive-name>.png
-```
+- `--ref /absolute/path/to/reference.png`
 
-The script lives inside the gpt-image-2 skill's directory; the standard skill loader resolves it. Pass the user's prompt through raw — only polish wording when the user explicitly asks for it. After the image lands, display/attach it in the response; never stop at "saved to docs/x.png".
+Pass the user's prompt through raw. Only polish wording when the user explicitly asks for it. After the image lands, display/attach it in the response; never stop at "saved to docs/x.png".
 
 ### Prompt patterns for README elements
 

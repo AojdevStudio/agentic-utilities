@@ -41,18 +41,23 @@ function checkPluginManifest(plugin) {
   const manifestPath = path.join(pluginsDir, plugin, ".claude-plugin", "plugin.json");
   if (!fs.existsSync(manifestPath)) {
     fail(plugin, "missing .claude-plugin/plugin.json");
-    return;
+    return null;
   }
   let manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   } catch (err) {
     fail(plugin, `plugin.json does not parse as JSON: ${err.message}`);
-    return;
+    return null;
   }
   if (manifest.name !== plugin) {
     fail(plugin, `plugin.json name "${manifest.name}" does not match directory "${plugin}"`);
   }
+  if (typeof manifest.description !== "string" || manifest.description.trim() === "") {
+    fail(plugin, "plugin.json has no description");
+    return null;
+  }
+  return manifest.description;
 }
 
 // --- Check 2: every plugin has a README.md -------------------------------
@@ -72,6 +77,22 @@ function readFrontmatter(text) {
   return match ? match[1] : null;
 }
 
+function readFrontmatterField(frontmatter, field) {
+  const lines = frontmatter.split(/\r?\n/);
+  const index = lines.findIndex((line) => line.startsWith(`${field}:`));
+  if (index === -1) return null;
+
+  const raw = lines[index].slice(field.length + 1).trim();
+  if (raw !== ">" && raw !== "|") return raw.replace(/^["']|["']$/g, "");
+
+  const block = [];
+  for (const line of lines.slice(index + 1)) {
+    if (!/^\s+/.test(line)) break;
+    block.push(line.trim());
+  }
+  return block.join(raw === ">" ? " " : "\n").trim();
+}
+
 /** Path to a plugin's canonical SKILL.md (skills/<plugin>/SKILL.md). */
 function skillPath(plugin) {
   return path.join(pluginsDir, plugin, "skills", plugin, "SKILL.md");
@@ -89,15 +110,16 @@ function checkSkillFrontmatter(plugin) {
     fail(plugin, "SKILL.md has no YAML frontmatter");
     return;
   }
-  const nameMatch = /^name:\s*(.+)$/m.exec(frontmatter);
-  if (!nameMatch) {
+  const name = readFrontmatterField(frontmatter, "name");
+  if (!name) {
     fail(plugin, "SKILL.md frontmatter has no name field");
     return;
   }
-  const name = nameMatch[1].trim().replace(/^["']|["']$/g, "");
   if (name !== plugin) {
     fail(plugin, `SKILL.md frontmatter name "${name}" does not match plugin "${plugin}"`);
   }
+  const description = readFrontmatterField(frontmatter, "description");
+  if (!description) fail(plugin, "SKILL.md frontmatter has no description field");
 }
 
 // --- Check 4: SKILL.md references resolve to files on disk ---------------
@@ -157,7 +179,7 @@ function checkSkillReferences(plugin) {
 // --- Check 5: every plugin has exactly one marketplace.json entry --------
 const marketplacePath = path.join(repoRoot, ".claude-plugin", "marketplace.json");
 
-function checkMarketplace(pluginList) {
+function checkMarketplace(pluginList, manifestDescriptions) {
   let marketplace;
   try {
     marketplace = JSON.parse(fs.readFileSync(marketplacePath, "utf8"));
@@ -176,6 +198,10 @@ function checkMarketplace(pluginList) {
     const expectedSource = `./claude-code/plugins/${entry.name}`;
     if (entry.source !== expectedSource) {
       fail(entry.name, `marketplace.json source "${entry.source}" should be "${expectedSource}"`);
+    }
+    const expectedDescription = manifestDescriptions.get(entry.name);
+    if (expectedDescription && entry.description !== expectedDescription) {
+      fail(entry.name, "marketplace.json description does not match plugin.json");
     }
   }
   for (const plugin of pluginList) {
@@ -227,13 +253,15 @@ function checkJunk() {
 
 // --- Run -----------------------------------------------------------------
 const plugins = listPlugins();
+const manifestDescriptions = new Map();
 for (const plugin of plugins) {
-  checkPluginManifest(plugin);
+  const description = checkPluginManifest(plugin);
+  if (description) manifestDescriptions.set(plugin, description);
   checkReadme(plugin);
   checkSkillFrontmatter(plugin);
   checkSkillReferences(plugin);
 }
-checkMarketplace(plugins);
+checkMarketplace(plugins, manifestDescriptions);
 checkCatalog(plugins);
 checkJunk();
 

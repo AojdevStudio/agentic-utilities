@@ -53,6 +53,23 @@ function extract(text) {
 }
 
 {
+  // Same class of bug, different character: an extra word character
+  // directly after the extension (no separator at all) must also not
+  // truncate into a match.
+  const refs = extract("See `assets/logo.pngx` for the logo.");
+  assert.equal(refs.length, 0, "assets/logo.pngx must not extract as assets/logo.png");
+}
+
+{
+  // The "/" character is itself part of the accepted path alphabet, so a
+  // terminal boundary that only rejects word/dot/hyphen characters still
+  // lets a nested path truncate into a match for its own leading segment:
+  // assets/logo.png/child.bin must not extract as assets/logo.png.
+  const refs = extract("See `assets/logo.png/child.bin` for the asset.");
+  assert.equal(refs.length, 0, "assets/logo.png/child.bin must not extract as assets/logo.png");
+}
+
+{
   // A safe leading "./" (same-directory prefix) is a common, harmless
   // convention and must be captured, not silently unmatched.
   const refs = extract("Run `./scripts/gen.sh` now.");
@@ -231,6 +248,21 @@ assert.equal(
     refs.length,
     0,
     "production pipeline must never match assets/logo.png.bak against the real assets/logo.png file",
+  );
+}
+
+{
+  // The exact production-path shape from the final re-review: a nested
+  // path whose leading segment coincides with the real assets/logo.png
+  // file. "/" is part of the accepted path alphabet, so a boundary that
+  // only rejects word/dot/hyphen characters still truncates this into a
+  // match for the shorter, real file — end to end, this must never
+  // extract a match to validate at all.
+  const refs = extract("See `assets/logo.png/child.bin` for the nested asset.");
+  assert.equal(
+    refs.length,
+    0,
+    "production pipeline must never match assets/logo.png/child.bin against the real assets/logo.png file",
   );
 }
 

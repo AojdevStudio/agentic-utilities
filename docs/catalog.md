@@ -5,6 +5,8 @@ Keep this as the human-readable record of what lives in the package.
 | Name | Type | Path | Status | Purpose |
 | --- | --- | --- | --- | --- |
 | `agentic-utilities` | Claude Code Marketplace | `.claude-plugin/marketplace.json` | active | Marketplace manifest exposing Claude Code plugins from this repo. |
+| `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `npx skills add . --list`. |
+| `html-docs` | Codex Plugin | `codex/plugins/html-docs/.codex-plugin/plugin.json` | experimental | Converts Markdown plans, reports, PR writeups, research notes, and general docs into standalone adjacent HTML artifacts. |
 | `adversarial-review` | Extension | `extensions/adversarial-review.ts` | active | Runs adversarial implementation review workflows from Pi as extension tools/commands. |
 | `anti-hedging` | Extension | `extensions/anti-hedging.ts` | active | Injects concise anti-hedging response guidance for sharper agent answers. |
 | `autopilot` | Extension | `extensions/autopilot/index.ts` | active | Autopilot workflow extension with approvals, preferences, continuation manifests, v2 workflow support, and command docs in `docs/autopilot.md`. |
@@ -12,7 +14,7 @@ Keep this as the human-readable record of what lives in the package.
 | `conditional-hooks` | Extension | `extensions/conditional-hooks/index.ts` | active | Loads Conditional Hook JSON config, merges global and trusted-project hook policy, runs matching bash hooks, appends configured output, and documents explicit worktree-GC-on-merge config. |
 | `hello` | Extension | `extensions/hello/index.ts` | example | Smoke-test extension that exposes `/agentic-utilities` and `agentic_utilities_ping`. |
 | `interactive-artifacts` | Extension | `extensions/interactive-artifacts/index.ts` | active | Publishes browser-based interactive concept explainer artifacts from Pi. |
-| `question` | Extension | `extensions/question.ts` | active | Adds interactive single-question and batch-question UI tools. |
+| `question` | Extension | `extensions/question/index.ts` | active | Adds bounded legacy `AskUserQuestion`/`AskBatchQuestions` tools plus the namespaced `agentic_utilities_ask_user_question` TUI, which retains the rpiv parameter contract without colliding with upstream. |
 | `todos` | Extension | `extensions/todos.ts` | active | Manages file-backed todos for agent task tracking. |
 | `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search, fetch, and related browser-grade research tools. |
 | `adversarial-review` | Skill | `skills/adversarial-review/SKILL.md` | active | Deep implementation review skill for bug hunting and ship-readiness checks. |
@@ -25,7 +27,8 @@ Keep this as the human-readable record of what lives in the package.
 | `gitworkflow` | Skill | `skills/gitworkflow/SKILL.md` | active | Handles Git Flow branching, CI monitoring, PRs, merges, releases, submodules, and issue routing. |
 | `github-wiki` | Skill | `skills/github-wiki/SKILL.md` | active | Builds and maintains canonical, source-backed GitHub Wikis with rendered verification and event-driven maintenance. |
 | `grill-me` | Skill | `skills/grill-me/SKILL.md` | active | Stress-tests a plan or design through a rigorous user interview. |
-| `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Global-first skill with `~/.pi/agent/skills/harness-audit` symlinked here; audits repo harness readiness and fix gaps. |
+| `grill-with-docs` | Skill | `skills/grill-with-docs/SKILL.md` | active | Stress-tests plans against project domain language, updates `CONTEXT.md`/ADRs as decisions crystallize, and uses recommendation-first `AskUserQuestion` decision prompts. |
+| `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Audits repo harness readiness and fix gaps; copy into harness-specific inventories for daily use when isolation matters. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
 | `skill-inspector` | Skill | `skills/skill-inspector/SKILL.md` | active | Global-first skill (symlinked into `~/.claude/skills/skill-inspector`); security-scans agent skills with the `skillspector` CLI and renders a plain-English verdict report (safe/caution/do-not-install, threat breakdown, top findings) for chat. |

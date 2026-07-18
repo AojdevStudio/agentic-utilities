@@ -7,12 +7,19 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
+import { clampInput, hasBoundedStrings, isBoundedRecord, QUESTION_LIMITS } from "./limits.js";
+import {
+  executeAskUserQuestionnaire,
+  registerAskUserQuestionTool as registerRpivAskUserQuestionTool,
+} from "./rpiv/ask-user-question.js";
 
-type QuestionType = "single-choice" | "multi-select" | "text";
+type QuestionType = "decision" | "single-choice" | "multi-select" | "text";
+type Presentation = "auto" | "tui" | "browser";
 
 type PrimitiveAnswer = string | string[] | null;
 
@@ -37,26 +44,88 @@ interface QuestionTheme {
   bold(text: string): string;
 }
 
-const QuestionTypeSchema = Type.Union([
-  Type.Literal("single-choice"),
-  Type.Literal("multi-select"),
-  Type.Literal("text"),
-]);
+const QuestionTypeSchema = StringEnum(["decision", "single-choice", "multi-select", "text"] as const);
+const PresentationSchema = StringEnum(["auto", "tui", "browser"] as const);
+const PreviewKindSchema = StringEnum(["text", "markdown", "code", "mermaid", "image", "url"] as const);
+const NoteToneSchema = StringEnum(["info", "warning", "success", "danger"] as const);
+
+const PreviewSchema = Type.Object({
+  kind: PreviewKindSchema,
+  title: Type.Optional(Type.String({ maxLength: QUESTION_LIMITS.previewTitle, description: "Optional preview title" })),
+  content: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewContent, description: "Preview content shown beside the options" }),
+  ),
+  language: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewMetadata, description: "Language for code previews" }),
+  ),
+  path: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.previewMetadata,
+      description: "Optional local/example path referenced by the preview",
+    }),
+  ),
+  url: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.previewMetadata, description: "Optional URL referenced by the preview" }),
+  ),
+  collapsed: Type.Optional(Type.Boolean({ description: "Whether to start the preview collapsed" })),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for preview text" }),
+  ),
+});
+
+const NoteSchema = Type.Object({
+  title: Type.Optional(Type.String({ maxLength: QUESTION_LIMITS.noteTitle, description: "Optional note title" })),
+  body: Type.String({ maxLength: QUESTION_LIMITS.noteBody, description: "Short context, warning, or trade-off note" }),
+  tone: Type.Optional(NoteToneSchema),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for note text" }),
+  ),
+});
+
+const I18nRecordSchema = Type.Record(
+  Type.String({ maxLength: QUESTION_LIMITS.i18nKey }),
+  Type.String({ maxLength: QUESTION_LIMITS.i18nValue }),
+  { maxProperties: QUESTION_LIMITS.i18nEntries },
+);
+
+const I18nSchema = Type.Object({
+  locale: Type.Optional(Type.String({ maxLength: 50, description: "Optional locale code" })),
+  namespace: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization namespace" }),
+  ),
+  strings: Type.Optional(I18nRecordSchema),
+  keys: Type.Optional(I18nRecordSchema),
+});
 
 const OptionSchema = Type.Object({
-  label: Type.String({ description: "Display label shown to the user" }),
-  value: Type.Optional(Type.String({ description: "Optional stable value returned for this option" })),
-  description: Type.Optional(Type.String({ description: "Optional secondary description" })),
+  label: Type.String({ maxLength: QUESTION_LIMITS.optionLabel, description: "Display label shown to the user" }),
+  value: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Optional stable value returned for this option",
+    }),
+  ),
+  description: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.optionDescription, description: "Optional secondary description" }),
+  ),
+  preview: Type.Optional(PreviewSchema),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this option" }),
+  ),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this option" }),
+  ),
 });
 
 const AskUserQuestionParams = Type.Object({
-  question: Type.String({ description: "The question to ask the user" }),
+  question: Type.String({ maxLength: QUESTION_LIMITS.questionText, description: "The question to ask the user" }),
   type: Type.Optional(QuestionTypeSchema, {
     description:
       "Question type. Use 'single-choice' for one option, 'multi-select' for multiple options, or 'text' for fill-in-the-blank input. Defaults to 'text' when no options are provided, otherwise 'single-choice'.",
   }),
   options: Type.Optional(
     Type.Array(OptionSchema, {
+      maxItems: QUESTION_LIMITS.optionsPerQuestion,
       description: "Optional choices. If omitted, the user gets a free-form input box.",
     }),
   ),
@@ -66,28 +135,50 @@ const AskUserQuestionParams = Type.Object({
         "When options are provided, also allow a free-form 'Type something...' answer (default: true). For multi-select, custom text can be combined with selected options.",
     }),
   ),
-  placeholder: Type.Optional(Type.String({ description: "Placeholder text for free-form input" })),
+  placeholder: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.placeholder, description: "Placeholder text for free-form input" }),
+  ),
+  recommendedOption: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Stable value or label for the recommended option",
+    }),
+  ),
+  preview: Type.Optional(PreviewSchema),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this question" }),
+  ),
+  allowUserNote: Type.Optional(
+    Type.Boolean({ description: "Allow the user to attach a note to their answer when supported" }),
+  ),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this question" }),
+  ),
+  i18n: Type.Optional(I18nSchema),
   mermaid: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.previewContent,
       description:
         "Optional Mermaid diagram source to help the user understand relationships, flows, or architecture before answering.",
     }),
   ),
   recommendation: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.recommendation,
       description: "Agent's recommendation for this question based on scope and context.",
     }),
   ),
 });
 
 const QuestionItemSchema = Type.Object({
-  question: Type.String({ description: "The question to ask the user" }),
+  question: Type.String({ maxLength: QUESTION_LIMITS.questionText, description: "The question to ask the user" }),
   type: Type.Optional(QuestionTypeSchema, {
     description:
       "Question type. Use 'single-choice' for one option, 'multi-select' for multiple options, or 'text' for fill-in-the-blank input. Defaults to 'text' when no options are provided, otherwise 'single-choice'.",
   }),
   options: Type.Optional(
     Type.Array(OptionSchema, {
+      maxItems: QUESTION_LIMITS.optionsPerQuestion,
       description: "Optional choices. If omitted, the user gets a free-form input box.",
     }),
   ),
@@ -97,20 +188,47 @@ const QuestionItemSchema = Type.Object({
         "When options are provided, also allow a free-form custom answer. For multi-select, custom text can be combined with selected options.",
     }),
   ),
-  placeholder: Type.Optional(Type.String({ description: "Placeholder text for free-form input" })),
+  placeholder: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.placeholder, description: "Placeholder text for free-form input" }),
+  ),
+  recommendedOption: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.optionValue,
+      description: "Stable value or label for the recommended option",
+    }),
+  ),
+  preview: Type.Optional(PreviewSchema),
+  notes: Type.Optional(
+    Type.Array(NoteSchema, { maxItems: 8, description: "Optional notes or trade-offs for this question" }),
+  ),
+  allowUserNote: Type.Optional(
+    Type.Boolean({ description: "Allow the user to attach a note to their answer when supported" }),
+  ),
+  i18nKey: Type.Optional(
+    Type.String({ maxLength: QUESTION_LIMITS.i18nKey, description: "Optional localization key for this question" }),
+  ),
   recommendation: Type.Optional(
     Type.String({
+      maxLength: QUESTION_LIMITS.recommendation,
       description: "Agent's recommendation for this question based on scope and context.",
     }),
   ),
 });
 
 const AskBatchQuestionsParams = Type.Object({
-  title: Type.String({ description: "Title for the questionnaire" }),
-  description: Type.Optional(Type.String({ description: "Description or context for the questionnaire" })),
+  title: Type.String({ maxLength: QUESTION_LIMITS.title, description: "Title for the questionnaire" }),
+  description: Type.Optional(
+    Type.String({
+      maxLength: QUESTION_LIMITS.description,
+      description: "Description or context for the questionnaire",
+    }),
+  ),
   questions: Type.Array(QuestionItemSchema, {
+    minItems: 1,
+    maxItems: QUESTION_LIMITS.batchQuestions,
     description: "Array of questions to ask the user",
   }),
+  presentation: Type.Optional(PresentationSchema),
 });
 
 interface MermaidVisualDetails {
@@ -129,7 +247,7 @@ interface AskUserQuestionDetails {
   selectedLabels?: string[] | null;
   selectedValues?: string[] | null;
   cancelled: boolean;
-  mode: "select" | "input" | "other" | "multi-select" | "unavailable";
+  mode: "decision" | "select" | "input" | "other" | "multi-select" | "unavailable";
   mermaid?: MermaidVisualDetails;
   visualError?: string | null;
   recommendation?: string | null;
@@ -151,34 +269,68 @@ interface AskBatchQuestionsDetails {
   description: string | null;
   questions: BatchQuestionAnswer[];
   cancelled: boolean;
+  presentation?: Presentation;
+}
+
+interface QuestionPreview {
+  kind: "text" | "markdown" | "code" | "mermaid" | "image" | "url";
+  title?: string;
+  content?: string;
+  language?: string;
+  path?: string;
+  url?: string;
+  collapsed?: boolean;
+  i18nKey?: string;
+}
+
+interface QuestionNote {
+  title?: string;
+  body: string;
+  tone?: "info" | "warning" | "success" | "danger";
+  i18nKey?: string;
 }
 
 interface QuestionOption {
   label: string;
   value?: string;
   description?: string;
+  preview?: QuestionPreview | string;
+  notes?: QuestionNote[];
+  i18nKey?: string;
 }
 
 interface QuestionItem {
+  id?: string;
   question: string;
   type?: QuestionType;
   options?: QuestionOption[];
   allowOther?: boolean;
   placeholder?: string;
   recommendation?: string;
+  recommendedOption?: string;
+  preview?: QuestionPreview;
+  notes?: QuestionNote[];
+  allowUserNote?: boolean;
+  i18nKey?: string;
 }
 
-const PrimitiveAnswerSchema = Type.Union([Type.String(), Type.Array(Type.String()), Type.Null()]);
+const BoundedAnswerStringSchema = Type.String({ maxLength: QUESTION_LIMITS.customAnswer });
+const BoundedAnswerArraySchema = Type.Array(BoundedAnswerStringSchema, {
+  maxItems: QUESTION_LIMITS.optionsPerQuestion + 1,
+});
+const PrimitiveAnswerSchema = Type.Union([BoundedAnswerStringSchema, BoundedAnswerArraySchema, Type.Null()]);
+const NullableAnswerStringSchema = Type.Union([BoundedAnswerStringSchema, Type.Null()]);
+const NullableAnswerArraySchema = Type.Union([BoundedAnswerArraySchema, Type.Null()]);
 
 const BatchQuestionAnswerSchema = Type.Object(
   {
-    question: Type.String(),
+    question: Type.String({ maxLength: QUESTION_LIMITS.questionText }),
     questionType: QuestionTypeSchema,
     answer: PrimitiveAnswerSchema,
     value: PrimitiveAnswerSchema,
-    selectedLabel: Type.Union([Type.String(), Type.Null()]),
-    selectedLabels: Type.Union([Type.Array(Type.String()), Type.Null()]),
-    selectedValues: Type.Union([Type.Array(Type.String()), Type.Null()]),
+    selectedLabel: NullableAnswerStringSchema,
+    selectedLabels: NullableAnswerArraySchema,
+    selectedValues: NullableAnswerArraySchema,
     isCustomInput: Type.Boolean(),
   },
   { additionalProperties: false },
@@ -187,7 +339,7 @@ const BatchQuestionAnswerSchema = Type.Object(
 const BatchSubmitPayloadSchema = Type.Object(
   {
     cancelled: Type.Boolean(),
-    answers: Type.Array(BatchQuestionAnswerSchema),
+    answers: Type.Array(BatchQuestionAnswerSchema, { maxItems: QUESTION_LIMITS.batchQuestions }),
   },
   { additionalProperties: false },
 );
@@ -196,7 +348,7 @@ const OTHER_LABEL = "Type something...";
 const DONE_LABEL = "Submit selection";
 const MAX_PROMPT_DIAGRAM_LINES = 18;
 const MAX_PROMPT_DIAGRAM_CHARS = 4000;
-const MAX_RESULT_BODY_BYTES = 1024 * 1024;
+const MAX_RESULT_BODY_BYTES = 128 * 1024;
 const QUESTIONNAIRE_TIMEOUT_MS = 300000;
 
 let mermaidRendererPromise: Promise<((source: string) => string) | null> | null = null;
@@ -216,16 +368,35 @@ function normalizeQuestionItem(
   question: QuestionItem,
 ): QuestionItem & { type: QuestionType; options: QuestionOption[] } {
   const options = question.options ?? [];
+  const type = normalizeQuestionType(question.type, options);
   return {
     ...question,
     options,
-    type: normalizeQuestionType(question.type, options),
+    type,
+    allowOther: type === "decision" ? false : question.allowOther,
   };
 }
 
 function formatAnswer(answer: PrimitiveAnswer): string {
   if (Array.isArray(answer)) return answer.join(", ");
   return answer ?? "(no answer)";
+}
+
+function validateToolParams(schema: unknown, params: unknown): string | undefined {
+  if (!Value.Check(schema as never, params)) return "Questionnaire input violates a field or collection limit.";
+  if (!hasBoundedStrings(params, QUESTION_LIMITS.totalQuestionnaireInput)) {
+    return `Questionnaire input exceeds the ${QUESTION_LIMITS.totalQuestionnaireInput}-character aggregate limit.`;
+  }
+  const i18n = (params as { i18n?: { strings?: unknown; keys?: unknown } } | undefined)?.i18n;
+  if (i18n && (!isBoundedRecord(i18n.strings) || !isBoundedRecord(i18n.keys))) {
+    return "Questionnaire localization entries violate count, key, or value limits.";
+  }
+  return undefined;
+}
+
+function boundedContent(text: string): string {
+  if (text.length <= QUESTION_LIMITS.toolContent) return text;
+  return `Error: questionnaire output exceeds the ${QUESTION_LIMITS.toolContent}-character content limit.`;
 }
 
 async function readTrimmedInput(
@@ -237,6 +408,10 @@ async function readTrimmedInput(
     const answer = await ctx.ui.input(prompt, placeholder ?? "Type your answer");
     if (answer === undefined) return undefined;
     const trimmed = answer.trim();
+    if (trimmed.length > QUESTION_LIMITS.customAnswer) {
+      ctx.ui.notify(`Answer must be at most ${QUESTION_LIMITS.customAnswer} characters.`, "warning");
+      continue;
+    }
     if (trimmed) return trimmed;
     ctx.ui.notify("Answer cannot be blank.", "warning");
   }
@@ -303,7 +478,11 @@ async function buildMermaidVisual(
   }
 
   try {
-    const ascii = renderer(mermaid);
+    const renderedAscii = renderer(mermaid);
+    const ascii =
+      renderedAscii.length <= QUESTION_LIMITS.previewContent
+        ? renderedAscii
+        : `${renderedAscii.slice(0, QUESTION_LIMITS.previewContent - 24)}\n[diagram output bounded]`;
     return {
       visual: {
         source: mermaid,
@@ -340,11 +519,31 @@ function getPromptDiagram(ascii: string | undefined): string | undefined {
   return preview;
 }
 
-function buildPrompt(question: string, visual?: MermaidVisualDetails, visualError?: string): string {
+function buildPrompt(
+  question: string,
+  visual?: MermaidVisualDetails,
+  visualError?: string,
+  options: QuestionOption[] = [],
+  recommendation?: string,
+): string {
+  const lines = [question];
+
+  if (recommendation?.trim()) {
+    lines.push("", `Recommendation: ${recommendation.trim()}`);
+  }
+
+  if (options.some((option) => option.description?.trim())) {
+    lines.push("", "Options:");
+    for (const option of options) {
+      lines.push(option.description?.trim() ? `- ${option.label}: ${option.description.trim()}` : `- ${option.label}`);
+    }
+  }
+
   const diagram = getPromptDiagram(visual?.ascii);
-  if (diagram) return `${question}\n\nMermaid (ASCII)\n${diagram}`;
-  if (visualError) return `${question}\n\n[Visual unavailable: ${visualError}]`;
-  return question;
+  if (diagram) lines.push("", "Mermaid (ASCII)", diagram);
+  else if (visualError) lines.push("", `[Visual unavailable: ${visualError}]`);
+
+  return lines.join("\n");
 }
 
 function hasPiMermaid(pi: ExtensionAPI): boolean {
@@ -661,7 +860,7 @@ export function generateBatchQuestionsHTML(params: {
     <div class="content">
       ${normalizedQuestions
         .map((q, index) => {
-          const questionType = q.type ?? "single-choice";
+          const questionType = q.type === "decision" ? "single-choice" : (q.type ?? "single-choice");
           return `
           <section class="question-card" id="question-${index}" data-question="${index}" data-type="${escapeHtml(questionType)}">
             <div class="question-head">
@@ -717,7 +916,7 @@ export function generateBatchQuestionsHTML(params: {
               questionType === "text" || q.allowOther !== false || !q.options?.length
                 ? `
               <div class="custom-input">
-                <textarea id="textarea-${index}" placeholder="${escapeHtml(q.placeholder || "Type your answer here...")}"></textarea>
+                <textarea id="textarea-${index}" maxlength="${QUESTION_LIMITS.customAnswer}" placeholder="${escapeHtml(q.placeholder || "Type your answer here...")}"></textarea>
                 <div class="help-text">${questionType === "multi-select" ? "Optional: add custom text in addition to checked options." : questionType === "single-choice" ? "Optional: type a custom answer instead of selecting an option." : "Fill in your answer."}</div>
               </div>
             `
@@ -995,13 +1194,16 @@ export function generateBatchQuestionsHTML(params: {
 </html>`;
 }
 
-function parseBatchSubmission(
+export function parseBatchSubmission(
   body: string,
 ): { ok: true; value: BatchSubmitPayload } | { ok: false; status: number; error: string } {
   try {
     const parsed: unknown = JSON.parse(body);
     if (!Value.Check(BatchSubmitPayloadSchema, parsed)) {
       return { ok: false, status: 400, error: "Invalid submission payload" };
+    }
+    if (!hasBoundedStrings(parsed, QUESTION_LIMITS.totalUserOutput)) {
+      return { ok: false, status: 413, error: "Submission exceeds aggregate answer limits" };
     }
     return { ok: true, value: parsed as BatchSubmitPayload };
   } catch {
@@ -1155,7 +1357,79 @@ function openHtmlFile(htmlPath: string): void {
   }
 }
 
+function previewToMarkdown(preview?: QuestionPreview | string): string | undefined {
+  if (!preview) return undefined;
+  const rendered =
+    typeof preview === "string"
+      ? preview.trim()
+      : preview.kind === "mermaid" && preview.content
+        ? `\`\`\`mermaid\n${preview.content}\n\`\`\``
+        : preview.kind === "code" && preview.content
+          ? `\`\`\`${preview.language ?? ""}\n${preview.content}\n\`\`\``
+          : [preview.title ? `### ${preview.title}` : "", preview.content, preview.url, preview.path]
+              .filter(Boolean)
+              .join("\n\n")
+              .trim();
+  return rendered ? clampInput(rendered, QUESTION_LIMITS.previewContent) : undefined;
+}
+
+function makeHeader(question: QuestionItem, index: number): string {
+  const raw = question.id || question.i18nKey || question.question || `Q${index + 1}`;
+  return (
+    raw
+      .replace(/[^a-zA-Z0-9 _-]/g, " ")
+      .trim()
+      .slice(0, 16) || `Q${index + 1}`
+  );
+}
+
+function optionMatchesRecommendation(option: QuestionOption, recommendedOption?: string): boolean {
+  if (!recommendedOption) return false;
+  return option.label === recommendedOption || (option.value ?? option.label) === recommendedOption;
+}
+
+function toRpivQuestions(questions: QuestionItem[]): { questions: any[] } {
+  return {
+    questions: questions.map((question, index) => {
+      const options = question.options ?? [];
+      const recommendedOption = question.recommendedOption;
+      const questionPreview = previewToMarkdown(question.preview);
+      return {
+        question: clampInput(
+          question.recommendation
+            ? `${question.question}\n\nRecommendation: ${question.recommendation}`
+            : question.question,
+          QUESTION_LIMITS.questionText,
+        ),
+        header: makeHeader(question, index),
+        multiSelect: question.type === "multi-select",
+        options: options.map((option, optionIndex) => {
+          const isRecommended = optionMatchesRecommendation(option, recommendedOption);
+          const label = clampInput(
+            isRecommended && !/\(Recommended\)/i.test(option.label) ? `${option.label} (Recommended)` : option.label,
+            QUESTION_LIMITS.optionLabel,
+          );
+          const notes = [
+            ...(option.notes ?? []).map((note) => `${note.title ? `${note.title}: ` : ""}${note.body}`),
+            ...(option.description ? [option.description] : []),
+          ];
+          return {
+            label,
+            description: clampInput(
+              notes.join(" ").trim() || option.value || option.label,
+              QUESTION_LIMITS.optionDescription,
+            ),
+            preview: previewToMarkdown(option.preview) ?? (optionIndex === 0 ? questionPreview : undefined),
+          };
+        }),
+      };
+    }),
+  };
+}
+
 export default function question(pi: ExtensionAPI) {
+  registerRpivAskUserQuestionTool(pi);
+
   pi.registerTool({
     name: "AskUserQuestion",
     label: "Ask User Question",
@@ -1166,12 +1440,32 @@ export default function question(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use AskUserQuestion instead of guessing when the user must choose between multiple valid paths.",
       "Use AskUserQuestion with type 'single-choice' for one choice, 'multi-select' for multiple choices, or 'text' for fill-in-the-blank answers.",
+      "For decision questions, ground the user in one recommended answer: put the recommended option first, append '(Recommended)' to its label when options are shown, and fill the recommendation field with the reason.",
+      "Use option descriptions to explain what each choice means and its main trade-off; do not rely on terse labels alone.",
       "Prefer concise, decision-shaping questions with 2-6 options when possible.",
       "Include the optional mermaid field when relationships, architecture, or branching logic are easier to understand visually.",
     ],
     parameters: AskUserQuestionParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: QuestionExecutionContext) {
+      const inputError = validateToolParams(AskUserQuestionParams, params);
+      if (inputError) {
+        return {
+          content: [{ type: "text", text: `Error: ${inputError}` }],
+          details: {
+            question: "",
+            questionType: "text",
+            options: [],
+            answer: null,
+            value: null,
+            selectedLabels: null,
+            selectedValues: null,
+            cancelled: true,
+            mode: "unavailable",
+          } satisfies AskUserQuestionDetails,
+        };
+      }
+
       const normalized = normalizeQuestionItem({
         question: params.question,
         type: params.type,
@@ -1179,11 +1473,16 @@ export default function question(pi: ExtensionAPI) {
         allowOther: params.allowOther,
         placeholder: params.placeholder,
         recommendation: params.recommendation,
+        recommendedOption: params.recommendedOption,
+        preview: params.preview,
+        notes: params.notes,
+        allowUserNote: params.allowUserNote,
+        i18nKey: params.i18nKey,
       });
       const options = normalized.options;
       const questionType = normalized.type;
       const { visual, error: visualError } = await buildMermaidVisual(params.mermaid);
-      const prompt = buildPrompt(params.question, visual, visualError);
+      const prompt = buildPrompt(params.question, visual, visualError, options, params.recommendation);
       const detailsBase = {
         question: params.question,
         questionType,
@@ -1191,9 +1490,47 @@ export default function question(pi: ExtensionAPI) {
         mermaid: visual,
         visualError: visualError ?? null,
         recommendation: params.recommendation ?? null,
+        recommendedOption: params.recommendedOption ?? null,
+        preview: params.preview ?? null,
+        notes: params.notes ?? [],
+        i18n: params.i18n ?? null,
       };
 
       if (visual) emitPiMermaidMessage(pi, visual);
+
+      if (questionType === "decision") {
+        if (options.length < 2 || options.length > 4) {
+          return {
+            content: [{ type: "text", text: "Error: decision questions require 2-4 options." }],
+            details: {
+              ...detailsBase,
+              answer: null,
+              value: null,
+              selectedLabels: null,
+              selectedValues: null,
+              cancelled: true,
+              mode: "decision",
+            } satisfies AskUserQuestionDetails,
+          };
+        }
+        if (
+          params.recommendedOption &&
+          !options.some((option) => optionMatchesRecommendation(option, params.recommendedOption))
+        ) {
+          return {
+            content: [{ type: "text", text: "Error: recommendedOption must match an option label or value." }],
+            details: {
+              ...detailsBase,
+              answer: null,
+              value: null,
+              selectedLabels: null,
+              selectedValues: null,
+              cancelled: true,
+              mode: "decision",
+            } satisfies AskUserQuestionDetails,
+          };
+        }
+      }
 
       if (!ctx.hasUI) {
         return {
@@ -1228,7 +1565,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User answered: ${answer}` }],
+          content: [{ type: "text", text: boundedContent(`User answered: ${answer}`) }],
           details: {
             ...detailsBase,
             answer,
@@ -1241,7 +1578,7 @@ export default function question(pi: ExtensionAPI) {
         };
       }
 
-      const allowOther = params.allowOther !== false;
+      const allowOther = questionType === "decision" ? false : params.allowOther !== false;
 
       if (questionType === "multi-select") {
         const result = await askMultiSelectInTui(ctx, prompt, options, allowOther, params.placeholder);
@@ -1261,7 +1598,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User selected: ${result.labels.join(", ")}` }],
+          content: [{ type: "text", text: boundedContent(`User selected: ${result.labels.join(", ")}`) }],
           details: {
             ...detailsBase,
             answer: result.labels,
@@ -1288,7 +1625,7 @@ export default function question(pi: ExtensionAPI) {
             selectedLabels: null,
             selectedValues: null,
             cancelled: true,
-            mode: "select",
+            mode: questionType === "decision" ? "decision" : "select",
           } satisfies AskUserQuestionDetails,
         };
       }
@@ -1311,7 +1648,7 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `User answered: ${answer}` }],
+          content: [{ type: "text", text: boundedContent(`User answered: ${answer}`) }],
           details: {
             ...detailsBase,
             answer,
@@ -1326,7 +1663,7 @@ export default function question(pi: ExtensionAPI) {
 
       const matched = options.find((option) => option.label === selection) ?? { label: selection, value: selection };
       return {
-        content: [{ type: "text", text: `User selected: ${matched.label}` }],
+        content: [{ type: "text", text: boundedContent(`User selected: ${matched.label}`) }],
         details: {
           ...detailsBase,
           answer: matched.label,
@@ -1334,7 +1671,7 @@ export default function question(pi: ExtensionAPI) {
           selectedLabels: [matched.label],
           selectedValues: [matched.value ?? matched.label],
           cancelled: false,
-          mode: "select",
+          mode: questionType === "decision" ? "decision" : "select",
         } satisfies AskUserQuestionDetails,
       };
     },
@@ -1391,18 +1728,82 @@ export default function question(pi: ExtensionAPI) {
     name: "AskBatchQuestions",
     label: "Ask Batch Questions",
     description:
-      "Ask multiple questions at once in a browser-based UI. Supports single-choice, multi-select, and free-form fill-in-the-blank answers.",
+      "Ask multiple questions at once. Defaults to the legacy browser UI; supports an opt-in rpiv-style TUI with tabs, previews, notes, and strict 2-4 option questions via presentation:'tui'.",
     promptSnippet:
-      "Ask multiple questions at once when the user needs to make several related decisions. Use this instead of calling AskUserQuestion multiple times in sequence.",
+      "Ask multiple questions at once when the user needs to make several related decisions. Use presentation:'tui' for terminal-native interviews with previews and notes.",
     promptGuidelines: [
       "Use AskBatchQuestions when you need to ask 2 or more related questions.",
       "Use AskBatchQuestions for mixed questionnaires that include single-choice, multi-select, and text questions.",
+      "Use presentation:'tui' when you want the rpiv-style terminal questionnaire: tabs, previews, notes, multi-select, and submit review.",
+      "For decision questions, provide 2-4 options, put the recommended answer first, and set recommendedOption plus recommendation.",
       "Include recommendations for each question based on scope and context when possible.",
       "The user will see all questions at once and can answer them in any order.",
     ],
     parameters: AskBatchQuestionsParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: QuestionExecutionContext) {
+      const inputError = validateToolParams(AskBatchQuestionsParams, params);
+      if (inputError) {
+        return {
+          content: [{ type: "text", text: `Error: ${inputError}` }],
+          details: {
+            title: "",
+            description: null,
+            questions: [],
+            cancelled: true,
+            presentation: "browser",
+          } satisfies AskBatchQuestionsDetails,
+        };
+      }
+
+      const presentation = (params.presentation ?? "browser") as Presentation;
+      if (presentation === "tui" || (presentation === "auto" && ctx.hasUI)) {
+        const rpivResult = await executeAskUserQuestionnaire(
+          pi,
+          toRpivQuestions(params.questions as QuestionItem[]),
+          ctx,
+        );
+        const answers = Array.isArray(rpivResult.details?.answers)
+          ? rpivResult.details.answers.map((answer) => ({
+              question: answer.question,
+              questionType: answer.kind === "multi" ? "multi-select" : "single-choice",
+              answer: answer.kind === "multi" ? (answer.selected ?? []) : answer.answer,
+              value: answer.kind === "multi" ? (answer.selected ?? []) : answer.answer,
+              selectedLabel: answer.kind === "option" ? answer.answer : null,
+              selectedLabels:
+                answer.kind === "multi" ? (answer.selected ?? []) : answer.answer ? [answer.answer] : null,
+              selectedValues:
+                answer.kind === "multi" ? (answer.selected ?? []) : answer.answer ? [answer.answer] : null,
+              isCustomInput: answer.kind === "custom" || answer.kind === "chat",
+            }))
+          : [];
+        const details = {
+          title: params.title,
+          description: params.description ?? null,
+          questions: answers,
+          cancelled: Boolean(rpivResult.details?.cancelled),
+          presentation,
+        } satisfies AskBatchQuestionsDetails;
+        if (!hasBoundedStrings(details, QUESTION_LIMITS.toolDetails)) {
+          return {
+            content: [{ type: "text", text: "Error: questionnaire result exceeds aggregate output limits." }],
+            details: {
+              title: params.title,
+              description: null,
+              questions: [],
+              cancelled: true,
+              presentation,
+            } satisfies AskBatchQuestionsDetails,
+          };
+        }
+        return {
+          content: rpivResult.content.map((item) =>
+            item.type === "text" ? { ...item, text: boundedContent(item.text) } : item,
+          ),
+          details,
+        };
+      }
+
       if (!ctx.hasUI) {
         return {
           content: [{ type: "text", text: "UI not available; could not ask batch questions." }],
@@ -1411,6 +1812,7 @@ export default function question(pi: ExtensionAPI) {
             description: params.description ?? null,
             questions: [],
             cancelled: true,
+            presentation,
           } satisfies AskBatchQuestionsDetails,
         };
       }
@@ -1456,6 +1858,7 @@ export default function question(pi: ExtensionAPI) {
               description: params.description ?? null,
               questions: [],
               cancelled: true,
+              presentation,
             } satisfies AskBatchQuestionsDetails,
           };
         }
@@ -1465,14 +1868,22 @@ export default function question(pi: ExtensionAPI) {
           ...result.answers.map((answer, index) => `${index + 1}. ${answer.question} → ${formatAnswer(answer.answer)}`),
         ];
 
+        const details = {
+          title: params.title,
+          description: params.description ?? null,
+          questions: result.answers,
+          cancelled: false,
+          presentation,
+        } satisfies AskBatchQuestionsDetails;
+        if (!hasBoundedStrings(details, QUESTION_LIMITS.toolDetails)) {
+          return {
+            content: [{ type: "text", text: "Error: questionnaire result exceeds aggregate output limits." }],
+            details: { title: params.title, description: null, questions: [], cancelled: true, presentation },
+          };
+        }
         return {
-          content: [{ type: "text", text: summaryLines.join("\n") }],
-          details: {
-            title: params.title,
-            description: params.description ?? null,
-            questions: result.answers,
-            cancelled: false,
-          } satisfies AskBatchQuestionsDetails,
+          content: [{ type: "text", text: boundedContent(summaryLines.join("\n")) }],
+          details,
         };
       } catch (error) {
         try {
@@ -1485,12 +1896,18 @@ export default function question(pi: ExtensionAPI) {
         }
 
         return {
-          content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: boundedContent(`Error: ${error instanceof Error ? error.message : String(error)}`),
+            },
+          ],
           details: {
             title: params.title,
             description: params.description ?? null,
             questions: [],
             cancelled: true,
+            presentation,
           } satisfies AskBatchQuestionsDetails,
         };
       }

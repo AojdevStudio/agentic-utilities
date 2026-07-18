@@ -52,10 +52,13 @@ skills/<name>/
 
 Skill checklist:
 
-- Daily-use skills are global-first: test under `~/.pi/agent/skills/<name>/` first.
-- For shared daily-use skills, keep canonical files in `skills/<name>/` and symlink the global skill back to that repo path.
+- Canonical repo skills live in `skills/<name>/` and are validated with `npm run validate:skills`.
+- Some skills intentionally appear in multiple distribution lanes, such as root Agent Skills and bundled Claude Code plugin skills. `npm run validate:skills` warns on these duplicates so drift stays visible, but expected distribution-lane duplicates are not failures.
+- Install or copy daily-use skills into harness-specific locations: `~/.pi/agent/skills`, `~/.codex/skills`, or `~/.claude/skills`.
+- Prefer copy mode when Pi, Codex, and Claude Code should diverge; avoid `~/.agents` as the default shared bridge. If using the external `skills` CLI as an installer, verify its output first because some agent targets can still resolve to shared Agent Skills paths.
+- Use symlinks only when you intentionally want coupled inventories and have documented the source of truth.
 - Frontmatter `name` exactly matches `<name>`.
-- `description` says when to use it, not just what it is.
+- `description` says when to use it, not just what it is, and stays within Agent Skills metadata limits.
 - Relative links/scripts resolve from the skill directory.
 - Keep long reference material outside `SKILL.md` and link to it.
 
@@ -80,5 +83,7 @@ Use `themes/<name>.json`. Include screenshots or notes in `docs/` rather than in
 - `npm test` runs behavioral smoke tests.
 - `npm run lint` runs Biome linting.
 - `npm run typecheck` runs TypeScript checks.
-- `npm run check` runs lint, typecheck, tests, and resource inventory.
+- `npm run validate:plugins` validates Claude Code ports plus Codex manifests, declared skills, local references, catalog wiring, junk artifacts, and bundled fixture verifiers.
+- `npm run validate:skills` checks `skills/**/SKILL.md` frontmatter against the Agent Skills baseline used by the skills CLI.
+- `npm run check` runs lint, typecheck, tests, plugin validation, skill validation, and resource inventory.
 - Husky + lint-staged run Biome on staged files before commit, then typecheck and smoke tests.

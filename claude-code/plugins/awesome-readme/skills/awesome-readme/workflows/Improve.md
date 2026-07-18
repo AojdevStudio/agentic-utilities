@@ -136,6 +136,8 @@ Invoke the installed gpt-image-2 skill (do not try to locate or run its script y
 - Workflow illustration: `--prompt "Workflow illustration: step 1 <X>, step 2 <Y>, step 3 <Z>. Numbered left-to-right flow with annotated arrows." --out docs/workflow.png`
 - Comparison visual (if applicable): `--prompt "Side-by-side comparison: '<A>' vs '<B>'. Two columns, contrasting treatment, clear winner indicated." --out docs/comparison.png`
 
+For reference-conditioned remixes (e.g., restyling an existing logo or diagram), also pass `--ref /absolute/path/to/reference.png`.
+
 Pass the user's prompt through raw. Only polish wording when they explicitly asked for it. Reference each output in the README with descriptive alt text. If image generation fails, name the failing layer in one sentence and ask the user how to proceed; do not silently fall back to a weaker model.
 
 ## Step 8: Validate and Deliver

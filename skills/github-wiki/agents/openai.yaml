@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Wiki"
+  short_description: "Build and maintain source-backed GitHub Wikis"
+  default_prompt: "Use $github-wiki to build and publish a complete Wiki for this project."

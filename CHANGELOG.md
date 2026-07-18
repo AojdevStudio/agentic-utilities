@@ -5,3 +5,38 @@
 - Initial Pi package scaffold.
 - Added sample `hello` extension.
 - Added `scaffold-notes` maintenance skill.
+
+## [Unreleased]
+
+### Added
+
+- share documentation workflows
+- add skill-inspector plugin + verdict-aware renderer
+- Add skill-inspector skill: skillspector wrapper with readable reports (#28) [#28]
+- add ship-issue Claude Code plugin (#27) [#27]
+- append output and dedupe events (#24) [#24]
+- run matching bash hooks (#23) [#23]
+- add config status command (#22) [#22]
+- port dogfood skill to Claude Code plugin (#14) [#14]
+- package shared Pi skills, extensions, and 9 Claude Code plugins (#11) [#11]
+- Add public shared skill/plugin ports (#4) [#4]
+- add Bambu Lab 3D-printing plugin and skill
+- add slash argument completions
+- add YouTube analyzer plugin marketplace
+- report slice completion status
+- add grill-first AFK workflow
+
+### Changed
+
+- bump shell-quote (#16) [#16]
+- bump the npm_and_yarn group across 2 directories with 1 update (#12) [#12]
+- Port claude-md-improver skill to Claude Code plugin (#13) [#13]
+- Package shared Pi skills and extensions (#7) [#7]
+- bump the npm_and_yarn group across 1 directory with 2 updates (#9) [#9]
+- bump the npm_and_yarn group across 1 directory with 2 updates (#5) [#5]
+- Initial commit
+
+### Security
+
+- bump protobufjs to 7.5.6 (#6) [#6]
+

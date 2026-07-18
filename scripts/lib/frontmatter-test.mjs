@@ -52,6 +52,18 @@ const MALFORMED_BLOCKS = [
   { label: "missing frontmatter block entirely", content: "# just a heading\n\nno frontmatter here\n" },
   { label: "unterminated frontmatter (no closing ---)", content: "---\nname: fixture\ndescription: hi\n" },
   { label: "frontmatter is a sequence, not a mapping", content: "---\n- one\n- two\n---\n" },
+  // Near-miss closing delimiters: a naive `indexOf("\n---")` search treats
+  // any line merely *starting* with "---" as the closer. None of these are
+  // an exact "---" line, so none may terminate the block.
+  {
+    label: "near-miss closer: trailing text with no separator",
+    content: "---\nname: fixture\ndescription: hi\n---not-a-delimiter\n",
+  },
+  { label: "near-miss closer: extra dash", content: "---\nname: fixture\ndescription: hi\n----\n" },
+  {
+    label: "near-miss closer: trailing junk after a space",
+    content: "---\nname: fixture\ndescription: hi\n--- trailing junk\n",
+  },
 ];
 
 for (const { label, content } of MALFORMED_BLOCKS) {

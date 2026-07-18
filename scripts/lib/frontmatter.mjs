@@ -5,16 +5,23 @@ import { parse as parseYaml } from "yaml";
  * Throws when the block is absent, unterminated, not valid YAML, or does
  * not parse to a mapping (e.g. a bare scalar or sequence document).
  */
+// The closing delimiter must be an exact "---" line (optionally followed by
+// trailing spaces/tabs before the newline or end of string) — not merely a
+// line that starts with "---". Without this, "---not-a-delimiter", "----",
+// and "--- trailing junk" all satisfy a naive `indexOf("\n---")` search and
+// silently close the block early or swallow content past the real closer.
+const CLOSING_DELIMITER = /^---\n([\s\S]*?)\n---[ \t]*(?:\n|$)/;
+
 export function parseFrontmatter(content, filePath) {
   const normalized = content.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
     throw new Error(`${filePath}: missing YAML frontmatter block`);
   }
-  const end = normalized.indexOf("\n---", 4);
-  if (end === -1) {
+  const match = CLOSING_DELIMITER.exec(normalized);
+  if (!match) {
     throw new Error(`${filePath}: unterminated YAML frontmatter block`);
   }
-  const raw = normalized.slice(4, end);
+  const raw = match[1];
   let data;
   try {
     data = parseYaml(raw);

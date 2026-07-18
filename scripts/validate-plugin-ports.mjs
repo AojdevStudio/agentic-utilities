@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveBundleReference } from "./lib/bundle-refs.mjs";
+import { extractBundleReferences, resolveBundleReference } from "./lib/bundle-refs.mjs";
 import { isNonEmptyString, parseFrontmatter } from "./lib/frontmatter.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -108,41 +108,66 @@ function checkSkillFrontmatter(plugin) {
 // (explicitly plugin-root-relative) or a bare `workflows/`, `references/`,
 // `tools/`, `scripts/`, `cli/`, `assets/`, or `hooks/` path — this fixed
 // vocabulary of skill-bundle subdirectory names is what makes the match
-// unambiguous. Every match is validated: it must resolve to a file that
-// exists, and the resolved path must stay inside the plugin's own root
-// (rejects `..` traversal segments that could otherwise walk out of the
-// bundle and match an unrelated file elsewhere in the repo).
-const REF_EXT = "md|ts|tsx|sh|json|js|mjs|cjs|py";
+// unambiguous. Every match is validated: it must resolve to an existing
+// *regular file* whose real (symlink-resolved) path stays inside the
+// plugin's own root — rejects `..` traversal, directories masquerading as
+// files, and symlinks that escape the bundle.
+const REF_EXT = ["md", "ts", "tsx", "sh", "json", "js", "mjs", "cjs", "py", "png", "jpg", "jpeg", "gif", "svg", "webp"];
 const ALL_SUBDIRS = ["workflows", "references", "tools", "scripts", "cli", "assets", "hooks"];
-const REF_PATTERN = new RegExp(
-  `(\\$\\{CLAUDE_PLUGIN_ROOT\\}/)?((?:skills/[a-z0-9-]+/)?(?:${ALL_SUBDIRS.join("|")})/[A-Za-z0-9._/-]+\\.(?:${REF_EXT}))`,
-  "g",
-);
+
+/** True if the real (symlink-resolved) path of `resolved` stays inside the real path of `base`. */
+function realpathContained(base, resolved) {
+  const realBase = fs.realpathSync(base);
+  const realResolved = fs.realpathSync(resolved);
+  const rel = path.relative(realBase, realResolved);
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * Filesystem-facing half of reference validation, applied only after
+ * `resolveBundleReference` has already confirmed `resolved` is lexically
+ * inside `base`. Requires an existing *regular file* whose real path (after
+ * resolving symlinks) also stays inside `base` — a directory or a symlink
+ * that escapes the bundle is rejected even though the lexical path was fine.
+ */
+export function checkReferenceOnDisk(base, resolved) {
+  let stat;
+  try {
+    stat = fs.lstatSync(resolved);
+  } catch {
+    return { reason: "missing" };
+  }
+  if (stat.isSymbolicLink() && !realpathContained(base, resolved)) {
+    return { reason: "symlink-escape" };
+  }
+  if (!fs.statSync(resolved).isFile()) {
+    return { reason: "not-a-file" };
+  }
+  return { reason: "ok" };
+}
+
+const ON_DISK_MESSAGES = {
+  missing: (ref) => `SKILL.md references missing file: ${ref}`,
+  "symlink-escape": (ref) => `SKILL.md reference resolves outside the plugin bundle via symlink: ${ref}`,
+  "not-a-file": (ref) => `SKILL.md reference is not a regular file: ${ref}`,
+};
 
 function checkSkillReferences(plugin) {
   const file = skillPath(plugin);
   if (!fs.existsSync(file)) return; // already reported by checkSkillFrontmatter
   const text = fs.readFileSync(file, "utf8");
-  const seen = new Set();
-  for (const [, prefix, pathPart] of text.matchAll(REF_PATTERN)) {
-    const prefixed = Boolean(prefix);
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal "${CLAUDE_PLUGIN_ROOT}" placeholder text, not a JS template
-    const ref = (prefixed ? "${CLAUDE_PLUGIN_ROOT}/" : "") + pathPart;
-    if (seen.has(ref)) continue;
-    seen.add(ref);
-
+  const refs = extractBundleReferences(text, { subdirs: ALL_SUBDIRS, extensions: REF_EXT });
+  for (const { prefixed, pathPart, ref } of refs) {
     // `${CLAUDE_PLUGIN_ROOT}/...` is plugin-root-relative; a bare reference
     // is relative to the skill directory (skills/<plugin>/).
     const base = prefixed ? path.join(pluginsDir, plugin) : path.join(pluginsDir, plugin, "skills", plugin);
-    const result = resolveBundleReference(base, pathPart);
-    if (!result.ok) {
-      fail(
-        plugin,
-        result.reason === "traversal"
-          ? `SKILL.md reference escapes the plugin bundle: ${ref}`
-          : `SKILL.md references missing file: ${ref}`,
-      );
+    const lexical = resolveBundleReference(base, pathPart);
+    if (!lexical.ok) {
+      fail(plugin, `SKILL.md reference escapes the plugin bundle: ${ref}`);
+      continue;
     }
+    const { reason } = checkReferenceOnDisk(base, lexical.resolved);
+    if (reason !== "ok") fail(plugin, ON_DISK_MESSAGES[reason](ref));
   }
 }
 
@@ -222,26 +247,32 @@ function checkJunk() {
 }
 
 // --- Run -----------------------------------------------------------------
-const plugins = listPlugins();
-const manifestDescriptions = new Map();
-for (const plugin of plugins) {
-  const description = checkPluginManifest(plugin);
-  if (description) manifestDescriptions.set(plugin, description);
-  checkReadme(plugin);
-  checkSkillFrontmatter(plugin);
-  checkSkillReferences(plugin);
-}
-checkMarketplace(plugins, manifestDescriptions);
-checkCatalog(plugins);
-checkJunk();
-
-if (failures.length > 0) {
-  console.error(`\n✗ plugin-port validation failed (${failures.length} issue(s)):\n`);
-  for (const { plugin, message } of failures) {
-    console.error(`  [${plugin}] ${message}`);
+// Guarded so a test can `import { checkReferenceOnDisk } from "./validate-plugin-ports.mjs"`
+// without triggering a full validation run against the real repository.
+function main() {
+  const plugins = listPlugins();
+  const manifestDescriptions = new Map();
+  for (const plugin of plugins) {
+    const description = checkPluginManifest(plugin);
+    if (description) manifestDescriptions.set(plugin, description);
+    checkReadme(plugin);
+    checkSkillFrontmatter(plugin);
+    checkSkillReferences(plugin);
   }
-  console.error("");
-  process.exit(1);
+  checkMarketplace(plugins, manifestDescriptions);
+  checkCatalog(plugins);
+  checkJunk();
+
+  if (failures.length > 0) {
+    console.error(`\n✗ plugin-port validation failed (${failures.length} issue(s)):\n`);
+    for (const { plugin, message } of failures) {
+      console.error(`  [${plugin}] ${message}`);
+    }
+    console.error("");
+    process.exit(1);
+  }
+
+  console.log(`✓ plugin-port validation passed (${plugins.length} plugins)`);
 }
 
-console.log(`✓ plugin-port validation passed (${plugins.length} plugins)`);
+if (import.meta.url === `file://${process.argv[1]}`) main();

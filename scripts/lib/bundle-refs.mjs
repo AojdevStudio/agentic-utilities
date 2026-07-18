@@ -1,26 +1,53 @@
-import fs from "node:fs";
 import path from "node:path";
 
 /**
- * Resolve a local bundle reference (e.g. `scripts/gen.sh`) against `base`
- * and report whether it is safe and exists.
+ * Extract every unambiguous local bundle reference from `text`.
  *
- *  - `traversal`: the reference contains a "." or ".." path segment, or its
- *    resolved path falls outside `base` — rejected before ever touching disk.
- *  - `missing`: the reference stays inside `base` but no file exists there.
- *  - ok: the reference stays inside `base` and resolves to an existing file.
+ * A reference is unambiguous only when it starts at a token boundary — not
+ * preceded by a word/path character, so a match can never "resync" mid-path
+ * and swallow part of a larger expression (e.g. `${CLAUDE_PLUGIN_ROOT}/../tools/x.ts`
+ * must never be reinterpreted as the bare reference `tools/x.ts`). Leading
+ * `../` segments are captured as part of the reference itself, not silently
+ * dropped, so traversal is detected downstream instead of disappearing.
+ */
+export function extractBundleReferences(text, { subdirs, extensions }) {
+  const pattern = new RegExp(
+    `(?<![\\w./-])(\\$\\{CLAUDE_PLUGIN_ROOT\\}/)?((?:\\.\\./)*(?:skills/[a-z0-9-]+/)?(?:${subdirs.join("|")})/[A-Za-z0-9._/-]+\\.(?:${extensions.join("|")}))`,
+    "g",
+  );
+  const seen = new Set();
+  const refs = [];
+  for (const [, prefix, pathPart] of text.matchAll(pattern)) {
+    const prefixed = Boolean(prefix);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal "${CLAUDE_PLUGIN_ROOT}" placeholder text, not a JS template
+    const ref = (prefixed ? "${CLAUDE_PLUGIN_ROOT}/" : "") + pathPart;
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push({ prefixed, pathPart, ref });
+  }
+  return refs;
+}
+
+/** True if any path segment is a ".." traversal component. A lone "." (current dir) is a safe no-op. */
+function hasTraversalSegment(pathPart) {
+  return pathPart.split("/").some((segment) => segment === "..");
+}
+
+/**
+ * Resolve a local bundle reference against `base`, purely lexically: no
+ * filesystem access. Rejects traversal (".." segments, or a normalized
+ * result outside `base`) before any I/O would happen. Callers are
+ * responsible for the filesystem-facing checks (existence, regular-file,
+ * symlink containment) once a reference resolves `ok`.
  */
 export function resolveBundleReference(base, pathPart) {
-  if (pathPart.split("/").some((segment) => segment === "." || segment === "..")) {
+  if (hasTraversalSegment(pathPart)) {
     return { ok: false, reason: "traversal" };
   }
   const resolved = path.join(base, pathPart);
   const rel = path.relative(base, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     return { ok: false, reason: "traversal" };
-  }
-  if (!fs.existsSync(resolved)) {
-    return { ok: false, reason: "missing", resolved };
   }
   return { ok: true, resolved };
 }

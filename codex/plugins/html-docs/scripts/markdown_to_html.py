@@ -458,22 +458,38 @@ def render_inline(text: str, base_dir: Path) -> str:
     return escaped
 
 
+ALLOWED_IMAGE_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+}
+
+
 def render_image_ref(alt: str, target: str, base_dir: Path) -> str:
     parsed = urlparse(target)
     label = html.escape(alt or target)
     if parsed.scheme in {"http", "https"}:
         href = html.escape(target, quote=True)
         return f'<span class="asset-ref">Remote image: <a href="{href}">{label}</a></span>'
-    candidate = (base_dir / target).resolve()
-    if candidate.is_file() and candidate.stat().st_size <= 1_500_000:
+    base_resolved = base_dir.resolve()
+    candidate = (base_resolved / target).resolve()
+    contained = candidate == base_resolved or candidate.is_relative_to(base_resolved)
+    if contained and candidate.is_file() and candidate.stat().st_size <= 1_500_000:
         mime = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
-        encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
-        return f'<img src="data:{mime};base64,{encoded}" alt="{label}">'
+        if mime in ALLOWED_IMAGE_MIME_TYPES:
+            encoded = base64.b64encode(candidate.read_bytes()).decode("ascii")
+            return f'<img src="data:{mime};base64,{encoded}" alt="{label}">'
     href = html.escape(target, quote=True)
     return f'<span class="asset-ref">Image reference: <code>{href}</code></span>'
 
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def sanitize_href(target: str) -> str | None:
+    if _CONTROL_CHARS.search(target):
+        return None
     parsed = urlparse(target)
     if parsed.scheme and parsed.scheme not in {"http", "https", "mailto"}:
         return None

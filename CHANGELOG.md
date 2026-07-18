@@ -30,6 +30,7 @@
 
 ### Changed
 
+- bump ws from 8.20.0 to 8.21.1 in the npm_and_yarn group across 1 directory (#31) [#31]
 - bump undici in the npm_and_yarn group across 1 directory (#29) [#29]
 - bump shell-quote (#16) [#16]
 - bump the npm_and_yarn group across 2 directories with 1 update (#12) [#12]
@@ -38,6 +39,10 @@
 - bump the npm_and_yarn group across 1 directory with 2 updates (#9) [#9]
 - bump the npm_and_yarn group across 1 directory with 2 updates (#5) [#5]
 - Initial commit
+
+### Fixed
+
+- harden Herdr fleet orchestration
 
 ### Security
 

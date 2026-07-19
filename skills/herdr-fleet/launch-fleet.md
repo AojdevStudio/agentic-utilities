@@ -191,33 +191,63 @@ A confirmed zero-worker roster needs no watcher. Otherwise, start or reuse exact
 ```bash
 MONITOR_DIR="${TMPDIR:-/tmp}/herdr-fleet-${HERDR_WORKSPACE_ID//:/_}-${HERDR_TAB_ID//:/_}-${PROJECT_KEY}"
 mkdir -p "$MONITOR_DIR"
-REUSE_WATCHER=no
-if [ -f "$MONITOR_DIR/pid" ]; then
+reuse_running_watcher() {
+  [ -f "$MONITOR_DIR/pid" ] || return 1
   existing_pid="$(cat "$MONITOR_DIR/pid")"
   existing_command="$(ps -p "$existing_pid" -o command= 2>/dev/null || true)"
   case "$existing_command" in
     *"watch-fleet.mjs --project-key $PROJECT_KEY --owner-token $FLEET_OWNER_TOKEN"*)
-      kill -0 "$existing_pid" 2>/dev/null && REUSE_WATCHER=yes
+      kill -0 "$existing_pid" 2>/dev/null
       ;;
+    *) return 1 ;;
   esac
-fi
+}
+
+REUSE_WATCHER=no
+START_LOCK_HELD=no
+attempt=0
+while [ "$attempt" -lt 30 ]; do
+  if reuse_running_watcher; then
+    REUSE_WATCHER=yes
+    break
+  fi
+  if (set -C; umask 077; printf '%s\n' "$$" >"$MONITOR_DIR/start.lock") 2>/dev/null; then
+    START_LOCK_HELD=yes
+    trap 'rm -f "$MONITOR_DIR/start.lock"' EXIT INT TERM
+    if reuse_running_watcher; then REUSE_WATCHER=yes; fi
+    break
+  fi
+  lock_owner="$(cat "$MONITOR_DIR/start.lock" 2>/dev/null || true)"
+  if [ -n "$lock_owner" ] && ! kill -0 "$lock_owner" 2>/dev/null; then
+    rm -f "$MONITOR_DIR/start.lock"
+    continue
+  fi
+  attempt=$((attempt + 1))
+  sleep 1
+done
 
 if [ "$REUSE_WATCHER" = yes ]; then
   FLEET_WATCHER_PID="$existing_pid"
-else
-  rm -f "$MONITOR_DIR/pid"
-  mkdir "$MONITOR_DIR/start.lock" || exit 1
-  trap 'rmdir "$MONITOR_DIR/start.lock" 2>/dev/null || true' EXIT INT TERM
+elif [ "$START_LOCK_HELD" = yes ]; then
+  rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/events.cursor"
   bun <skill-directory>/scripts/watch-fleet.mjs \
     --project-key "$PROJECT_KEY" --owner-token "$FLEET_OWNER_TOKEN" \
     >"$MONITOR_DIR/events.ndjson" 2>"$MONITOR_DIR/errors.ndjson" &
   FLEET_WATCHER_PID=$!
-  printf '%s\n' "$FLEET_WATCHER_PID" >"$MONITOR_DIR/pid.tmp"
-  mv "$MONITOR_DIR/pid.tmp" "$MONITOR_DIR/pid"
-  rmdir "$MONITOR_DIR/start.lock"
-  trap - EXIT INT TERM
+  printf '%s\n' "$FLEET_WATCHER_PID" >"$MONITOR_DIR/pid.tmp-$$"
+  mv "$MONITOR_DIR/pid.tmp-$$" "$MONITOR_DIR/pid"
   sleep 1
-  kill -0 "$FLEET_WATCHER_PID" 2>/dev/null || exit 1
+  if ! kill -0 "$FLEET_WATCHER_PID" 2>/dev/null; then
+    rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/start.lock"
+    trap - EXIT INT TERM
+    exit 1
+  fi
+else
+  exit 1
+fi
+if [ "$START_LOCK_HELD" = yes ]; then
+  rm -f "$MONITOR_DIR/start.lock"
+  trap - EXIT INT TERM
 fi
 ```
 

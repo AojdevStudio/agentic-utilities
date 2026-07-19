@@ -1,6 +1,6 @@
 ---
 name: herdr-fleet
-description: Use for projects that require Herdr fleet launch, worker-pane startup, surviving-pane rebuilds, or control of a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
+description: This skill should be used when a project requires Herdr fleet launch, worker-pane startup, surviving-pane rebuilds, or control of a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
 ---
 
 # Herdr Fleet

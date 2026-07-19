@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findBrokenPackedLinks } from "./lib/package-links.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const result = spawnSync("bun", ["pm", "pack", "--dry-run", "--ignore-scripts"], {
@@ -30,11 +31,18 @@ const requiredPaths = [
   "skills/herdr-fleet/README.md",
   "skills/herdr-fleet/launch-fleet.md",
   "skills/herdr-fleet/protocols.md",
+  "skills/herdr-fleet/fixtures/compaction-failures.json",
+  "skills/herdr-fleet/fixtures/fleet-state-race.json",
   "skills/herdr-fleet/fixtures/project-key-collision.json",
+  "skills/herdr-fleet/fixtures/watcher-identity.json",
   "skills/herdr-fleet/scripts/consume-events.mjs",
   "skills/herdr-fleet/scripts/fleet-labels.mjs",
+  "skills/herdr-fleet/scripts/fleet-state.mjs",
+  "skills/herdr-fleet/scripts/fleet-state.test.mjs",
   "skills/herdr-fleet/scripts/resolve-project-key.mjs",
   "skills/herdr-fleet/scripts/watch-fleet.mjs",
+  "scripts/lib/package-links.mjs",
+  "scripts/lib/package-links.test.mjs",
 ];
 const missing = requiredPaths.filter((requiredPath) => !packedPathSet.has(requiredPath));
 const forbidden = packedPaths.filter(
@@ -49,39 +57,21 @@ function markdownFiles(directory) {
   });
 }
 
-function headingAnchors(content) {
-  return new Set(
-    content
-      .split("\n")
-      .map((line) => line.match(/^#{1,6}\s+(.+)$/)?.[1])
-      .filter(Boolean)
-      .map((heading) =>
-        heading
-          .toLowerCase()
-          .replace(/[`*_~]/g, "")
-          .replace(/[^\p{L}\p{N}\s-]/gu, "")
-          .trim()
-          .replace(/\s+/g, "-"),
-      ),
-  );
-}
-
 const brokenLinks = [];
 for (const markdownPath of markdownFiles(path.join(root, "skills/herdr-fleet"))) {
-  const content = readFileSync(markdownPath, "utf8");
-  for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-    const target = match[1];
-    if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
-    const [relativeTarget, anchor] = target.split("#", 2);
-    const targetPath = relativeTarget ? path.resolve(path.dirname(markdownPath), relativeTarget) : markdownPath;
-    if (!existsSync(targetPath)) {
-      brokenLinks.push(`${path.relative(root, markdownPath)} -> ${target}`);
-      continue;
-    }
-    if (anchor && !headingAnchors(readFileSync(targetPath, "utf8")).has(anchor)) {
-      brokenLinks.push(`${path.relative(root, markdownPath)} -> #${anchor}`);
-    }
+  const sourcePath = path.relative(root, markdownPath).split(path.sep).join(path.posix.sep);
+  if (!packedPathSet.has(sourcePath)) {
+    brokenLinks.push(`${sourcePath} is not packed`);
+    continue;
   }
+  brokenLinks.push(
+    ...findBrokenPackedLinks({
+      sourcePath,
+      content: readFileSync(markdownPath, "utf8"),
+      packedPathSet,
+      readTarget: (targetPath) => readFileSync(path.join(root, targetPath), "utf8"),
+    }),
+  );
 }
 
 if (missing.length > 0 || forbidden.length > 0 || brokenLinks.length > 0) {

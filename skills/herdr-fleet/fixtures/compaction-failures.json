@@ -1,0 +1,35 @@
+{
+  "maxAttempts": 3,
+  "retryMs": 60000,
+  "cases": [
+    {
+      "name": "failed dispatches stop at the configured limit",
+      "samples": [80, 80, 80, 80],
+      "agentStatuses": ["idle", "idle", "idle", "idle"],
+      "outcomes": ["fail", "fail", "fail", "fail"],
+      "expectedAttempts": 3,
+      "expectedBlockedEvents": 1
+    },
+    {
+      "name": "usage below the rearm threshold permits a new attempt",
+      "samples": [80, 80, 80, 50, 80],
+      "agentStatuses": ["idle", "idle", "idle", "idle", "idle"],
+      "outcomes": ["fail", "fail", "fail", "none", "fail"],
+      "expectedAttempts": 1,
+      "expectedBlockedEvents": 1
+    },
+    {
+      "name": "exhausted successful dispatches block before dialog deferral",
+      "initialState": {
+        "compactionAttempts": 3,
+        "lastCompactionRequestAt": 0,
+        "compactionBlocked": false
+      },
+      "samples": [80],
+      "agentStatuses": ["blocked"],
+      "outcomes": ["none"],
+      "expectedAttempts": 3,
+      "expectedBlockedEvents": 1
+    }
+  ]
+}

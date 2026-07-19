@@ -51,6 +51,10 @@ KEY_RESULT="$(printf '%s' "$TAB_PANES_JSON" | bun <skill-directory>/scripts/reso
 PROJECT_KEY="$(printf '%s' "$KEY_RESULT" | bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).projectKey)')"
 FLEET_OWNER_TOKEN="$(printf '%s' "$KEY_RESULT" | bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).ownerToken)')"
 CONTROL_LABEL="${PROJECT_KEY}-control-pane"
+RECONCILIATION_FINGERPRINT="$(printf '%s' "$TAB_PANES_JSON" | \
+  bun <skill-directory>/scripts/fleet-state.mjs --fingerprint \
+    --workspace-id "$HERDR_WORKSPACE_ID" --tab-id "$HERDR_TAB_ID" | \
+  bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).fingerprint)')"
 ```
 
 The resolver prefers an established ownership-proven key. It compares metadata keys and legacy key/role labels by complete boundaries, so `ba-1234-pi-impl` occupies `ba-1234`, not `ba`. If the exact base key is foreign-occupied, it derives a deterministic suffix, rechecks that complete key, and lengthens the suffix until free. Multiple owned keys stop the launch for reconciliation.
@@ -61,14 +65,19 @@ Read the human-facing [launcher menu](README.md#launcher-menu), then use `AskUse
 
 ### Rebuild intake
 
-First inspect current-tab panes for ownership metadata:
+Use the current-tab list only for discovery. For every reuse candidate, immediately read `herdr pane get <pane-id>` and classify the fresh pane record; never trust list tokens alone.
+
+Require this read-back metadata:
 
 - `tokens.fleet_owner` equals `$FLEET_OWNER_TOKEN`;
 - `tokens.fleet_key` equals `$PROJECT_KEY`;
 - `tokens.fleet_kind` is `worker`;
 - repository cwd is owned;
 - `fleet_label`, `fleet_role`, `fleet_command`, `fleet_placement`, and optional `fleet_assignment` are present;
+- `fleet_metadata_sha` matches the canonical hash recomputed from all reconstructable fields, proving Step 7 stored the untruncated values;
 - the exact stored command and placement reconstruct the prior roster, and `pane process-info` is consistent with the stored launcher.
+
+Map the fresh readback tokens to the expected worker shape and run `fleet-state.mjs --verify-metadata`; this recomputes `fleet_metadata_sha` and rejects truncated or normalized values. A mismatch makes the pane non-reusable.
 
 When every surviving worker has complete, consistent metadata, reconstruct the prior roster and use `AskUserQuestion` with **Reuse detected roster**, **Edit roster**, and **Cancel**. Include the full pane-map preview. Reuse only after confirmation.
 
@@ -86,14 +95,63 @@ Requirements:
 
 - accept any number of workers, including zero;
 - require a unique non-empty label and launch command per worker;
+- reject `control-pane` and any rendered worker label equal to `$CONTROL_LABEL`;
 - accept `implementer`, `reviewer`, or any user-specified role;
 - preserve an optional assignment or lane constraint;
 - accept `pi`, `codex`, every documented Claudex/Claude launcher, and arbitrary user commands;
 - treat commands and assignments as data: never interpolate credentials or secrets into pane labels or metadata.
 
-Validate the roster, derive the exact split/placement plan, and render a preview containing the control pane plus every worker's label, command, role, assignment/lane, and placement. Use a second `AskUserQuestion` with **Confirm**, **Edit**, and **Cancel**. No pane mutation occurs before **Confirm**.
+Parse the answer into `ROSTER_JSON`, then validate final rendered labels before showing the preview:
 
-The confirmed roster is the source of truth for all later role, launch, and assignment decisions. There is no default worker count or default worker roster.
+```bash
+ROSTER_JSON="$(printf '%s' "$ROSTER_JSON" | bun <skill-directory>/scripts/fleet-state.mjs \
+  --validate-roster --project-key "$PROJECT_KEY")" || exit 1
+```
+
+This rejects duplicate labels and any worker that would render as `$CONTROL_LABEL`. Derive the exact split/placement plan and render a preview containing the control pane plus every worker's label, command, role, assignment/lane, and placement. Use a second `AskUserQuestion` with **Confirm**, **Edit**, and **Cancel**. No pane mutation occurs before **Confirm**.
+
+Immediately after **Confirm**, refresh and compare the classified topology with the pre-intake fingerprint:
+
+```bash
+verify_reconciliation_inventory() {
+  fresh_all="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID")" || return 1
+  TAB_PANES_JSON="$(printf '%s' "$fresh_all" | bun <skill-directory>/scripts/fleet-state.mjs \
+    --assert-fingerprint "$RECONCILIATION_FINGERPRINT" \
+    --workspace-id "$HERDR_WORKSPACE_ID" --tab-id "$HERDR_TAB_ID")" || return 1
+}
+
+capture_reconciliation_inventory() {
+  fresh_all="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID")" || return 1
+  TAB_PANES_JSON="$(printf '%s' "$fresh_all" | bun <skill-directory>/scripts/fleet-state.mjs \
+    --workspace-id "$HERDR_WORKSPACE_ID" --tab-id "$HERDR_TAB_ID")" || return 1
+  RECONCILIATION_FINGERPRINT="$(printf '%s' "$TAB_PANES_JSON" | \
+    bun <skill-directory>/scripts/fleet-state.mjs --fingerprint \
+      --workspace-id "$HERDR_WORKSPACE_ID" --tab-id "$HERDR_TAB_ID" | \
+    bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).fingerprint)')"
+}
+
+verify_mutation_target() {
+  target_pane_id="$1"
+  expected_target_json="$2"
+  verify_reconciliation_inventory || return 1
+  TARGET_PANE_JSON="$(herdr pane get "$target_pane_id")" || return 1
+  if TARGET_PROCESS_INFO="$(herdr pane process-info "$target_pane_id" 2>&1)"; then
+    TARGET_PROCESS_INFO_STATUS=running
+  else
+    TARGET_PROCESS_INFO_STATUS=exited
+  fi
+  VERIFY_PAYLOAD="$(ACTUAL_PANE_JSON="$TARGET_PANE_JSON" EXPECTED_TARGET_JSON="$expected_target_json" bun -e '
+const actual = JSON.parse(process.env.ACTUAL_PANE_JSON);
+const pane = actual?.result?.pane ?? actual?.pane ?? actual?.result ?? actual;
+process.stdout.write(JSON.stringify({ pane, expected: JSON.parse(process.env.EXPECTED_TARGET_JSON) }));
+')"
+  printf '%s' "$VERIFY_PAYLOAD" | bun <skill-directory>/scripts/fleet-state.mjs --verify-target
+}
+
+verify_reconciliation_inventory || exit 1
+```
+
+If this fails, topology changed during intake. Abort mutation and ask the user to confirm a newly classified preview. The confirmed roster is the source of truth for all later role, launch, and assignment decisions. There is no default worker count or default worker roster.
 
 ## Step 4: Establish merge policy
 
@@ -108,7 +166,7 @@ Authorization must name the repository, allowed base branches, merge strategy, a
 
 ## Step 5: Reconcile confirmed workers
 
-Before renaming, splitting, or launching, compare the confirmed roster with exact ownership metadata from `$TAB_PANES_JSON`. Inspect each candidate with `herdr pane get`, `herdr pane process-info`, and a recent transcript read.
+Before renaming, splitting, or launching, compare the confirmed roster with exact ownership metadata from `$TAB_PANES_JSON`. Inspect each candidate with `herdr pane get`, `herdr pane process-info`, and a recent transcript read. Immediately before **every** close or rename, call `verify_mutation_target` with the expected pane ID, scope, label, role, and owned metadata classification. It refreshes the list, reads the pane back with `pane get`, captures `pane process-info`, and rejects any mismatch. Abort or ask again on any change. After each deliberate mutation, call `capture_reconciliation_inventory` to establish the next baseline.
 
 Classify each confirmed entry:
 
@@ -124,19 +182,26 @@ Also identify owned workers absent from the confirmed roster. Ask before retirin
 Close a stale pane only after recording evidence and its pane ID, then refresh the workspace inventory and re-filter the current tab:
 
 ```bash
+EXPECTED_TARGET_JSON='<paneId/workspaceId/tabId/label/projectKey/ownerToken/kind/role JSON>'
+verify_mutation_target <proven-stale-owned-pane-id> "$EXPECTED_TARGET_JSON" || exit 1
+# Require TARGET_PROCESS_INFO_STATUS=exited and the same fresh owned-worker classification.
 herdr pane close <proven-stale-owned-pane-id>
+capture_reconciliation_inventory || exit 1
 ```
 
 If another healthy `${CONTROL_LABEL}` exists outside the current pane, stop and direct the principal to it. Replace it only when proven stale or explicitly authorized. Then claim and verify the current control pane:
 
 ```bash
+EXPECTED_TARGET_JSON='<current paneId/workspaceId/tabId/label JSON>'
+verify_mutation_target "$HERDR_PANE_ID" "$EXPECTED_TARGET_JSON" || exit 1
 herdr pane rename "$HERDR_PANE_ID" "$CONTROL_LABEL"
+capture_reconciliation_inventory || exit 1
 herdr pane layout --pane "$HERDR_PANE_ID"
 ```
 
 ## Step 6: Create only missing confirmed workers
 
-Follow the confirmed pane-map placements. Use explicit source pane IDs from the current-tab inventory for every split. Before each split, verify the source still belongs to `$HERDR_WORKSPACE_ID` and `$HERDR_TAB_ID`. Always use `--no-focus`; read `result.pane.pane_id` from JSON; verify the returned workspace and tab; never predict IDs.
+Follow the confirmed pane-map placements. Use explicit source pane IDs from the current-tab inventory for every split. Immediately before each split, call `verify_mutation_target` with the source pane's expected ID, workspace, tab, label, and owned classification from the confirmed plan. Abort or ask again on any list, readback, process, ownership, or label change. Always use `--no-focus`; read `result.pane.pane_id` from JSON; verify the returned workspace and tab; never predict IDs. After each successful split, call `capture_reconciliation_inventory` before considering another mutation.
 
 Create exactly one pane for each missing confirmed roster entry. Any number of workers is valid. A partial surviving fleet becomes reused-plus-missing, never duplicated.
 
@@ -145,7 +210,10 @@ Create exactly one pane for each missing confirmed roster entry. Any number of w
 Start each new worker with its confirmed command, wait for its interactive agent when applicable, and verify the command through `pane process-info`. Reused workers keep their sessions. Before watcher startup, stamp every confirmed new, reused, or user-confirmed legacy worker with current metadata.
 
 ```bash
+EXPECTED_TARGET_JSON='<new paneId/workspaceId/tabId/current-label JSON>'
+verify_mutation_target <pane-id> "$EXPECTED_TARGET_JSON" || exit 1
 herdr pane rename <pane-id> "${PROJECT_KEY}-<confirmed-worker-label>"
+capture_reconciliation_inventory || exit 1
 herdr pane run <pane-id> "<confirmed-launch-command>"
 herdr wait agent-status <pane-id> --status idle --timeout 60000
 ```
@@ -153,6 +221,11 @@ herdr wait agent-status <pane-id> --status idle --timeout 60000
 Record reconstructable ownership metadata on every confirmed worker. Omit `fleet_assignment` only when the user left it empty.
 
 ```bash
+# Generate this JSON from the confirmed roster; never rebuild it by parsing shell text.
+EXPECTED_WORKER_JSON='<ownerToken/projectKey/label/role/assignment/command/placement JSON>'
+METADATA_SHA="$(printf '%s' "$EXPECTED_WORKER_JSON" | \
+  bun <skill-directory>/scripts/fleet-state.mjs --metadata-hash)" || exit 1
+# Add --token "fleet_assignment=<confirmed-assignment-or-lane>" only when non-empty.
 herdr pane report-metadata <pane-id> \
   --source user:herdr-fleet \
   --token "fleet_owner=$FLEET_OWNER_TOKEN" \
@@ -160,12 +233,24 @@ herdr pane report-metadata <pane-id> \
   --token "fleet_kind=worker" \
   --token "fleet_label=<confirmed-worker-label>" \
   --token "fleet_role=<confirmed-role>" \
-  --token "fleet_assignment=<confirmed-assignment-or-lane>" \
   --token "fleet_command=<confirmed-launch-command>" \
-  --token "fleet_placement=<confirmed-placement>"
+  --token "fleet_placement=<confirmed-placement>" \
+  --token "fleet_metadata_sha=$METADATA_SHA"
 ```
 
-Herdr metadata values are bounded. Store commands only when they contain no credential and fit without truncation. If any roster value cannot be stored exactly, mark that pane non-reusable and require intake on the next rebuild rather than claiming proof that does not exist.
+Herdr metadata values are bounded. Store commands only when they contain no credential and fit without truncation. Read every value back before trusting the pane as reusable:
+
+```bash
+PANE_JSON="$(herdr pane get <pane-id>)" || exit 1
+VERIFY_PAYLOAD="$(ACTUAL_PANE_JSON="$PANE_JSON" EXPECTED_WORKER_JSON="$EXPECTED_WORKER_JSON" bun -e '
+const actual = JSON.parse(process.env.ACTUAL_PANE_JSON);
+const pane = actual?.result?.pane ?? actual?.pane ?? actual?.result ?? actual;
+process.stdout.write(JSON.stringify({ pane, expected: JSON.parse(process.env.EXPECTED_WORKER_JSON) }));
+')"
+printf '%s' "$VERIFY_PAYLOAD" | bun <skill-directory>/scripts/fleet-state.mjs --verify-metadata || exit 1
+```
+
+The verifier compares every field, the rendered pane label, and `fleet_metadata_sha`, which is computed from the confirmed pre-write values. A truncated or omitted value cannot reproduce that hash. If readback differs, record the pane as non-reusable and do not arm ownership-based monitoring for it. Correct the metadata or require intake on the next rebuild rather than claiming proof that does not exist.
 
 ## Step 8: Broadcast standing constraints
 

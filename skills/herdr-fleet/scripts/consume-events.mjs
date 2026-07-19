@@ -1,7 +1,19 @@
 #!/usr/bin/env bun
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -18,28 +30,58 @@ function cursorAt(cursorPath) {
   return value;
 }
 
-export function nextEvent(eventsPath, cursor, expectedSessionId) {
-  const data = readFileSync(eventsPath);
-  if (cursor > data.length) throw new Error("event file truncated behind saved cursor");
-  const newline = data.indexOf(0x0a, cursor);
-  if (newline === -1) return undefined;
-  const line = data.subarray(cursor, newline).toString("utf8").trim();
-  if (!line) return { event: undefined, nextCursor: newline + 1 };
-  const event = JSON.parse(line);
-  if (event.sessionId !== expectedSessionId) throw new Error("event session scope mismatch");
-  return { event, nextCursor: newline + 1 };
+export function readFromCursor(eventsPath, cursor, maxBytes = 65_536) {
+  const descriptor = openSync(eventsPath, "r");
+  try {
+    const size = fstatSync(descriptor).size;
+    if (cursor > size) throw new Error("event file truncated behind saved cursor");
+    const length = Math.min(size - cursor, maxBytes);
+    const buffer = Buffer.alloc(length);
+    return buffer.subarray(0, readSync(descriptor, buffer, 0, length, cursor));
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
-function watcherRunning(pidPath) {
-  if (!existsSync(pidPath)) return false;
-  const pid = Number(readFileSync(pidPath, "utf8").trim());
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+function parseJson(text, context) {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${context}: ${error.message}`);
   }
+}
+
+export function nextEvent(eventsPath, cursor, expectedSessionId) {
+  const data = readFromCursor(eventsPath, cursor);
+  const newline = data.indexOf(0x0a);
+  if (newline === -1) {
+    if (data.length === 65_536) throw new Error("event exceeds maximum line size");
+    return undefined;
+  }
+  const line = data.subarray(0, newline).toString("utf8").trim();
+  if (!line) return { event: undefined, nextCursor: cursor + newline + 1 };
+  const event = parseJson(line, "invalid watcher event");
+  if (event.sessionId !== expectedSessionId) throw new Error("event session scope mismatch");
+  return { event, nextCursor: cursor + newline + 1 };
+}
+
+export function watcherIdentityMatches(candidate) {
+  const { pid, storedToken, expectedCommandSuffix, command } = candidate;
+  if (!Number.isSafeInteger(pid) || pid <= 1 || !/^[A-Za-z0-9-]+$/.test(storedToken ?? "")) return false;
+  if (!expectedCommandSuffix?.endsWith(`--instance-token ${storedToken}`)) return false;
+  return command?.trimEnd().endsWith(expectedCommandSuffix) ?? false;
+}
+
+function watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix) {
+  if (!existsSync(pidPath) || !existsSync(instanceTokenPath)) return false;
+  const pid = Number(readFileSync(pidPath, "utf8").trim());
+  const storedToken = readFileSync(instanceTokenPath, "utf8").trim();
+  const result = spawnSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  if (result.error || result.status !== 0) return false;
+  return watcherIdentityMatches({ pid, storedToken, expectedCommandSuffix, command: result.stdout });
 }
 
 function acknowledge(eventsPath, cursorPath, nextCursor) {
@@ -48,22 +90,32 @@ function acknowledge(eventsPath, cursorPath, nextCursor) {
   if (!Number.isSafeInteger(nextCursor) || nextCursor <= current || nextCursor > size) {
     throw new Error("ack cursor is outside the pending event range");
   }
-  const data = readFileSync(eventsPath);
-  if (data[nextCursor - 1] !== 0x0a) throw new Error("ack cursor is not an event boundary");
+  const boundary = readFromCursor(eventsPath, nextCursor - 1, 1);
+  if (boundary[0] !== 0x0a) throw new Error("ack cursor is not an event boundary");
   const temporary = `${cursorPath}.tmp-${process.pid}`;
   writeFileSync(temporary, `${nextCursor}\n`, { mode: 0o600 });
   renameSync(temporary, cursorPath);
 }
 
-async function readNext(eventsPath, cursorPath, pidPath, expectedSessionId, waitMs) {
+async function readNext(
+  eventsPath,
+  cursorPath,
+  pidPath,
+  instanceTokenPath,
+  expectedCommandSuffix,
+  expectedSessionId,
+  waitMs,
+) {
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
+    if (!watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix)) {
+      throw new Error("watcher identity changed before the next complete event");
+    }
     const cursor = cursorAt(cursorPath);
     if (existsSync(eventsPath)) {
       const result = nextEvent(eventsPath, cursor, expectedSessionId);
       if (result) return result;
     }
-    if (!watcherRunning(pidPath)) throw new Error("watcher exited before the next complete event");
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   return undefined;
@@ -82,9 +134,21 @@ function selfTest() {
   assert.equal(cursorAt(cursorPath), Buffer.byteLength(first));
   assert.equal(nextEvent(eventsPath, cursorAt(cursorPath), sessionId), undefined);
   assert.throws(() => nextEvent(eventsPath, 0, "fleet:other"));
+  const tail = readFromCursor(eventsPath, cursorAt(cursorPath), 9);
+  assert.equal(tail.length, 9);
+  assert.equal(tail.toString("utf8"), '{"session');
+
+  const identityFixture = parseJson(
+    readFileSync(new URL("../fixtures/watcher-identity.json", import.meta.url), "utf8"),
+    "invalid watcher identity fixture",
+  );
+  for (const testCase of identityFixture.cases) {
+    const candidate = { ...testCase, storedToken: testCase.instanceId };
+    assert.equal(watcherIdentityMatches(candidate), testCase.expected, testCase.name);
+  }
   unlinkSync(eventsPath);
   unlinkSync(cursorPath);
-  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 4 })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 9 })}\n`);
 }
 
 if (process.argv.includes("--self-test")) {
@@ -95,6 +159,8 @@ if (process.argv.includes("--self-test")) {
 const eventsPath = option("--events");
 const cursorPath = option("--cursor");
 const pidPath = option("--pid-file");
+const instanceTokenPath = option("--instance-token-file");
+const expectedCommandSuffix = option("--watcher-command-suffix");
 const expectedSessionId = option("--session-id");
 if (!eventsPath || !cursorPath || !expectedSessionId) {
   process.stderr.write(
@@ -109,10 +175,20 @@ if (!eventsPath || !cursorPath || !expectedSessionId) {
 
 try {
   if (process.argv.includes("--next")) {
-    if (!pidPath) throw new Error("--next requires --pid-file");
+    if (!pidPath || !instanceTokenPath || !expectedCommandSuffix) {
+      throw new Error("--next requires PID, instance-token, and command-suffix identity");
+    }
     const waitSeconds = Number(option("--wait-seconds") ?? "30");
     const waitMs = Number.isFinite(waitSeconds) && waitSeconds > 0 ? waitSeconds * 1000 : 30_000;
-    const result = await readNext(eventsPath, cursorPath, pidPath, expectedSessionId, waitMs);
+    const result = await readNext(
+      eventsPath,
+      cursorPath,
+      pidPath,
+      instanceTokenPath,
+      expectedCommandSuffix,
+      expectedSessionId,
+      waitMs,
+    );
     process.stdout.write(`${JSON.stringify(result ?? { status: "no_event" })}\n`);
   } else if (process.argv.includes("--ack")) {
     acknowledge(eventsPath, cursorPath, Number(option("--ack")));

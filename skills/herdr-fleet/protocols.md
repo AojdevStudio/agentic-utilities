@@ -6,11 +6,15 @@ Consume events one at a time with a persisted byte cursor. `--next` returns one 
 
 ```bash
 EVENT_SESSION_ID="fleet:${HERDR_WORKSPACE_ID}:${HERDR_TAB_ID}:${PROJECT_KEY}"
+WATCHER_INSTANCE_TOKEN="$(cat "$MONITOR_DIR/instance-token")" || exit 1
+WATCHER_COMMAND_SUFFIX="watch-fleet.mjs --project-key $PROJECT_KEY --owner-token $FLEET_OWNER_TOKEN --workspace-id $HERDR_WORKSPACE_ID --tab-id $HERDR_TAB_ID --instance-token $WATCHER_INSTANCE_TOKEN"
 while true; do
   NEXT="$(bun <skill-directory>/scripts/consume-events.mjs --next \
     --events "$MONITOR_DIR/events.ndjson" \
     --cursor "$MONITOR_DIR/events.cursor" \
     --pid-file "$MONITOR_DIR/pid" \
+    --instance-token-file "$MONITOR_DIR/instance-token" \
+    --watcher-command-suffix "$WATCHER_COMMAND_SUFFIX" \
     --session-id "$EVENT_SESSION_ID" \
     --wait-seconds 30)" || break
   status="$(printf '%s' "$NEXT" | bun -e '
@@ -35,7 +39,7 @@ process.stdout.write(String(JSON.parse(await Bun.stdin.text()).nextCursor));
 done
 ```
 
-A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. Partial trailing lines remain buffered on disk. If the watcher exits before another complete event, the consumer fails and the fleet becomes blocked rather than silently missing events.
+A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. The consumer reads only a bounded chunk from the saved offset, so the append-only stream does not get reloaded on each event. Partial trailing lines remain buffered on disk. Before waiting, it validates the PID, stored instance token, and exact scoped command suffix. A recycled PID or exited watcher fails closed and blocks the fleet rather than silently missing events.
 
 For each accepted event, read the relevant transcript tail, act, and give the principal a proportionate update: a line for routine movement and a structured report for milestones.
 

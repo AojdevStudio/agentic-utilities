@@ -19,11 +19,12 @@ This directory is the repo's generic skills lane. The skills CLI also discovers 
 | `grill-with-docs` | [`grill-with-docs/`](grill-with-docs/) | Stress-tests plans against project domain language and records resolved terms/ADRs as decisions crystallize. | Generic Agent Skill. |
 | `harness-audit` | [`harness-audit/`](harness-audit/) | Audits repos for autonomous-agent harness readiness and unattended ticket execution gaps. | Generic Agent Skill; also available as a Claude Code plugin. |
 | `harness-worktrees` | [`harness-worktrees/`](harness-worktrees/) | Manages Pi/Superconductor worktree refresh and reset workflows after PR merges. | Generic Agent Skill; also available as a Claude Code plugin. |
+| `herdr-fleet` | [`herdr-fleet/`](herdr-fleet/) | Launches and reconciles user-confirmed, project-scoped Herdr worker fleets from one control pane. | Requires `HERDR_ENV=1`; defaults to report-only merge policy. |
 | `scaffold-notes` | [`scaffold-notes/`](scaffold-notes/) | Maintains this repo's Pi package resources and docs when adding or refactoring skills/extensions/prompts/themes. | Repo maintenance skill. |
 
 ## Validate
 
 ```bash
-npm run validate:skills
-npx skills add . --list
+bun run validate:skills
+bunx skills add . --list
 ```

@@ -1,6 +1,6 @@
 ---
 name: herdr-fleet
-description: Use when you need to launch a Herdr fleet, start worker panes, rebuild surviving panes, or control a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
+description: Use when a project needs to launch a Herdr fleet, start worker panes, rebuild surviving panes, or control a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
 ---
 
 # Herdr Fleet

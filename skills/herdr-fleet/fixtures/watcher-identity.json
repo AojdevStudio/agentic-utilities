@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "name": "exact watcher instance",
+      "pid": 4242,
+      "instanceId": "instance-1234",
+      "expectedCommandSuffix": "watch-fleet.mjs --project-key app --instance-token instance-1234",
+      "command": "bun /skill/watch-fleet.mjs --project-key app --instance-token instance-1234",
+      "expected": true
+    },
+    {
+      "name": "recycled PID with unrelated command",
+      "pid": 4242,
+      "instanceId": "instance-1234",
+      "expectedCommandSuffix": "watch-fleet.mjs --project-key app --instance-token instance-1234",
+      "command": "sleep 9999",
+      "expected": false
+    },
+    {
+      "name": "trailing argv does not match exact watcher scope",
+      "pid": 4242,
+      "instanceId": "instance-1234",
+      "expectedCommandSuffix": "watch-fleet.mjs --project-key app --instance-token instance-1234",
+      "command": "bun /skill/watch-fleet.mjs --project-key app --instance-token instance-1234-extra",
+      "expected": false
+    }
+  ]
+}

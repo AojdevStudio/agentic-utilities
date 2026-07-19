@@ -1,0 +1,80 @@
+{
+  "scope": {
+    "workspaceId": "w1",
+    "tabId": "w1:t1"
+  },
+  "before": {
+    "result": {
+      "panes": [
+        {
+          "pane_id": "w1:p1",
+          "workspace_id": "w1",
+          "tab_id": "w1:t1",
+          "label": "app-builder",
+          "foreground_cwd": "/repos/app",
+          "tokens": {
+            "fleet_key": "app",
+            "fleet_owner": "owner-1",
+            "fleet_kind": "worker",
+            "fleet_role": "implementer"
+          }
+        },
+        {
+          "pane_id": "w1:p9",
+          "workspace_id": "w1",
+          "tab_id": "w1:t2",
+          "label": "other-worker"
+        }
+      ]
+    }
+  },
+  "afterTopologyRace": {
+    "result": {
+      "panes": [
+        {
+          "pane_id": "w1:p1",
+          "workspace_id": "w1",
+          "tab_id": "w1:t1",
+          "label": "app-reviewer",
+          "foreground_cwd": "/repos/app",
+          "tokens": {
+            "fleet_key": "app",
+            "fleet_owner": "owner-1",
+            "fleet_kind": "worker",
+            "fleet_role": "reviewer"
+          }
+        }
+      ]
+    }
+  },
+  "rosterWithReservedLabel": [
+    {
+      "label": "control-pane",
+      "launchCommand": "pi",
+      "role": "implementer",
+      "placement": "right"
+    }
+  ],
+  "metadataReadback": {
+    "pane": {
+      "label": "app-builder",
+      "tokens": {
+        "fleet_owner": "owner-1",
+        "fleet_key": "app",
+        "fleet_kind": "worker",
+        "fleet_label": "builder",
+        "fleet_role": "implementer",
+        "fleet_command": "claudex --model fa",
+        "fleet_placement": "right"
+      }
+    },
+    "expected": {
+      "ownerToken": "owner-1",
+      "projectKey": "app",
+      "label": "builder",
+      "role": "implementer",
+      "command": "claudex --model fable",
+      "placement": "right"
+    }
+  }
+}

@@ -24,15 +24,19 @@ process.stdout.write(value.status ?? "event");
 ')"
   [ "$status" = no_event ] && continue
 
-  EVENT="$(printf '%s' "$NEXT" | bun -e '
-process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).event));
-')"
   NEXT_CURSOR="$(printf '%s' "$NEXT" | bun -e '
 process.stdout.write(String(JSON.parse(await Bun.stdin.text()).nextCursor));
 ')"
+  if [ "$status" = event ]; then
+    EVENT="$(printf '%s' "$NEXT" | bun -e '
+process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).event));
+')"
 
-  # Re-read any referenced pane and reject it unless workspace, tab, key, and owner metadata still match.
-  # Read the transcript, perform the event action, and record evidence. Ack only after success.
+    # Re-read any referenced pane and reject it unless workspace, tab, key, and owner metadata still match.
+    # Read the transcript, perform the event action, and record evidence. Ack only after success.
+  fi
+
+  # Acknowledge a handled event or a blank-line skip placeholder.
   bun <skill-directory>/scripts/consume-events.mjs --ack "$NEXT_CURSOR" \
     --events "$MONITOR_DIR/events.ndjson" \
     --cursor "$MONITOR_DIR/events.cursor" \
@@ -45,7 +49,7 @@ process.stdout.write(String(JSON.parse(await Bun.stdin.text()).nextCursor));
 done
 ```
 
-A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. Acknowledgment acquires the same `start.lock` used by watcher replacement, revalidates PID, instance token, and exact command identity, then re-reads the pending event and verifies its session, generation, and next cursor before advancing. The lock prevents a replacement generation from starting between the final identity check and cursor rename. The consumer reads only a bounded chunk from the saved offset, so the append-only stream does not get reloaded on each event. Partial trailing lines remain buffered on disk. Before waiting, it validates the PID, stored instance token, and exact scoped command suffix. A recycled PID or exited watcher fails closed and blocks the fleet rather than silently missing events.
+A blank line returns `status: "skip"`; the loop bypasses event extraction and acknowledges its exact cursor, so later events remain reachable. A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. Acknowledgment acquires the same `start.lock` used by watcher replacement, revalidates PID, instance token, and exact command identity, then re-reads the pending event and verifies its session, generation, and next cursor before advancing. The lock prevents a replacement generation from starting between the final identity check and cursor rename. The consumer reads only a bounded chunk from the saved offset, so the append-only stream does not get reloaded on each event. Partial trailing lines remain buffered on disk. Before waiting, it validates the PID, stored instance token, and exact scoped command suffix. A recycled PID or exited watcher fails closed and blocks the fleet rather than silently missing events.
 
 For each accepted event, read the relevant transcript tail, act, and give the principal a proportionate update: a line for routine movement and a structured report for milestones.
 

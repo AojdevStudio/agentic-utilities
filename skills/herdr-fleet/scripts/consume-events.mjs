@@ -59,7 +59,7 @@ export function nextEvent(eventsPath, cursor, expectedSessionId, expectedGenerat
     return undefined;
   }
   const line = data.subarray(0, newline).toString("utf8").trim();
-  if (!line) return { event: undefined, nextCursor: cursor + newline + 1 };
+  if (!line) return { status: "skip", nextCursor: cursor + newline + 1 };
   const event = parseJson(line, "invalid watcher event");
   if (event.sessionId !== expectedSessionId) throw new Error("event session scope mismatch");
   if (event.generation !== expectedGeneration) throw new Error("event watcher generation mismatch");
@@ -209,9 +209,11 @@ function selfTest() {
   assert.throws(() => acknowledge({ ...ackOptions, identityValidator: () => replacementIdentity }), /identity changed/);
   assert.equal(cursorAt(cursorPath), 0);
   const missingLockError = Object.assign(new Error("lock disappeared"), { code: "ENOENT" });
+  let racedLockRead = false;
   const racedLock = startLockManager(`${root}.race-lock`, {
     existsSync: () => true,
     readFileSync: () => {
+      racedLockRead = true;
       throw missingLockError;
     },
     unlinkSync: () => assert.fail("missing lock must not be unlinked"),
@@ -225,6 +227,7 @@ function selfTest() {
       }),
     /watcher identity changed/,
   );
+  assert.equal(racedLockRead, true);
   let identityChecks = 0;
   assert.throws(
     () =>
@@ -299,6 +302,7 @@ function selfTest() {
   const blankCursorPath = `${root}.blank.cursor`;
   writeFileSync(blankEventsPath, "\n");
   const blank = nextEvent(blankEventsPath, 0, sessionId, generation);
+  assert.equal(blank.status, "skip");
   assert.equal(blank.nextCursor, 1);
   acknowledge({
     ...ackOptions,
@@ -325,7 +329,7 @@ function selfTest() {
   unlinkSync(cursorPath);
   unlinkSync(blankEventsPath);
   unlinkSync(blankCursorPath);
-  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 25 })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 27 })}\n`);
 }
 
 if (process.argv.includes("--self-test")) {

@@ -92,7 +92,7 @@ function watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix, expec
   });
 }
 
-function startLockManager(lockPath) {
+function startLockManager(lockPath, fileSystem = { existsSync, readFileSync, unlinkSync }) {
   return {
     acquire() {
       if (!lockPath) return false;
@@ -100,8 +100,14 @@ function startLockManager(lockPath) {
       return !result.error && result.status === 0;
     },
     release() {
-      if (!existsSync(lockPath)) return;
-      if (readFileSync(lockPath, "utf8").trim() === String(process.pid)) unlinkSync(lockPath);
+      try {
+        if (!fileSystem.existsSync(lockPath)) return;
+        if (fileSystem.readFileSync(lockPath, "utf8").trim() === String(process.pid)) {
+          fileSystem.unlinkSync(lockPath);
+        }
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
     },
   };
 }
@@ -127,7 +133,7 @@ function acknowledgeLocked(options) {
     throw new Error("ack cursor is outside the pending event range");
   }
   const pending = nextEvent(eventsPath, current, expectedSessionId, expectedGeneration);
-  if (!pending?.event || pending.nextCursor !== nextCursor) throw new Error("ack does not match pending event");
+  if (!pending || pending.nextCursor !== nextCursor) throw new Error("ack does not match pending event");
   const temporary = `${cursorPath}.tmp-${process.pid}`;
   writeFileSync(temporary, `${nextCursor}\n`, { mode: 0o600 });
   if (!identityValidator(pidPath, instanceTokenPath, expectedCommandSuffix, expectedGeneration)) {
@@ -202,6 +208,23 @@ function selfTest() {
   });
   assert.throws(() => acknowledge({ ...ackOptions, identityValidator: () => replacementIdentity }), /identity changed/);
   assert.equal(cursorAt(cursorPath), 0);
+  const missingLockError = Object.assign(new Error("lock disappeared"), { code: "ENOENT" });
+  const racedLock = startLockManager(`${root}.race-lock`, {
+    existsSync: () => true,
+    readFileSync: () => {
+      throw missingLockError;
+    },
+    unlinkSync: () => assert.fail("missing lock must not be unlinked"),
+  });
+  assert.throws(
+    () =>
+      acknowledge({
+        ...ackOptions,
+        identityValidator: () => false,
+        lockManager: { acquire: () => true, release: () => racedLock.release() },
+      }),
+    /watcher identity changed/,
+  );
   let identityChecks = 0;
   assert.throws(
     () =>
@@ -272,6 +295,20 @@ function selfTest() {
   assert.equal(tail.length, 9);
   assert.equal(tail.toString("utf8"), '{"session');
 
+  const blankEventsPath = `${root}.blank.ndjson`;
+  const blankCursorPath = `${root}.blank.cursor`;
+  writeFileSync(blankEventsPath, "\n");
+  const blank = nextEvent(blankEventsPath, 0, sessionId, generation);
+  assert.equal(blank.nextCursor, 1);
+  acknowledge({
+    ...ackOptions,
+    eventsPath: blankEventsPath,
+    cursorPath: blankCursorPath,
+    nextCursor: blank.nextCursor,
+    identityValidator: () => true,
+  });
+  assert.equal(cursorAt(blankCursorPath), 1);
+
   const identityFixture = parseJson(
     readFileSync(new URL("../fixtures/watcher-identity.json", import.meta.url), "utf8"),
     "invalid watcher identity fixture",
@@ -286,7 +323,9 @@ function selfTest() {
   }
   unlinkSync(eventsPath);
   unlinkSync(cursorPath);
-  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 22 })}\n`);
+  unlinkSync(blankEventsPath);
+  unlinkSync(blankCursorPath);
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 25 })}\n`);
 }
 
 if (process.argv.includes("--self-test")) {

@@ -20,7 +20,7 @@ function headingAnchors(content) {
 export function findBrokenPackedLinks({ sourcePath, content, packedPathSet, readTarget }) {
   const broken = [];
   for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-    const target = match[1];
+    const target = match[1].trim().split(/\s+/, 1)[0];
     if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
     const [relativeTarget, anchor] = target.split("#", 2);
     const targetPath = relativeTarget

@@ -64,7 +64,7 @@ For each artifact, score `✅ Present / ⚠️ Partial / ❌ Missing` with concr
 2. **Rules directory** — per-domain coding standards in `rules/`, `.cursor/rules/`, `docs/rules/`, `docs/solutions/`, etc. Imperative rules with reasoning. For repos with exported APIs, this includes an API documentation policy or ADR.
 3. **Lint config with rich error messages** — ESLint / Biome / SwiftLint / ruff / clippy with custom rules whose messages explain why and how to fix.
 4. **Pre-commit hooks** — Husky / lefthook / pre-commit / native git hooks running formatters, type checks, or targeted tests before push/commit.
-5. **Test suite agents can drive** — one-liner to run tests (`npm test`, `./scripts/test.sh`, `cargo test`, etc.). Fast enough and deterministic enough for agents.
+5. **Test suite agents can drive**: one-liner to run tests (`npm test`, `make test`, `cargo test`, etc.). Fast enough and deterministic enough for agents.
 6. **PR review automation** — CodeRabbit, AI reviewer workflows, persona reviewers, or at minimum CI that gates PRs.
 7. **Repo-scoped skills/prompts** — `.agents/skills/`, `.pi/skills/`, `.claude/skills/`, `.codex/`, `.pi/prompts/`, or package-scoped resources. Prefer 5-10 deep resources over many shallow ones.
 8. **Garbage-collection cadence** — documented recurring loop that converts agent/PR feedback into permanent rules, lints, docs, or skills.

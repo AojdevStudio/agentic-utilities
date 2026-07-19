@@ -157,7 +157,11 @@ for (const plugin of plugins) {
 
   const fixtureVerifier = path.join(pluginRoot, "scripts", "verify_fixtures.py");
   if (fs.existsSync(fixtureVerifier)) {
-    const result = spawnSync("python3", [fixtureVerifier], { cwd: repoRoot, encoding: "utf8" });
+    const result = spawnSync("python3", [fixtureVerifier], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    });
     if (result.status !== 0) {
       fail(plugin, `fixture verifier failed: ${(result.stderr || result.stdout).trim()}`);
     } else if (result.stdout.trim()) {

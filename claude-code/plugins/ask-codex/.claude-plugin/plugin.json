@@ -1,7 +1,7 @@
 {
   "name": "ask-codex",
   "version": "0.1.0",
-  "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens.",
+  "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens. Requires the `codex` binary on PATH.",
   "author": {
     "name": "Ossie Irondi"
   },

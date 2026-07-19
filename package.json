@@ -42,7 +42,7 @@
     ]
   },
   "scripts": {
-    "check": "bun run lint && bun run typecheck && bun run test && bun run validate:plugins && bun run validate:skills && bun scripts/list-resources.mjs",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
     "list": "bun scripts/list-resources.mjs",
     "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
     "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
@@ -53,7 +53,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun scripts/validate-package-contents.mjs",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py",
     "typecheck": "tsc --noEmit",
     "validate:skills": "bun scripts/validate-agent-skills.mjs"
   },
@@ -74,7 +74,8 @@
     "husky": "9.1.7",
     "lint-staged": "16.4.0",
     "typebox": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "yaml": "^2.8.2"
   },
   "engines": {
     "node": ">=20"

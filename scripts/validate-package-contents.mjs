@@ -14,12 +14,11 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const packedPaths = new Set(
-  result.stdout
-    .split("\n")
-    .map((line) => line.match(/^packed\s+\S+\s+(.+)$/)?.[1])
-    .filter(Boolean),
-);
+const packedPaths = result.stdout
+  .split("\n")
+  .map((line) => line.match(/^packed\s+\S+\s+(.+)$/)?.[1])
+  .filter(Boolean);
+const packedPathSet = new Set(packedPaths);
 const requiredPaths = [
   "skills/diataxis-docs-site/SKILL.md",
   "skills/diataxis-docs-site/agents/openai.yaml",
@@ -37,7 +36,10 @@ const requiredPaths = [
   "skills/herdr-fleet/scripts/resolve-project-key.mjs",
   "skills/herdr-fleet/scripts/watch-fleet.mjs",
 ];
-const missing = requiredPaths.filter((requiredPath) => !packedPaths.has(requiredPath));
+const missing = requiredPaths.filter((requiredPath) => !packedPathSet.has(requiredPath));
+const forbidden = packedPaths.filter(
+  (packedPath) => /(?:^|\/)__pycache__(?:\/|$)/.test(packedPath) || /\.py[cod]$/.test(packedPath),
+);
 
 function markdownFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -82,10 +84,12 @@ for (const markdownPath of markdownFiles(path.join(root, "skills/herdr-fleet")))
   }
 }
 
-if (missing.length > 0 || brokenLinks.length > 0) {
+if (missing.length > 0 || forbidden.length > 0 || brokenLinks.length > 0) {
   if (missing.length > 0) process.stderr.write(`Missing required package files:\n${missing.join("\n")}\n`);
+  if (forbidden.length > 0)
+    process.stderr.write(`Forbidden generated artifacts in package:\n${forbidden.join("\n")}\n`);
   if (brokenLinks.length > 0) process.stderr.write(`Broken herdr-fleet links:\n${brokenLinks.join("\n")}\n`);
   process.exit(1);
 }
 
-process.stdout.write("✓ required skill package files and herdr-fleet links are valid\n");
+process.stdout.write("✓ package contents and herdr-fleet links are valid\n");

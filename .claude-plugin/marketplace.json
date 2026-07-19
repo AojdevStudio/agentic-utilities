@@ -1,5 +1,5 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "agentic-utilities",
   "description": "Curated Claude Code plugins from agentic-utilities — a harness-agnostic collection of skills, plugins, and extensions across pi, Claude Code, and Codex. This marketplace exposes the Claude Code plugins.",
   "owner": {
@@ -54,7 +54,7 @@
     },
     {
       "name": "ask-codex",
-      "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control, sandbox modes, session resumption, and stderr suppression. Requires the `codex` binary on PATH.",
+      "description": "OpenAI Codex CLI integration for Claude Code. Wraps `codex exec` and `codex resume` with model selection (gpt-5.4 / gpt-5.3-codex / gpt-5.4-nano), reasoning effort control (high/medium/low), sandbox modes (read-only / workspace-write / danger-full-access), session resumption, and stderr suppression for thinking tokens. Requires the `codex` binary on PATH.",
       "version": "0.1.0",
       "author": {
         "name": "Ossie Irondi"
@@ -66,7 +66,7 @@
     },
     {
       "name": "skill-stats",
-      "description": "Telemetry-driven report on Claude Code skill usage. Bundles a PreToolUse hook that logs every Skill invocation to a plugin-owned JSONL file, plus a report generator that surfaces top-used, recently-active, dormant, and phantom skills. Uses ${CLAUDE_PLUGIN_DATA} for storage so it survives plugin updates.",
+      "description": "Telemetry-driven report on Claude Code skill usage. Bundles a PreToolUse hook that logs every Skill invocation to a plugin-owned JSONL file, plus a report generator that surfaces top-used skills, recently-active skills, dormant skills (size + last-touched), and phantom invocations. Uses ${CLAUDE_PLUGIN_DATA} for telemetry storage so it survives plugin updates and never collides with other plugins.",
       "version": "0.1.0",
       "author": {
         "name": "Ossie Irondi"
@@ -357,7 +357,7 @@
     },
     {
       "name": "dogfood",
-      "description": "Systematically explore and QA a web application in a real browser, find bugs and UX issues, and produce a structured report with full reproduction evidence: step-by-step screenshots, repro GIFs when recording is available, and detailed repro steps for every finding. Drives Claude in Chrome for interactive/authenticated flows and the Playwright CLI for deterministic headless screenshots.",
+      "description": "Systematically explore and QA a web application in a real browser, find bugs and UX issues, and produce a structured report with full reproduction evidence: step-by-step screenshots, repro GIFs when recording is available, and detailed repro steps for every finding. Drives Claude in Chrome (mcp__claude-in-chrome__*) for interactive/authenticated flows and the Playwright CLI for deterministic headless screenshots, so findings can be handed straight to the responsible team.",
       "version": "0.1.0",
       "author": {
         "name": "Ossie Irondi"
@@ -377,7 +377,7 @@
     },
     {
       "name": "skill-inspector",
-      "description": "Security-inspect an AI agent skill with the skillspector CLI, then render a plain-English verdict (SAFE / CAUTION / DO_NOT_INSTALL) with a threat breakdown, the top findings to check first, and file hotspots. Capability-clustered, intent-weighted scoring with confirmed source-to-sink exfiltration chains as the categorical do-not-install trigger; flags degraded static-only scans so an unreliable verdict is never mistaken for a trustworthy one.",
+      "description": "Security-inspect an AI agent skill with the skillspector CLI, then render a plain-English verdict report in chat: SAFE / CAUTION / DO_NOT_INSTALL, a threat breakdown, the top findings to check first, and file hotspots. Deep mode adds LLM intent classification; the verdict is capability-clustered and intent-weighted, with confirmed source-to-sink exfiltration chains as the categorical do-not-install trigger. Bundles the render script and flags degraded (static-only) scans so an unreliable verdict is never mistaken for a trustworthy one.",
       "version": "0.1.0",
       "author": {
         "name": "Ossie Irondi"

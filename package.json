@@ -42,20 +42,21 @@
     ]
   },
   "scripts": {
-    "check": "npm run lint && npm run typecheck && npm test && npm run validate:plugins && node scripts/validate-package-contents.mjs && npm run validate:skills && node scripts/list-resources.mjs",
-    "list": "node scripts/list-resources.mjs",
-    "validate:plugins": "node scripts/validate-plugin-ports.mjs && node scripts/validate-codex-plugins.mjs",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
+    "list": "bun scripts/list-resources.mjs",
+    "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
     "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
     "new:extension": "node scripts/new-extension.mjs",
     "new:skill": "node scripts/new-skill.mjs",
-    "pack:dry": "npm pack --dry-run",
+    "pack:dry": "bun pm pack --dry-run",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs && bun run test:herdr-fleet",
+    "test:herdr-fleet": "bun skills/herdr-fleet/scripts/resolve-project-key.mjs --self-test && bun skills/herdr-fleet/scripts/watch-fleet.mjs --self-test && bun skills/herdr-fleet/scripts/consume-events.mjs --self-test && bun test skills/herdr-fleet/scripts/fleet-state.test.mjs skills/herdr-fleet/scripts/review-thread-gate.test.mjs",
     "typecheck": "tsc --noEmit",
-    "validate:skills": "node scripts/validate-agent-skills.mjs"
+    "validate:skills": "bun scripts/validate-agent-skills.mjs"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

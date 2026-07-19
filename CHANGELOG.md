@@ -10,7 +10,9 @@
 
 ### Added
 
-- share documentation workflows
+- add public Herdr fleet workflow
+- add plugin packaging and question TUI (#26) [#26]
+- share documentation workflows (#30) [#30]
 - add skill-inspector plugin + verdict-aware renderer
 - Add skill-inspector skill: skillspector wrapper with readable reports (#28) [#28]
 - add ship-issue Claude Code plugin (#27) [#27]
@@ -28,6 +30,8 @@
 
 ### Changed
 
+- bump ws from 8.20.0 to 8.21.1 in the npm_and_yarn group across 1 directory (#31) [#31]
+- bump undici in the npm_and_yarn group across 1 directory (#29) [#29]
 - bump shell-quote (#16) [#16]
 - bump the npm_and_yarn group across 2 directories with 1 update (#12) [#12]
 - Port claude-md-improver skill to Claude Code plugin (#13) [#13]
@@ -35,6 +39,10 @@
 - bump the npm_and_yarn group across 1 directory with 2 updates (#9) [#9]
 - bump the npm_and_yarn group across 1 directory with 2 updates (#5) [#5]
 - Initial commit
+
+### Fixed
+
+- harden Herdr fleet orchestration
 
 ### Security
 

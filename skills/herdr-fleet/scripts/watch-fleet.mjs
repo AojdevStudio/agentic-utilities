@@ -119,17 +119,29 @@ const workspaceId = process.env.HERDR_WORKSPACE_ID;
 const tabId = process.env.HERDR_TAB_ID;
 const projectKey = option("--project-key");
 const ownerToken = option("--owner-token");
+const workspaceOption = option("--workspace-id");
+const tabOption = option("--tab-id");
+const instanceToken = option("--instance-token");
 const statusIntervalMs = positiveSeconds(option("--status-interval", "20"), 20) * 1000;
 const contextIntervalMs = positiveSeconds(option("--context-interval", "300"), 300) * 1000;
 const startupGraceMs = positiveSeconds(option("--startup-grace", "30"), 30) * 1000;
 
-if (!workspaceId || !tabId || !projectKey || !ownerToken) {
+if (
+  !workspaceId ||
+  !tabId ||
+  !projectKey ||
+  !ownerToken ||
+  workspaceOption !== workspaceId ||
+  tabOption !== tabId ||
+  !instanceToken ||
+  !/^[A-Za-z0-9-]+$/.test(instanceToken)
+) {
   process.stderr.write(
     `${JSON.stringify({
       level: "fatal",
       event: "invalid_scope",
       sessionId: "fleet:unscoped",
-      message: "watch-fleet requires HERDR_WORKSPACE_ID, HERDR_TAB_ID, --project-key, and --owner-token",
+      message: "watch-fleet requires matching workspace/tab arguments plus project, owner, and instance tokens",
     })}\n`,
   );
   process.exit(2);

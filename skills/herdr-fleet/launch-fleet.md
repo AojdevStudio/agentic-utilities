@@ -192,35 +192,34 @@ A confirmed zero-worker roster needs no watcher. Otherwise, start or reuse exact
 MONITOR_DIR="${TMPDIR:-/tmp}/herdr-fleet-${HERDR_WORKSPACE_ID//:/_}-${HERDR_TAB_ID//:/_}-${PROJECT_KEY}"
 mkdir -p "$MONITOR_DIR"
 reuse_running_watcher() {
-  [ -f "$MONITOR_DIR/pid" ] || return 1
+  [ -f "$MONITOR_DIR/pid" ] && [ -f "$MONITOR_DIR/instance-token" ] || return 1
   existing_pid="$(cat "$MONITOR_DIR/pid")"
-  existing_command="$(ps -p "$existing_pid" -o command= 2>/dev/null || true)"
+  existing_instance_token="$(cat "$MONITOR_DIR/instance-token")"
+  case "$existing_pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$existing_pid" -gt 1 ] || return 1
+  case "$existing_instance_token" in ''|*[!A-Za-z0-9-]*) return 1 ;; esac
+  existing_command="$(ps -ww -p "$existing_pid" -o command= 2>/dev/null || true)"
+  expected_suffix="watch-fleet.mjs --project-key $PROJECT_KEY --owner-token $FLEET_OWNER_TOKEN --workspace-id $HERDR_WORKSPACE_ID --tab-id $HERDR_TAB_ID --instance-token $existing_instance_token"
   case "$existing_command" in
-    *"watch-fleet.mjs --project-key $PROJECT_KEY --owner-token $FLEET_OWNER_TOKEN"*)
-      kill -0 "$existing_pid" 2>/dev/null
-      ;;
+    *"$expected_suffix") kill -0 "$existing_pid" 2>/dev/null ;;
     *) return 1 ;;
   esac
+}
+
+release_start_lock() {
+  [ "$(cat "$MONITOR_DIR/start.lock" 2>/dev/null || true)" = "$$" ] && rm -f "$MONITOR_DIR/start.lock"
 }
 
 REUSE_WATCHER=no
 START_LOCK_HELD=no
 attempt=0
 while [ "$attempt" -lt 30 ]; do
-  if reuse_running_watcher; then
-    REUSE_WATCHER=yes
-    break
-  fi
-  if (set -C; umask 077; printf '%s\n' "$$" >"$MONITOR_DIR/start.lock") 2>/dev/null; then
+  if reuse_running_watcher; then REUSE_WATCHER=yes; break; fi
+  if shlock -f "$MONITOR_DIR/start.lock" -p "$$"; then
     START_LOCK_HELD=yes
-    trap 'rm -f "$MONITOR_DIR/start.lock"' EXIT INT TERM
+    trap release_start_lock EXIT INT TERM
     if reuse_running_watcher; then REUSE_WATCHER=yes; fi
     break
-  fi
-  lock_owner="$(cat "$MONITOR_DIR/start.lock" 2>/dev/null || true)"
-  if [ -n "$lock_owner" ] && ! kill -0 "$lock_owner" 2>/dev/null; then
-    rm -f "$MONITOR_DIR/start.lock"
-    continue
   fi
   attempt=$((attempt + 1))
   sleep 1
@@ -229,16 +228,22 @@ done
 if [ "$REUSE_WATCHER" = yes ]; then
   FLEET_WATCHER_PID="$existing_pid"
 elif [ "$START_LOCK_HELD" = yes ]; then
-  rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/events.cursor"
+  rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/instance-token" "$MONITOR_DIR/events.cursor"
+  WATCHER_INSTANCE_TOKEN="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
+  printf '%s\n' "$WATCHER_INSTANCE_TOKEN" >"$MONITOR_DIR/instance-token.tmp-$$"
+  mv "$MONITOR_DIR/instance-token.tmp-$$" "$MONITOR_DIR/instance-token"
   bun <skill-directory>/scripts/watch-fleet.mjs \
     --project-key "$PROJECT_KEY" --owner-token "$FLEET_OWNER_TOKEN" \
+    --workspace-id "$HERDR_WORKSPACE_ID" --tab-id "$HERDR_TAB_ID" \
+    --instance-token "$WATCHER_INSTANCE_TOKEN" \
     >"$MONITOR_DIR/events.ndjson" 2>"$MONITOR_DIR/errors.ndjson" &
   FLEET_WATCHER_PID=$!
   printf '%s\n' "$FLEET_WATCHER_PID" >"$MONITOR_DIR/pid.tmp-$$"
   mv "$MONITOR_DIR/pid.tmp-$$" "$MONITOR_DIR/pid"
   sleep 1
-  if ! kill -0 "$FLEET_WATCHER_PID" 2>/dev/null; then
-    rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/start.lock"
+  if ! reuse_running_watcher; then
+    rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/instance-token"
+    release_start_lock
     trap - EXIT INT TERM
     exit 1
   fi
@@ -246,7 +251,7 @@ else
   exit 1
 fi
 if [ "$START_LOCK_HELD" = yes ]; then
-  rm -f "$MONITOR_DIR/start.lock"
+  release_start_lock
   trap - EXIT INT TERM
 fi
 ```
@@ -256,9 +261,14 @@ The watcher filters by workspace, tab, exact project identity, and ownership tok
 For shutdown:
 
 ```bash
-kill "$(cat "$MONITOR_DIR/pid")"
-wait "$(cat "$MONITOR_DIR/pid")" 2>/dev/null || true
-rm -f "$MONITOR_DIR/pid"
+if reuse_running_watcher; then
+  kill "$existing_pid"
+  wait "$existing_pid" 2>/dev/null || true
+  rm -f "$MONITOR_DIR/pid" "$MONITOR_DIR/instance-token"
+else
+  printf '%s\n' "watcher PID no longer matches this fleet; refusing to kill it" >&2
+  exit 1
+fi
 ```
 
 Create bounded CI waits per pull request covering success, failure, cancellation, and timeout.

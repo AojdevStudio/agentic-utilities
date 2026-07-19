@@ -14,6 +14,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractBundleReferences, resolveBundleReference } from "./lib/bundle-refs.mjs";
+import { isNonEmptyString, parseFrontmatter } from "./lib/frontmatter.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginsDir = path.join(repoRoot, "claude-code", "plugins");
@@ -68,31 +70,6 @@ function checkReadme(plugin) {
   }
 }
 
-/**
- * Parse a leading `--- ... ---` YAML frontmatter block.
- * Returns the raw frontmatter text, or null when absent.
- */
-function readFrontmatter(text) {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
-  return match ? match[1] : null;
-}
-
-function readFrontmatterField(frontmatter, field) {
-  const lines = frontmatter.split(/\r?\n/);
-  const index = lines.findIndex((line) => line.startsWith(`${field}:`));
-  if (index === -1) return null;
-
-  const raw = lines[index].slice(field.length + 1).trim();
-  if (raw !== ">" && raw !== "|") return raw.replace(/^["']|["']$/g, "");
-
-  const block = [];
-  for (const line of lines.slice(index + 1)) {
-    if (!/^\s+/.test(line)) break;
-    block.push(line.trim());
-  }
-  return block.join(raw === ">" ? " " : "\n").trim();
-}
-
 /** Path to a plugin's canonical SKILL.md (skills/<plugin>/SKILL.md). */
 function skillPath(plugin) {
   return path.join(pluginsDir, plugin, "skills", plugin, "SKILL.md");
@@ -105,74 +82,92 @@ function checkSkillFrontmatter(plugin) {
     fail(plugin, `missing SKILL.md at skills/${plugin}/SKILL.md`);
     return;
   }
-  const frontmatter = readFrontmatter(fs.readFileSync(file, "utf8"));
-  if (frontmatter === null) {
-    fail(plugin, "SKILL.md has no YAML frontmatter");
+  let frontmatter;
+  try {
+    frontmatter = parseFrontmatter(fs.readFileSync(file, "utf8"), file);
+  } catch (err) {
+    fail(plugin, err.message);
     return;
   }
-  const name = readFrontmatterField(frontmatter, "name");
-  if (!name) {
+  const name = frontmatter.name;
+  if (!isNonEmptyString(name)) {
     fail(plugin, "SKILL.md frontmatter has no name field");
     return;
   }
   if (name !== plugin) {
     fail(plugin, `SKILL.md frontmatter name "${name}" does not match plugin "${plugin}"`);
   }
-  const description = readFrontmatterField(frontmatter, "description");
-  if (!description) fail(plugin, "SKILL.md frontmatter has no description field");
+  if (!isNonEmptyString(frontmatter.description)) {
+    fail(plugin, "SKILL.md frontmatter has no description field");
+  }
 }
 
 // --- Check 4: SKILL.md references resolve to files on disk ---------------
-// A SKILL.md path reference is only validated when it is unambiguously a
-// reference to *this plugin's own bundle*:
-//
-//  - Any `${CLAUDE_PLUGIN_ROOT}/...` path — explicitly plugin-root-relative.
-//  - A bare `workflows/`, `references/`, or `tools/` path — these subdir
-//    names are skill-bundle vocabulary, effectively never used for anything
-//    else.
-//
-// Bare `scripts/`, `cli/`, `assets/`, `hooks/` paths are NOT validated unless
-// `${CLAUDE_PLUGIN_ROOT}`-prefixed: those are universal repo conventions and
-// appear as illustrative examples (an audit skill citing `./scripts/test.sh`)
-// or cross-skill delegation (`scripts/gen.sh` belonging to another skill).
-// Bare filenames (e.g. `data-layer.md`) are likewise not validated — too
-// easily confused with filenames inside code examples.
-const REF_EXT = "md|ts|tsx|sh|json|js|mjs|cjs|py";
+// A SKILL.md path reference is only matched when it is unambiguously a
+// reference to *this plugin's own bundle*: either `${CLAUDE_PLUGIN_ROOT}/...`
+// (explicitly plugin-root-relative) or a bare `workflows/`, `references/`,
+// `tools/`, `scripts/`, `cli/`, `assets/`, or `hooks/` path — this fixed
+// vocabulary of skill-bundle subdirectory names is what makes the match
+// unambiguous. Every match is validated: it must resolve to an existing
+// *regular file* whose real (symlink-resolved) path stays inside the
+// plugin's own root — rejects `..` traversal, directories masquerading as
+// files, and symlinks that escape the bundle.
+const REF_EXT = ["md", "ts", "tsx", "sh", "json", "js", "mjs", "cjs", "py", "png", "jpg", "jpeg", "gif", "svg", "webp"];
 const ALL_SUBDIRS = ["workflows", "references", "tools", "scripts", "cli", "assets", "hooks"];
-const BARE_OK_SUBDIRS = new Set(["workflows", "references", "tools"]);
-const REF_PATTERN = new RegExp(
-  `(\\$\\{CLAUDE_PLUGIN_ROOT\\}/)?((?:skills/[a-z0-9-]+/)?(?:${ALL_SUBDIRS.join("|")})/[A-Za-z0-9._/-]+\\.(?:${REF_EXT}))`,
-  "g",
-);
 
-/** First bundle-subdir component of a reference path (after any skills/<x>/). */
-function refSubdir(pathPart) {
-  return pathPart.replace(/^skills\/[a-z0-9-]+\//, "").split("/")[0];
+/**
+ * Filesystem-facing half of reference validation, applied only after
+ * `resolveBundleReference` has already confirmed `resolved` is lexically
+ * inside `base`. `realpathSync` is required unconditionally (not just when
+ * the final path component is itself a symlink) because a symlinked
+ * *parent* directory resolves away silently otherwise: `lstatSync` on the
+ * final component follows all intermediate symlinks as a normal part of
+ * path resolution, so a plain file sitting behind a symlinked directory
+ * looks like an ordinary contained file unless the whole path is
+ * realpath-resolved and re-checked for containment. A dangling or cyclic
+ * symlink makes `realpathSync` throw (ENOENT / ELOOP); that is a controlled
+ * "missing" result here, not an uncaught crash.
+ */
+export function checkReferenceOnDisk(base, resolved) {
+  let real;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch {
+    return { reason: "missing" };
+  }
+  const realBase = fs.realpathSync(base);
+  const rel = path.relative(realBase, real);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    return { reason: "symlink-escape" };
+  }
+  if (!fs.statSync(real).isFile()) {
+    return { reason: "not-a-file" };
+  }
+  return { reason: "ok" };
 }
 
-/** Resolve a SKILL.md reference to an absolute path in the plugin port. */
-function resolveRef(plugin, prefixed, pathPart) {
-  // `${CLAUDE_PLUGIN_ROOT}/...` is plugin-root-relative; a bare reference is
-  // relative to the skill directory (skills/<plugin>/).
-  const base = prefixed ? path.join(pluginsDir, plugin) : path.join(pluginsDir, plugin, "skills", plugin);
-  return path.join(base, pathPart);
-}
+const ON_DISK_MESSAGES = {
+  missing: (ref) => `SKILL.md references missing file: ${ref}`,
+  "symlink-escape": (ref) => `SKILL.md reference resolves outside the plugin bundle via symlink: ${ref}`,
+  "not-a-file": (ref) => `SKILL.md reference is not a regular file: ${ref}`,
+};
 
 function checkSkillReferences(plugin) {
   const file = skillPath(plugin);
   if (!fs.existsSync(file)) return; // already reported by checkSkillFrontmatter
   const text = fs.readFileSync(file, "utf8");
-  const seen = new Set();
-  for (const [, prefix, pathPart] of text.matchAll(REF_PATTERN)) {
-    const prefixed = Boolean(prefix);
-    if (!prefixed && !BARE_OK_SUBDIRS.has(refSubdir(pathPart))) continue;
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal "${CLAUDE_PLUGIN_ROOT}" placeholder text, not a JS template
-    const ref = (prefixed ? "${CLAUDE_PLUGIN_ROOT}/" : "") + pathPart;
-    if (seen.has(ref)) continue;
-    seen.add(ref);
-    if (!fs.existsSync(resolveRef(plugin, prefixed, pathPart))) {
-      fail(plugin, `SKILL.md references missing file: ${ref}`);
+  const refs = extractBundleReferences(text, { subdirs: ALL_SUBDIRS, extensions: REF_EXT });
+  for (const { prefixed, pathPart, ref } of refs) {
+    // `${CLAUDE_PLUGIN_ROOT}/...` is plugin-root-relative; a bare reference
+    // is relative to the skill directory (skills/<plugin>/).
+    const base = prefixed ? path.join(pluginsDir, plugin) : path.join(pluginsDir, plugin, "skills", plugin);
+    const lexical = resolveBundleReference(base, pathPart);
+    if (!lexical.ok) {
+      fail(plugin, `SKILL.md reference escapes the plugin bundle: ${ref}`);
+      continue;
     }
+    const { reason } = checkReferenceOnDisk(base, lexical.resolved);
+    if (reason !== "ok") fail(plugin, ON_DISK_MESSAGES[reason](ref));
   }
 }
 
@@ -252,26 +247,51 @@ function checkJunk() {
 }
 
 // --- Run -----------------------------------------------------------------
-const plugins = listPlugins();
-const manifestDescriptions = new Map();
-for (const plugin of plugins) {
-  const description = checkPluginManifest(plugin);
-  if (description) manifestDescriptions.set(plugin, description);
-  checkReadme(plugin);
-  checkSkillFrontmatter(plugin);
-  checkSkillReferences(plugin);
-}
-checkMarketplace(plugins, manifestDescriptions);
-checkCatalog(plugins);
-checkJunk();
-
-if (failures.length > 0) {
-  console.error(`\n✗ plugin-port validation failed (${failures.length} issue(s)):\n`);
-  for (const { plugin, message } of failures) {
-    console.error(`  [${plugin}] ${message}`);
+// Guarded so a test can `import { checkReferenceOnDisk } from "./validate-plugin-ports.mjs"`
+// without triggering a full validation run against the real repository.
+function main() {
+  const plugins = listPlugins();
+  const manifestDescriptions = new Map();
+  for (const plugin of plugins) {
+    const description = checkPluginManifest(plugin);
+    if (description) manifestDescriptions.set(plugin, description);
+    checkReadme(plugin);
+    checkSkillFrontmatter(plugin);
+    checkSkillReferences(plugin);
   }
-  console.error("");
-  process.exit(1);
+  checkMarketplace(plugins, manifestDescriptions);
+  checkCatalog(plugins);
+  checkJunk();
+
+  if (failures.length > 0) {
+    console.error(`\n✗ plugin-port validation failed (${failures.length} issue(s)):\n`);
+    for (const { plugin, message } of failures) {
+      console.error(`  [${plugin}] ${message}`);
+    }
+    console.error("");
+    process.exit(1);
+  }
+
+  console.log(`✓ plugin-port validation passed (${plugins.length} plugins)`);
 }
 
-console.log(`✓ plugin-port validation passed (${plugins.length} plugins)`);
+// A plain `import.meta.url === \`file://${process.argv[1]}\`` string
+// comparison is not URL-safe: import.meta.url percent-encodes characters
+// like spaces, while the raw argv path does not, so a checkout path
+// containing a space silently fails the check and main() never runs.
+// Comparing filesystem paths instead of URL strings sidesteps encoding
+// entirely: fileURLToPath decodes import.meta.url back to a native path
+// (already realpath-resolved by Node for a directly-executed script — e.g.
+// through macOS's /tmp -> /private/tmp symlink), and realpathSync resolves
+// the same way on the argv side so both sides compare on equal footing
+// regardless of spaces, separators, or symlinked ancestor directories.
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) main();

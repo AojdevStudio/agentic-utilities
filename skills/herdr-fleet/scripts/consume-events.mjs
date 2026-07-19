@@ -51,7 +51,7 @@ function parseJson(text, context) {
   }
 }
 
-export function nextEvent(eventsPath, cursor, expectedSessionId) {
+export function nextEvent(eventsPath, cursor, expectedSessionId, expectedGeneration) {
   const data = readFromCursor(eventsPath, cursor);
   const newline = data.indexOf(0x0a);
   if (newline === -1) {
@@ -62,17 +62,19 @@ export function nextEvent(eventsPath, cursor, expectedSessionId) {
   if (!line) return { event: undefined, nextCursor: cursor + newline + 1 };
   const event = parseJson(line, "invalid watcher event");
   if (event.sessionId !== expectedSessionId) throw new Error("event session scope mismatch");
+  if (event.generation !== expectedGeneration) throw new Error("event watcher generation mismatch");
   return { event, nextCursor: cursor + newline + 1 };
 }
 
 export function watcherIdentityMatches(candidate) {
-  const { pid, storedToken, expectedCommandSuffix, command } = candidate;
+  const { pid, storedToken, requestedToken, expectedCommandSuffix, command } = candidate;
   if (!Number.isSafeInteger(pid) || pid <= 1 || !/^[A-Za-z0-9-]+$/.test(storedToken ?? "")) return false;
+  if (requestedToken !== storedToken) return false;
   if (!expectedCommandSuffix?.endsWith(`--instance-token ${storedToken}`)) return false;
   return command?.trimEnd().endsWith(expectedCommandSuffix) ?? false;
 }
 
-function watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix) {
+function watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix, expectedGeneration) {
   if (!existsSync(pidPath) || !existsSync(instanceTokenPath)) return false;
   const pid = Number(readFileSync(pidPath, "utf8").trim());
   const storedToken = readFileSync(instanceTokenPath, "utf8").trim();
@@ -81,20 +83,68 @@ function watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix) {
     timeout: 5000,
   });
   if (result.error || result.status !== 0) return false;
-  return watcherIdentityMatches({ pid, storedToken, expectedCommandSuffix, command: result.stdout });
+  return watcherIdentityMatches({
+    pid,
+    storedToken,
+    requestedToken: expectedGeneration,
+    expectedCommandSuffix,
+    command: result.stdout,
+  });
 }
 
-function acknowledge(eventsPath, cursorPath, nextCursor) {
+function startLockManager(lockPath) {
+  return {
+    acquire() {
+      if (!lockPath) return false;
+      const result = spawnSync("shlock", ["-f", lockPath, "-p", String(process.pid)], { timeout: 5000 });
+      return !result.error && result.status === 0;
+    },
+    release() {
+      if (!existsSync(lockPath)) return;
+      if (readFileSync(lockPath, "utf8").trim() === String(process.pid)) unlinkSync(lockPath);
+    },
+  };
+}
+
+function acknowledgeLocked(options) {
+  const {
+    eventsPath,
+    cursorPath,
+    nextCursor,
+    expectedSessionId,
+    expectedGeneration,
+    pidPath,
+    instanceTokenPath,
+    expectedCommandSuffix,
+    identityValidator,
+  } = options;
+  if (!identityValidator(pidPath, instanceTokenPath, expectedCommandSuffix, expectedGeneration)) {
+    throw new Error("watcher identity changed before acknowledgment");
+  }
   const current = cursorAt(cursorPath);
   const size = statSync(eventsPath).size;
   if (!Number.isSafeInteger(nextCursor) || nextCursor <= current || nextCursor > size) {
     throw new Error("ack cursor is outside the pending event range");
   }
-  const boundary = readFromCursor(eventsPath, nextCursor - 1, 1);
-  if (boundary[0] !== 0x0a) throw new Error("ack cursor is not an event boundary");
+  const pending = nextEvent(eventsPath, current, expectedSessionId, expectedGeneration);
+  if (!pending?.event || pending.nextCursor !== nextCursor) throw new Error("ack does not match pending event");
   const temporary = `${cursorPath}.tmp-${process.pid}`;
   writeFileSync(temporary, `${nextCursor}\n`, { mode: 0o600 });
+  if (!identityValidator(pidPath, instanceTokenPath, expectedCommandSuffix, expectedGeneration)) {
+    unlinkSync(temporary);
+    throw new Error("watcher identity changed during acknowledgment");
+  }
   renameSync(temporary, cursorPath);
+}
+
+export function acknowledge(options) {
+  const lockManager = options.lockManager ?? startLockManager(options.startLockPath);
+  if (!lockManager.acquire()) throw new Error("watcher start lock unavailable during acknowledgment");
+  try {
+    acknowledgeLocked({ ...options, identityValidator: options.identityValidator ?? watcherRunning });
+  } finally {
+    lockManager.release();
+  }
 }
 
 async function readNext(
@@ -104,16 +154,17 @@ async function readNext(
   instanceTokenPath,
   expectedCommandSuffix,
   expectedSessionId,
+  expectedGeneration,
   waitMs,
 ) {
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    if (!watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix)) {
+    if (!watcherRunning(pidPath, instanceTokenPath, expectedCommandSuffix, expectedGeneration)) {
       throw new Error("watcher identity changed before the next complete event");
     }
     const cursor = cursorAt(cursorPath);
     if (existsSync(eventsPath)) {
-      const result = nextEvent(eventsPath, cursor, expectedSessionId);
+      const result = nextEvent(eventsPath, cursor, expectedSessionId, expectedGeneration);
       if (result) return result;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -126,14 +177,97 @@ function selfTest() {
   const eventsPath = `${root}.ndjson`;
   const cursorPath = `${root}.cursor`;
   const sessionId = "fleet:w1:w1:t1:app";
-  const first = `${JSON.stringify({ sessionId, event: "first" })}\n`;
-  writeFileSync(eventsPath, `${first}${JSON.stringify({ sessionId, event: "partial" })}`);
-  const result = nextEvent(eventsPath, 0, sessionId);
+  const generation = "instance-a";
+  const first = `${JSON.stringify({ sessionId, generation, event: "first" })}\n`;
+  writeFileSync(eventsPath, `${first}${JSON.stringify({ sessionId, generation, event: "partial" })}`);
+  const result = nextEvent(eventsPath, 0, sessionId, generation);
   assert.equal(result.event.event, "first");
-  acknowledge(eventsPath, cursorPath, result.nextCursor);
+  const ackOptions = {
+    eventsPath,
+    cursorPath,
+    nextCursor: result.nextCursor,
+    expectedSessionId: sessionId,
+    expectedGeneration: generation,
+    pidPath: `${root}.pid`,
+    instanceTokenPath: `${root}.instance-token`,
+    expectedCommandSuffix: "watch-fleet.mjs --instance-token instance-a",
+    lockManager: { acquire: () => true, release: () => {} },
+  };
+  const replacementIdentity = watcherIdentityMatches({
+    pid: 4242,
+    storedToken: "instance-b",
+    requestedToken: generation,
+    expectedCommandSuffix: "watch-fleet.mjs --instance-token instance-b",
+    command: "bun watch-fleet.mjs --instance-token instance-b",
+  });
+  assert.throws(() => acknowledge({ ...ackOptions, identityValidator: () => replacementIdentity }), /identity changed/);
+  assert.equal(cursorAt(cursorPath), 0);
+  let identityChecks = 0;
+  assert.throws(
+    () =>
+      acknowledge({
+        ...ackOptions,
+        identityValidator: () => {
+          identityChecks += 1;
+          return identityChecks === 1;
+        },
+      }),
+    /identity changed during acknowledgment/,
+  );
+  assert.equal(cursorAt(cursorPath), 0);
+  assert.throws(
+    () =>
+      acknowledge({
+        ...ackOptions,
+        expectedSessionId: "fleet:other",
+        identityValidator: () => true,
+      }),
+    /session scope mismatch/,
+  );
+  assert.equal(cursorAt(cursorPath), 0);
+  assert.throws(
+    () =>
+      acknowledge({
+        ...ackOptions,
+        expectedGeneration: "instance-b",
+        identityValidator: () => true,
+      }),
+    /generation mismatch/,
+  );
+  assert.equal(cursorAt(cursorPath), 0);
+  assert.throws(
+    () =>
+      acknowledge({
+        ...ackOptions,
+        nextCursor: result.nextCursor + 1,
+        identityValidator: () => true,
+      }),
+    /pending event/,
+  );
+  assert.equal(cursorAt(cursorPath), 0);
+  const lockCalls = [];
+  acknowledge({
+    ...ackOptions,
+    identityValidator: () => {
+      lockCalls.push("identity");
+      return true;
+    },
+    lockManager: {
+      acquire: () => {
+        lockCalls.push("acquire");
+        return true;
+      },
+      release: () => {
+        lockCalls.push("release");
+        assert.equal(cursorAt(cursorPath), result.nextCursor);
+      },
+    },
+  });
+  assert.deepEqual(lockCalls, ["acquire", "identity", "identity", "release"]);
   assert.equal(cursorAt(cursorPath), Buffer.byteLength(first));
-  assert.equal(nextEvent(eventsPath, cursorAt(cursorPath), sessionId), undefined);
-  assert.throws(() => nextEvent(eventsPath, 0, "fleet:other"));
+  assert.equal(nextEvent(eventsPath, cursorAt(cursorPath), sessionId, generation), undefined);
+  assert.throws(() => nextEvent(eventsPath, 0, "fleet:other", generation));
+  assert.throws(() => nextEvent(eventsPath, 0, sessionId, "instance-b"));
   const tail = readFromCursor(eventsPath, cursorAt(cursorPath), 9);
   assert.equal(tail.length, 9);
   assert.equal(tail.toString("utf8"), '{"session');
@@ -143,12 +277,16 @@ function selfTest() {
     "invalid watcher identity fixture",
   );
   for (const testCase of identityFixture.cases) {
-    const candidate = { ...testCase, storedToken: testCase.instanceId };
+    const candidate = {
+      ...testCase,
+      storedToken: testCase.instanceId,
+      requestedToken: testCase.instanceId,
+    };
     assert.equal(watcherIdentityMatches(candidate), testCase.expected, testCase.name);
   }
   unlinkSync(eventsPath);
   unlinkSync(cursorPath);
-  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 9 })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 22 })}\n`);
 }
 
 if (process.argv.includes("--self-test")) {
@@ -160,9 +298,11 @@ const eventsPath = option("--events");
 const cursorPath = option("--cursor");
 const pidPath = option("--pid-file");
 const instanceTokenPath = option("--instance-token-file");
+const startLockPath = option("--start-lock");
 const expectedCommandSuffix = option("--watcher-command-suffix");
 const expectedSessionId = option("--session-id");
-if (!eventsPath || !cursorPath || !expectedSessionId) {
+const expectedGeneration = option("--instance-token");
+if (!eventsPath || !cursorPath || !expectedSessionId || !expectedGeneration) {
   process.stderr.write(
     `${JSON.stringify({
       level: "fatal",
@@ -187,11 +327,25 @@ try {
       instanceTokenPath,
       expectedCommandSuffix,
       expectedSessionId,
+      expectedGeneration,
       waitMs,
     );
     process.stdout.write(`${JSON.stringify(result ?? { status: "no_event" })}\n`);
   } else if (process.argv.includes("--ack")) {
-    acknowledge(eventsPath, cursorPath, Number(option("--ack")));
+    if (!pidPath || !instanceTokenPath || !expectedCommandSuffix || !startLockPath) {
+      throw new Error("--ack requires PID, instance-token, command-suffix, and start-lock identity");
+    }
+    acknowledge({
+      eventsPath,
+      cursorPath,
+      nextCursor: Number(option("--ack")),
+      expectedSessionId,
+      expectedGeneration,
+      pidPath,
+      instanceTokenPath,
+      expectedCommandSuffix,
+      startLockPath,
+    });
     process.stdout.write(`${JSON.stringify({ status: "acknowledged" })}\n`);
   } else {
     throw new Error("choose --next or --ack");

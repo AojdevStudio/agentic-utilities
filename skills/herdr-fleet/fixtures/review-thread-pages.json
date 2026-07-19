@@ -1,0 +1,56 @@
+{
+  "pages": [
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "reviewThreads": {
+              "nodes": [
+                {
+                  "id": "thread-unresolved",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": { "nodes": [{ "url": "https://example.test/unresolved" }] }
+                },
+                {
+                  "id": "thread-resolved",
+                  "isResolved": true,
+                  "isOutdated": false,
+                  "comments": { "nodes": [{ "url": "https://example.test/resolved" }] }
+                }
+              ],
+              "pageInfo": { "hasNextPage": true, "endCursor": "cursor-1" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "reviewThreads": {
+              "nodes": [
+                {
+                  "id": "thread-outdated",
+                  "isResolved": false,
+                  "isOutdated": true,
+                  "comments": { "nodes": [{ "url": "https://example.test/outdated" }] }
+                },
+                {
+                  "id": "thread-page-two-unresolved",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": { "nodes": [{ "url": "https://example.test/page-two" }] }
+                }
+              ],
+              "pageInfo": { "hasNextPage": false, "endCursor": null }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

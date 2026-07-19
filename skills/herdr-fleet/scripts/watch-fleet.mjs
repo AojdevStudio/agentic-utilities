@@ -62,7 +62,7 @@ function positiveInteger(value, fallback) {
 }
 
 function emit(stream, level, event, fields = {}) {
-  stream.write(`${JSON.stringify({ level, event, sessionId, ...fields })}\n`);
+  stream.write(`${JSON.stringify({ level, event, sessionId, generation: instanceToken, ...fields })}\n`);
 }
 
 function parseJson(text, context) {

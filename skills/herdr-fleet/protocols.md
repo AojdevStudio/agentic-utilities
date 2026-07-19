@@ -15,6 +15,7 @@ while true; do
     --pid-file "$MONITOR_DIR/pid" \
     --instance-token-file "$MONITOR_DIR/instance-token" \
     --watcher-command-suffix "$WATCHER_COMMAND_SUFFIX" \
+    --instance-token "$WATCHER_INSTANCE_TOKEN" \
     --session-id "$EVENT_SESSION_ID" \
     --wait-seconds 30)" || break
   status="$(printf '%s' "$NEXT" | bun -e '
@@ -35,11 +36,16 @@ process.stdout.write(String(JSON.parse(await Bun.stdin.text()).nextCursor));
   bun <skill-directory>/scripts/consume-events.mjs --ack "$NEXT_CURSOR" \
     --events "$MONITOR_DIR/events.ndjson" \
     --cursor "$MONITOR_DIR/events.cursor" \
+    --pid-file "$MONITOR_DIR/pid" \
+    --instance-token-file "$MONITOR_DIR/instance-token" \
+    --start-lock "$MONITOR_DIR/start.lock" \
+    --watcher-command-suffix "$WATCHER_COMMAND_SUFFIX" \
+    --instance-token "$WATCHER_INSTANCE_TOKEN" \
     --session-id "$EVENT_SESSION_ID"
 done
 ```
 
-A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. The consumer reads only a bounded chunk from the saved offset, so the append-only stream does not get reloaded on each event. Partial trailing lines remain buffered on disk. Before waiting, it validates the PID, stored instance token, and exact scoped command suffix. A recycled PID or exited watcher fails closed and blocks the fleet rather than silently missing events.
+A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. Acknowledgment acquires the same `start.lock` used by watcher replacement, revalidates PID, instance token, and exact command identity, then re-reads the pending event and verifies its session, generation, and next cursor before advancing. The lock prevents a replacement generation from starting between the final identity check and cursor rename. The consumer reads only a bounded chunk from the saved offset, so the append-only stream does not get reloaded on each event. Partial trailing lines remain buffered on disk. Before waiting, it validates the PID, stored instance token, and exact scoped command suffix. A recycled PID or exited watcher fails closed and blocks the fleet rather than silently missing events.
 
 For each accepted event, read the relevant transcript tail, act, and give the principal a proportionate update: a line for routine movement and a structured report for milestones.
 
@@ -54,9 +60,24 @@ Reviewers end each pull request with a `VERDICT:` block containing:
 
 A verdict is fresh only when its SHA exactly equals the current pull-request head. Every head change invalidates every earlier verdict.
 
+Before accepting `MERGE_READY` or reporting readiness, run the paginated review-thread gate and record its complete JSON evidence in the control transcript:
+
+```bash
+set +e
+REVIEW_THREAD_EVIDENCE="$(bun <skill-directory>/scripts/review-thread-gate.mjs \
+  --repo "$REPOSITORY_OWNER_AND_NAME" --pr "$PULL_REQUEST_NUMBER" \
+  --expected-head "$CURRENT_HEAD_SHA")"
+REVIEW_THREAD_STATUS=$?
+set -e
+printf '%s\n' "$REVIEW_THREAD_EVIDENCE"
+(( REVIEW_THREAD_STATUS == 0 )) || exit "$REVIEW_THREAD_STATUS"
+```
+
+The gate records every thread ID, URL, resolution state, and outdated state. Any unresolved, non-outdated thread blocks readiness. Verify repository identity and current head through GitHub before constructing these arguments.
+
 Act by verdict:
 
-- **`MERGE_READY` plus green required checks:** apply the launch-time merge policy. Under `report-only`, report readiness and stop. Under `authorized-merge`, verify the repository, base branch, strategy, branch-deletion setting, current head SHA, and required checks all match the recorded authorization before merging from the control pane. A tool permission prompt still goes to the principal.
+- **`MERGE_READY` plus green required checks and a passing review-thread gate:** apply the launch-time merge policy. Under `report-only`, report readiness and stop. Under `authorized-merge`, verify the repository, base branch, strategy, branch-deletion setting, current head SHA, and required checks all match the recorded authorization, then re-run the review-thread gate immediately before merging from the control pane. A tool permission prompt still goes to the principal.
 - **`NEEDS_WORK`:** dispatch the fix scope to the authoring implementer when healthy, otherwise to a free implementer with a self-contained brief. A push starts a fresh verdict cycle.
 - **`BLOCKED`:** record the blocking dependency and owner. Escalate only decisions reserved for the principal.
 - **Conflicting verdicts:** prioritize concrete, reproducible findings. Preserve complementary reviews and require all blocking findings to be resolved. A substantive `NEEDS_WORK` verdict supersedes a less substantive ready verdict at the same head.
@@ -71,7 +92,7 @@ Any content push, conflict resolution, metadata commit, or base sync invalidates
 - **Mechanical base sync without source-file merges:** allow a short delta review, but require it to inspect the new head and issue a new verdict naming that SHA.
 - **Base sync that auto-merges source files:** require a semantic delta review of each resolution and a new verdict naming the new head SHA.
 
-Before merge, compare the verdict SHA with the live pull-request head again. A mismatch returns the pull request to review; it never inherits the old verdict.
+Immediately before merge, compare the verdict SHA with the live pull-request head and re-run `review-thread-gate.mjs` against that SHA. Record the second evidence payload in the control transcript. A head mismatch or newly unresolved non-outdated thread returns the pull request to review; it never inherits the old verdict.
 
 ## Resolve append-only shared-file conflicts
 

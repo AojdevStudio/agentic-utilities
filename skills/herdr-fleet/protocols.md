@@ -2,6 +2,41 @@
 
 Consume only the watcher created for the current `$HERDR_WORKSPACE_ID`, `$HERDR_TAB_ID`, and `$PROJECT_KEY`. Before acting on an event, reject any pane whose live record does not match all three scope checks. Never consume another tab's fleet events.
 
+Consume events one at a time with a persisted byte cursor. `--next` returns one complete, scope-validated NDJSON event without advancing the cursor; `--ack` advances atomically only after the control pane successfully handles it.
+
+```bash
+EVENT_SESSION_ID="fleet:${HERDR_WORKSPACE_ID}:${HERDR_TAB_ID}:${PROJECT_KEY}"
+while true; do
+  NEXT="$(bun <skill-directory>/scripts/consume-events.mjs --next \
+    --events "$MONITOR_DIR/events.ndjson" \
+    --cursor "$MONITOR_DIR/events.cursor" \
+    --pid-file "$MONITOR_DIR/pid" \
+    --session-id "$EVENT_SESSION_ID" \
+    --wait-seconds 30)" || break
+  status="$(printf '%s' "$NEXT" | bun -e '
+const value = JSON.parse(await Bun.stdin.text());
+process.stdout.write(value.status ?? "event");
+')"
+  [ "$status" = no_event ] && continue
+
+  EVENT="$(printf '%s' "$NEXT" | bun -e '
+process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).event));
+')"
+  NEXT_CURSOR="$(printf '%s' "$NEXT" | bun -e '
+process.stdout.write(String(JSON.parse(await Bun.stdin.text()).nextCursor));
+')"
+
+  # Re-read any referenced pane and reject it unless workspace, tab, key, and owner metadata still match.
+  # Read the transcript, perform the event action, and record evidence. Ack only after success.
+  bun <skill-directory>/scripts/consume-events.mjs --ack "$NEXT_CURSOR" \
+    --events "$MONITOR_DIR/events.ndjson" \
+    --cursor "$MONITOR_DIR/events.cursor" \
+    --session-id "$EVENT_SESSION_ID"
+done
+```
+
+A crash before acknowledgment replays the unhandled event; a restart after acknowledgment resumes at the next byte. Partial trailing lines remain buffered on disk. If the watcher exits before another complete event, the consumer fails and the fleet becomes blocked rather than silently missing events.
+
 For each accepted event, read the relevant transcript tail, act, and give the principal a proportionate update: a line for routine movement and a structured report for milestones.
 
 ## Consume review verdicts
@@ -20,7 +55,7 @@ Act by verdict:
 - **`MERGE_READY` plus green required checks:** apply the launch-time merge policy. Under `report-only`, report readiness and stop. Under `authorized-merge`, verify the repository, base branch, strategy, branch-deletion setting, current head SHA, and required checks all match the recorded authorization before merging from the control pane. A tool permission prompt still goes to the principal.
 - **`NEEDS_WORK`:** dispatch the fix scope to the authoring implementer when healthy, otherwise to a free implementer with a self-contained brief. A push starts a fresh verdict cycle.
 - **`BLOCKED`:** record the blocking dependency and owner. Escalate only decisions reserved for the principal.
-- **Conflicting verdicts:** prioritize concrete, reproducible findings. Preserve complementary reviews and require all blocking findings to be resolved. A substantive `NEEDS_WORK` or `NEEDS_CHANGES` verdict supersedes a less substantive ready verdict at the same head.
+- **Conflicting verdicts:** prioritize concrete, reproducible findings. Preserve complementary reviews and require all blocking findings to be resolved. A substantive `NEEDS_WORK` verdict supersedes a less substantive ready verdict at the same head.
 
 A merge cycle is complete only when the policy decision, remote pull-request state, cleanup result, tracking update, and affected sibling pull requests are known.
 

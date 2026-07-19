@@ -1,6 +1,6 @@
 # Launch or rebuild the fleet
 
-Build or reconcile a worker fleet inside the current Herdr tab. Complete the steps in order. A rebuild reuses a healthy partial fleet; it never creates a second copy.
+Build or reconcile a user-selected worker fleet inside the current Herdr tab. The current control pane is the only fixed pane and is not part of the worker count. Complete the steps in order.
 
 ## Step 1: Verify the environment and scope
 
@@ -10,21 +10,33 @@ test -n "${HERDR_WORKSPACE_ID:-}" || exit 1
 test -n "${HERDR_TAB_ID:-}" || exit 1
 test -n "${HERDR_PANE_ID:-}" || exit 1
 herdr pane
+CURRENT_PANE_JSON="$(herdr pane current --current)"
+printf '%s' "$CURRENT_PANE_JSON" | \
+  EXPECTED_WORKSPACE="$HERDR_WORKSPACE_ID" EXPECTED_TAB="$HERDR_TAB_ID" EXPECTED_PANE="$HERDR_PANE_ID" \
+  bun -e '
+const payload = JSON.parse(await Bun.stdin.text());
+const pane = payload?.result?.pane ?? payload?.pane ?? payload?.result ?? payload;
+if (
+  pane.workspace_id !== process.env.EXPECTED_WORKSPACE ||
+  pane.tab_id !== process.env.EXPECTED_TAB ||
+  pane.pane_id !== process.env.EXPECTED_PANE
+) process.exit(1);
+'
 printf '%s\n' "$HERDR_WORKSPACE_ID" "$HERDR_TAB_ID" "$HERDR_PANE_ID"
 ```
 
-The installed `herdr pane` output is the syntax authority. Confirm each roster command exists with `command -v`. Stop before mutation if the session IDs or required agents are unavailable.
+The installed `herdr pane` output is the syntax authority. Stop before mutation if the session IDs are unavailable.
 
-`herdr pane list` can filter by workspace but not tab. Every inventory in this workflow must therefore filter returned pane records by both `workspace_id` and `tab_id`. Never treat a workspace-only result as the fleet.
+`herdr pane list` can filter by workspace but not tab. Every inventory must filter returned records by both `workspace_id` and `tab_id`; never treat a workspace-only result as the fleet.
 
-## Step 2: Derive a unique project key
+## Step 2: Resolve the project identity
 
 Derive the base key from the current repository. Multiword names use each word's first letter; a single word uses its first three characters.
 
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
 project="$(basename "$REPO_ROOT")"
-BASE_KEY="$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | awk -F'[-_ ]+' '{s=""; for (i=1;i<=NF;i++) s=s substr($i,1,1); if (length(s)<2) s=substr($1,1,3); print s}')"
+BASE_KEY="$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | awk -F'[-_ ]+' '{s=""; for (i=1;i<=NF;i++) s=s substr($i,1,1); if(length(s)<2)s=substr($1,1,3); print s}')"
 ALL_PANES_JSON="$(herdr pane list --workspace "$HERDR_WORKSPACE_ID")"
 TAB_PANES_JSON="$(printf '%s' "$ALL_PANES_JSON" | TAB_ID="$HERDR_TAB_ID" WORKSPACE_ID="$HERDR_WORKSPACE_ID" bun -e '
 const payload = JSON.parse(await Bun.stdin.text());
@@ -34,138 +46,182 @@ const scoped = (Array.isArray(panes) ? panes : []).filter(
 );
 process.stdout.write(JSON.stringify(scoped));
 ')"
-```
-
-Detect an existing foreign use of the base key in this tab. Ownership requires both the key prefix and a pane `cwd`/`foreground_cwd` inside `$REPO_ROOT`; a matching label alone is not ownership.
-
-```bash
-KEY_COLLISION="$(printf '%s' "$TAB_PANES_JSON" | BASE_KEY="$BASE_KEY" REPO_ROOT="$REPO_ROOT" bun -e '
-import path from "node:path";
-const panes = JSON.parse(await Bun.stdin.text());
-const root = path.resolve(process.env.REPO_ROOT);
-const ownsPath = (value) => value && (path.resolve(value) === root || path.resolve(value).startsWith(`${root}${path.sep}`));
-const collision = panes.some((pane) => {
-  if (typeof pane.label !== "string" || !pane.label.startsWith(`${process.env.BASE_KEY}-`)) return false;
-  return !ownsPath(pane.foreground_cwd ?? pane.cwd);
-});
-process.stdout.write(collision ? "yes" : "no");
-')"
-PROJECT_KEY="$BASE_KEY"
-if [ "$KEY_COLLISION" = yes ]; then
-  suffix="$(printf '%s' "$REPO_ROOT" | git hash-object --stdin | cut -c1-4)"
-  PROJECT_KEY="${BASE_KEY}-${suffix}"
-fi
+KEY_RESULT="$(printf '%s' "$TAB_PANES_JSON" | bun <skill-directory>/scripts/resolve-project-key.mjs \
+  --base-key "$BASE_KEY" --repo-root "$REPO_ROOT" --json)"
+PROJECT_KEY="$(printf '%s' "$KEY_RESULT" | bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).projectKey)')"
+FLEET_OWNER_TOKEN="$(printf '%s' "$KEY_RESULT" | bun -e 'process.stdout.write(JSON.parse(await Bun.stdin.text()).ownerToken)')"
 CONTROL_LABEL="${PROJECT_KEY}-control-pane"
 ```
 
-Examples: `billing-api` normally becomes `ba-control-pane`; `widget` becomes `wid-control-pane`. A colliding key gains a deterministic repository-derived suffix. Re-run the scoped inventory with the resolved prefix before continuing.
+The resolver prefers an established ownership-proven key. It compares metadata keys and legacy key/role labels by complete boundaries, so `ba-1234-pi-impl` occupies `ba-1234`, not `ba`. If the exact base key is foreign-occupied, it derives a deterministic suffix, rechecks that complete key, and lengthens the suffix until free. Multiple owned keys stop the launch for reconciliation.
 
-## Step 3: Establish merge policy
+## Step 3: Collect and confirm the roster
 
-Ask the principal which merge policy this fleet has. Default to report-only and record the answer in the control transcript.
+Read the human-facing [launcher menu](README.md#launcher-menu), then use `AskUserQuestion` before creating any worker pane.
+
+### Rebuild intake
+
+First inspect current-tab panes for ownership metadata:
+
+- `tokens.fleet_owner` equals `$FLEET_OWNER_TOKEN`;
+- `tokens.fleet_key` equals `$PROJECT_KEY`;
+- `tokens.fleet_kind` is `worker`;
+- repository cwd is owned;
+- `fleet_label`, `fleet_role`, `fleet_command`, `fleet_placement`, and optional `fleet_assignment` are present;
+- the exact stored command and placement reconstruct the prior roster, and `pane process-info` is consistent with the stored launcher.
+
+When every surviving worker has complete, consistent metadata, reconstruct the prior roster and use `AskUserQuestion` with **Reuse detected roster**, **Edit roster**, and **Cancel**. Include the full pane-map preview. Reuse only after confirmation.
+
+If any worker is ambiguous, metadata is incomplete, command evidence differs, or no owned roster exists, collect the roster again.
+
+### New or edited intake
+
+Use a free-form `AskUserQuestion` asking for one worker per line:
+
+```text
+label | launch command | role | optional assignment/lane | desired placement
+```
+
+Requirements:
+
+- accept any number of workers, including zero;
+- require a unique non-empty label and launch command per worker;
+- accept `implementer`, `reviewer`, or any user-specified role;
+- preserve an optional assignment or lane constraint;
+- accept `pi`, `codex`, every documented Claudex/Claude launcher, and arbitrary user commands;
+- treat commands and assignments as data: never interpolate credentials or secrets into pane labels or metadata.
+
+Validate the roster, derive the exact split/placement plan, and render a preview containing the control pane plus every worker's label, command, role, assignment/lane, and placement. Use a second `AskUserQuestion` with **Confirm**, **Edit**, and **Cancel**. No pane mutation occurs before **Confirm**.
+
+The confirmed roster is the source of truth for all later role, launch, and assignment decisions. There is no default worker count or default worker roster.
+
+## Step 4: Establish merge policy
+
+Use `AskUserQuestion` to establish merge policy. Default to `report-only` and record the answer in the control transcript.
 
 | Policy | Behavior |
 |---|---|
 | `report-only` | Stop at a fresh `MERGE_READY` verdict and report it. This is the default. |
 | `authorized-merge` | Merge only on explicitly allowed base branches, with the explicitly selected strategy, after a fresh verdict and green required checks. |
 
-Authorization must name:
+Authorization must name the repository, allowed base branches, merge strategy, and branch-deletion policy. It does not bypass tool permissions; approval prompts go directly to the principal.
 
-1. allowed repository and base branch or branches;
-2. merge strategy;
-3. whether branch deletion is allowed.
+## Step 5: Reconcile confirmed workers
 
-Authorization does not bypass tool or repository permissions. If a merge command still requires approval, ask the principal directly. Never route it through a worker.
+Before renaming, splitting, or launching, compare the confirmed roster with exact ownership metadata from `$TAB_PANES_JSON`. Inspect each candidate with `herdr pane get`, `herdr pane process-info`, and a recent transcript read.
 
-## Step 4: Reconcile the current-tab fleet
+Classify each confirmed entry:
 
-Before renaming, splitting, or launching anything, inventory the resolved `${PROJECT_KEY}-` labels from `$TAB_PANES_JSON` and inspect each candidate with `herdr pane get`, `herdr pane process-info`, and a recent transcript read.
+- **Healthy owned match:** identity metadata and command evidence match the confirmed entry, and status is `idle`, `working`, `blocked`, or `done`. Reuse it.
+- **Stale owned match:** identity matches, but the process exited, returned to a shell, or is otherwise proven abandoned. Retire only this pane.
+- **User-confirmed legacy match:** repository cwd and a complete legacy key/role label match, and the user explicitly maps it to a confirmed entry after command inspection. Reuse it, then stamp current metadata in Step 7.
+- **Foreign or ambiguous pane:** ownership evidence is missing or mismatched. Leave it untouched and do not create a same-label replacement without another user decision.
+- **Duplicate healthy label:** stop and ask which pane to keep.
+- **Missing entry:** record it for Step 6.
 
-Classify each expected role:
+Also identify owned workers absent from the confirmed roster. Ask before retiring them; roster confirmation alone is not process-kill consent.
 
-- **Healthy owned pane:** project-prefixed label, current workspace and tab, repository cwd, and an expected agent in `idle`, `working`, `blocked`, or `done`. Reuse it.
-- **Stale owned pane:** the same ownership evidence, but the process exited, returned to a plain shell, or is otherwise proven abandoned. Retire only this pane.
-- **Foreign or ambiguous pane:** ownership evidence is missing or points outside the repository. Leave it untouched.
-- **Duplicate healthy role:** stop and ask which pane to keep. Do not close or create another.
-- **Missing role:** record it for Step 5.
-
-Close a stale pane only after recording its ownership evidence and pane ID, then refresh and re-filter the current-tab inventory before any other mutation:
+Close a stale pane only after recording evidence and its pane ID, then refresh the workspace inventory and re-filter the current tab:
 
 ```bash
 herdr pane close <proven-stale-owned-pane-id>
 ```
 
-If another healthy `${CONTROL_LABEL}` exists and is not the current pane, stop and direct the principal to that control pane. Replace it only when it is proven stale or the principal explicitly authorizes replacement. Then claim the current pane:
+If another healthy `${CONTROL_LABEL}` exists outside the current pane, stop and direct the principal to it. Replace it only when proven stale or explicitly authorized. Then claim and verify the current control pane:
 
 ```bash
 herdr pane rename "$HERDR_PANE_ID" "$CONTROL_LABEL"
 herdr pane layout --pane "$HERDR_PANE_ID"
 ```
 
-Re-read the pane and confirm its `workspace_id` and `tab_id` match the injected IDs. Reconciliation is complete when every surviving pane has one role, every missing role is known, and no foreign pane was mutated.
+## Step 6: Create only missing confirmed workers
 
-## Step 5: Create only missing roles
+Follow the confirmed pane-map placements. Use explicit source pane IDs from the current-tab inventory for every split. Before each split, verify the source still belongs to `$HERDR_WORKSPACE_ID` and `$HERDR_TAB_ID`. Always use `--no-focus`; read `result.pane.pane_id` from JSON; verify the returned workspace and tab; never predict IDs.
 
-For the default five-worker roster, preserve the intended layout: control pane left at full height, implementers in the middle column, reviewers in the right column.
+Create exactly one pane for each missing confirmed roster entry. Any number of workers is valid. A partial surviving fleet becomes reused-plus-missing, never duplicated.
 
-Use explicit source pane IDs from the current-tab inventory for every split. Before each split, verify the source pane still belongs to `$HERDR_WORKSPACE_ID` and `$HERDR_TAB_ID`. Always use `--no-focus`, read `result.pane.pane_id` from JSON, verify the returned pane's workspace and tab, then rename it `${PROJECT_KEY}-<role>`. Never predict pane IDs.
+## Step 7: Launch new workers and stamp all confirmed workers
 
-Create only roles marked missing in Step 4. A partial surviving fleet must remain partial-plus-new, never duplicated.
-
-## Step 6: Launch only new agents
-
-Start each newly created worker with only its normal interactive command:
+Start each new worker with its confirmed command, wait for its interactive agent when applicable, and verify the command through `pane process-info`. Reused workers keep their sessions. Before watcher startup, stamp every confirmed new, reused, or user-confirmed legacy worker with current metadata.
 
 ```bash
-herdr pane run <pane-id> "<agent-command>"
+herdr pane rename <pane-id> "${PROJECT_KEY}-<confirmed-worker-label>"
+herdr pane run <pane-id> "<confirmed-launch-command>"
 herdr wait agent-status <pane-id> --status idle --timeout 60000
 ```
 
-Wait for every new agent to reach `idle`. Reused healthy panes keep their sessions. Replace unavailable default commands only with principal-approved installed agents while preserving the implementer/reviewer split.
-
-## Step 7: Broadcast standing constraints
-
-Send this to every new or reused worker before assigning work:
-
-> STANDING CONSTRAINT: you are a worker pane. Remote control of this Herdr session is reserved for the control pane (`$CONTROL_LABEL`). Work only in your assigned role. Never run Herdr commands or merge pull requests. Never switch branches in the canonical checkout; use short-lived worktrees from the required remote base. Commit incrementally. Report results only in your own transcript.
-
-For workers prone to nested delegation, add:
-
-> Keep delegation bounded; do not spawn large parallel subagent swarms. The parent context is the scarce resource.
-
-Read each pane transcript and verify delivery. Re-send when a pane was blocked by a dialog or retained an unsubmitted paste.
-
-## Step 8: Dispatch initial work
-
-Inspect the repository's checked-in agent instructions, contribution guide, pull-request template, issue labels, open pull requests, and worktree conventions first.
-
-- **Reviewers:** include the repository review workflow, claim mutex, fresh-head verdict requirement, peer reviewer label, and current open pull requests.
-- **Implementers:** split ready issues by repository-derived ownership. Every brief includes existing-branch/PR detection, claim procedure, base branch, worktree and branch naming, verification commands, provenance/hook rules, and reporting requirements.
-- **Thin queue:** assign open-PR advancement work or hold workers idle, then report the shortage. Do not invent work merely to occupy panes.
-
-The step is complete when every active worker has one self-contained assignment or an explicit idle state and no item has conflicting owners.
-
-## Step 9: Arm the scoped watcher
-
-Resolve `scripts/watch-fleet.mjs` relative to this skill directory. Start exactly one persistent watcher and record its PID and output paths:
+Record reconstructable ownership metadata on every confirmed worker. Omit `fleet_assignment` only when the user left it empty.
 
 ```bash
-MONITOR_DIR="${TMPDIR:-/tmp}/herdr-fleet-${HERDR_WORKSPACE_ID//:/_}-${HERDR_TAB_ID//:/_}"
-mkdir -p "$MONITOR_DIR"
-bun <skill-directory>/scripts/watch-fleet.mjs --project-key "$PROJECT_KEY" \
-  >"$MONITOR_DIR/events.ndjson" 2>"$MONITOR_DIR/errors.ndjson" &
-FLEET_WATCHER_PID=$!
-printf '%s\n' "$FLEET_WATCHER_PID" >"$MONITOR_DIR/pid"
+herdr pane report-metadata <pane-id> \
+  --source user:herdr-fleet \
+  --token "fleet_owner=$FLEET_OWNER_TOKEN" \
+  --token "fleet_key=$PROJECT_KEY" \
+  --token "fleet_kind=worker" \
+  --token "fleet_label=<confirmed-worker-label>" \
+  --token "fleet_role=<confirmed-role>" \
+  --token "fleet_assignment=<confirmed-assignment-or-lane>" \
+  --token "fleet_command=<confirmed-launch-command>" \
+  --token "fleet_placement=<confirmed-placement>"
 ```
 
-The watcher:
+Herdr metadata values are bounded. Store commands only when they contain no credential and fit without truncation. If any roster value cannot be stored exactly, mark that pane non-reusable and require intake on the next rebuild rather than claiming proof that does not exist.
 
-- inventories with `pane list --workspace`, then rejects records outside the current `workspace_id`, `tab_id`, and project-label prefix;
-- polls status every 20 seconds and emits only state changes as NDJSON;
-- polls visible context every five minutes, recognizes the supported footer formats, requests `/compact` at 75%, defers blocked dialogs, and re-arms after usage falls to 60%;
-- exits nonzero after three consecutive inventory failures and emits per-pane monitor failures after three context-read failures.
+## Step 8: Broadcast standing constraints
 
-Treat watcher exit as a fleet blocker; restore socket health and restart one watcher rather than falling back to unscoped polling. Consume only this watcher's NDJSON. Do not consume global Herdr events. On `compaction_requested`, read that pane and verify `/compact` was accepted or visibly queued; apply Gotcha 13 from [SKILL.md](SKILL.md) when it remained as an unsubmitted paste.
+Send this to every new or reused worker before assignment:
+
+> STANDING CONSTRAINT: you are a worker pane. Remote control of this Herdr session is reserved for the control pane (`$CONTROL_LABEL`). Follow your confirmed role and assignment. Never run Herdr commands or merge pull requests. Never switch branches in the canonical checkout; use short-lived worktrees from the required remote base. Commit incrementally. Report results only in your own transcript.
+
+For workers prone to nested delegation, add bounded-delegation guidance. Read each transcript and verify delivery; re-send after blocked dialogs or unsubmitted pastes.
+
+## Step 9: Dispatch confirmed assignments
+
+Inspect repository instructions, contribution guidance, pull-request templates, issue labels, open pull requests, and worktree conventions first.
+
+- **Implementers:** include claim procedure, branch/worktree rules, gates, hooks, and the confirmed assignment/lane.
+- **Reviewers:** include the review workflow, claim mutex, peer labels, fresh-head verdict requirement, and confirmed queue scope.
+- **Other roles:** dispatch only the user-confirmed responsibility and boundaries.
+- **Unassigned workers:** hold idle or ask; do not invent work merely to occupy panes.
+
+## Step 10: Arm the scoped watcher
+
+A confirmed zero-worker roster needs no watcher. Otherwise, start or reuse exactly one project-scoped watcher:
+
+```bash
+MONITOR_DIR="${TMPDIR:-/tmp}/herdr-fleet-${HERDR_WORKSPACE_ID//:/_}-${HERDR_TAB_ID//:/_}-${PROJECT_KEY}"
+mkdir -p "$MONITOR_DIR"
+REUSE_WATCHER=no
+if [ -f "$MONITOR_DIR/pid" ]; then
+  existing_pid="$(cat "$MONITOR_DIR/pid")"
+  existing_command="$(ps -p "$existing_pid" -o command= 2>/dev/null || true)"
+  case "$existing_command" in
+    *"watch-fleet.mjs --project-key $PROJECT_KEY --owner-token $FLEET_OWNER_TOKEN"*)
+      kill -0 "$existing_pid" 2>/dev/null && REUSE_WATCHER=yes
+      ;;
+  esac
+fi
+
+if [ "$REUSE_WATCHER" = yes ]; then
+  FLEET_WATCHER_PID="$existing_pid"
+else
+  rm -f "$MONITOR_DIR/pid"
+  mkdir "$MONITOR_DIR/start.lock" || exit 1
+  trap 'rmdir "$MONITOR_DIR/start.lock" 2>/dev/null || true' EXIT INT TERM
+  bun <skill-directory>/scripts/watch-fleet.mjs \
+    --project-key "$PROJECT_KEY" --owner-token "$FLEET_OWNER_TOKEN" \
+    >"$MONITOR_DIR/events.ndjson" 2>"$MONITOR_DIR/errors.ndjson" &
+  FLEET_WATCHER_PID=$!
+  printf '%s\n' "$FLEET_WATCHER_PID" >"$MONITOR_DIR/pid.tmp"
+  mv "$MONITOR_DIR/pid.tmp" "$MONITOR_DIR/pid"
+  rmdir "$MONITOR_DIR/start.lock"
+  trap - EXIT INT TERM
+  sleep 1
+  kill -0 "$FLEET_WATCHER_PID" 2>/dev/null || exit 1
+fi
+```
+
+The watcher filters by workspace, tab, exact project identity, and ownership token; requires a worker during bounded startup; tracks status changes; parses only current context footers; retries compaction protection; and stops after bounded failures. Treat watcher exit as a blocker. Consume only its NDJSON, never global Herdr events.
 
 For shutdown:
 
@@ -175,8 +231,8 @@ wait "$(cat "$MONITOR_DIR/pid")" 2>/dev/null || true
 rm -f "$MONITOR_DIR/pid"
 ```
 
-Create bounded CI waits per pull request that handle success, failure, cancellation, and timeout.
+Create bounded CI waits per pull request covering success, failure, cancellation, and timeout.
 
-## Step 10: Report and enter the loop
+## Step 11: Report and enter the loop
 
-Report merge policy, workspace/tab IDs, project key, pane IDs, reused/created/retired roles, assignments, watcher PID, substitutions, and queue shortages. Then follow [protocols.md](protocols.md).
+Report merge policy, workspace/tab IDs, project key, confirmed roster, pane IDs, reused/created/retired workers, assignments, watcher PID, and any blockers. Then follow [protocols.md](protocols.md).

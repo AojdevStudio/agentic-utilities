@@ -1,6 +1,6 @@
 ---
 name: herdr-fleet
-description: Launch a Herdr fleet, start implementer and reviewer panes, rebuild surviving worker panes, or control a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
+description: Use when you need to launch a Herdr fleet, start worker panes, rebuild surviving panes, or control a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
 ---
 
 # Herdr Fleet
@@ -14,7 +14,7 @@ Choose the active branch:
 
 ## Standing rules
 
-- Derive a collision-checked control label from the current repository as `<project-key>-control-pane`; never copy a label from another project. [Launch Step 2](launch-fleet.md#step-2-derive-a-unique-project-key) defines the derivation.
+- Derive a collision-checked control label from the current repository as `<project-key>-control-pane`; never copy a label from another project. [Launch Step 2](launch-fleet.md#step-2-resolve-the-project-identity) defines the derivation.
 - Scope every inventory, watcher, split, discovery, and event action to both the injected workspace and tab IDs.
 - Reconcile surviving project-owned panes before creating anything. Reuse healthy panes, retire only proven stale owned panes, and create only missing roles.
 - Reserve Herdr remote control for the control pane. Broadcast this boundary before assigning work.
@@ -23,19 +23,11 @@ Choose the active branch:
 - Report events in proportion to their importance. Use the environment's notification mechanism for unattended merges, blockers, and decisions. Ask the principal only for genuine product, scope, cost, or irreversible decisions, with a recommendation first.
 - Resolve reversible, PR-gated worker questions in the control pane. Verify every claim that the principal "approved" a choice.
 
-## Default roster
+## User-selected roster
 
-Adapt commands to installed agents and the principal's preference; preserve the role split.
+The current control pane is the only fixed pane. Before creating workers, follow the `AskUserQuestion` intake and confirmation in [launch-fleet.md](launch-fleet.md#step-3-collect-and-confirm-the-roster). Accept any worker count, labels, commands, roles, assignments, and confirmed pane map. Rebuilds reuse only ownership-proven roster metadata.
 
-| Label suffix | Default command | Role |
-|---|---|---|
-| `claude-impl` | `claude --model sonnet` | implementer |
-| `codex-impl` | `codex` | implementer |
-| `pi-impl` | `pi` | implementer |
-| `codex-review` | `codex` | pull-request reviewer |
-| `claude-review` | `claude --model opus` | pull-request reviewer |
-
-Prefix each label with the project key, for example `${PROJECT_KEY}-pi-impl`. Place the control pane left at full height, implementers in the middle column, and reviewers in the right column. Reviewers use the repository's review-queue skill when one exists; otherwise use the available code-review workflow.
+Read the human [launcher menu](README.md#launcher-menu) before presenting command choices. Claudex, native Claude Code, Pi, Codex, and arbitrary user-provided commands are options, never roster defaults.
 
 ## Operational gotchas
 

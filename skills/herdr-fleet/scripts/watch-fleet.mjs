@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { paneFleetIdentity } from "./fleet-labels.mjs";
 
 const STATUS_VALUES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 
@@ -10,35 +11,53 @@ export function extractPanes(payload) {
   return Array.isArray(value) ? value : [];
 }
 
-export function scopePanes(panes, workspaceId, tabId, projectKey) {
-  const labelPrefix = `${projectKey}-`;
-  return panes.filter(
-    (pane) =>
-      pane.workspace_id === workspaceId &&
-      pane.tab_id === tabId &&
-      typeof pane.label === "string" &&
-      pane.label.startsWith(labelPrefix) &&
-      pane.label !== `${projectKey}-control-pane`,
-  );
+export function scopePanes(panes, workspaceId, tabId, projectKey, ownerToken) {
+  return panes.filter((pane) => {
+    const identity = paneFleetIdentity(pane);
+    const ownedWorker =
+      identity?.source === "metadata" &&
+      identity.key === projectKey &&
+      identity.owner === ownerToken &&
+      identity.kind === "worker";
+    return pane.workspace_id === workspaceId && pane.tab_id === tabId && ownedWorker;
+  });
 }
 
 export function parseContext(text) {
-  const patterns = [
-    /\[(\d+(?:\.\d+)?)%/i,
-    /(\d+(?:\.\d+)?)%\s*context used/i,
-    /(\d+(?:\.\d+)?)%\s*\/\s*\d+(?:\.\d+)?[km]?/i,
-  ];
-  const used = patterns.map((pattern) => text.match(pattern)?.[1]).find(Boolean);
-  const until = text.match(/(\d+(?:\.\d+)?)%\s*until auto-compact/i)?.[1];
-  return {
-    usedPercent: used === undefined ? undefined : Number(used),
-    untilAutoCompactPercent: until === undefined ? undefined : Number(until),
-  };
+  const result = {};
+  let foundFooter = false;
+  for (const rawLine of text.split(/\r?\n/).reverse()) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const bracketed = line.match(/^\[(\d+(?:\.\d+)?)%[^\]]*\]$/i);
+    const contextUsed = line.match(/^(\d+(?:\.\d+)?)%\s+context used$/i);
+    const tokenFooter = line.match(/^(\d+(?:\.\d+)?)%\s*\/\s*\d+(?:\.\d+)?[km]?$/i);
+    const until = line.match(/^(\d+(?:\.\d+)?)%\s+until auto-compact$/i);
+    const used = bracketed?.[1] ?? contextUsed?.[1] ?? tokenFooter?.[1];
+
+    if (used !== undefined) {
+      result.usedPercent = Number(used);
+      foundFooter = true;
+    }
+    if (until !== null) {
+      result.untilAutoCompactPercent = Number(until[1]);
+      foundFooter = true;
+    }
+    if (foundFooter && used === undefined && until === null) break;
+  }
+  return result;
 }
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
-  return index === -1 ? fallback : process.argv[index + 1];
+  const value = index === -1 ? undefined : process.argv[index + 1];
+  return !value || value.startsWith("--") ? fallback : value;
+}
+
+function positiveSeconds(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function emit(stream, level, event, fields = {}) {
@@ -46,7 +65,11 @@ function emit(stream, level, event, fields = {}) {
 }
 
 function runHerdr(args) {
-  const result = spawnSync("herdr", args, { encoding: "utf8" });
+  const result = spawnSync("herdr", args, {
+    encoding: "utf8",
+    timeout: 15_000,
+    killSignal: "SIGKILL",
+  });
   if (result.error || result.status !== 0) {
     const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
     throw new Error(stderr || result.error?.message || `herdr ${args.join(" ")} exited ${result.status}`);
@@ -55,10 +78,7 @@ function runHerdr(args) {
 }
 
 function selfTest() {
-  assert.deepEqual(parseContext("[79% ▮▮]"), {
-    usedPercent: 79,
-    untilAutoCompactPercent: undefined,
-  });
+  assert.deepEqual(parseContext("[79% ▮▮]"), { usedPercent: 79 });
   assert.equal(parseContext("90% context used").usedPercent, 90);
   assert.equal(parseContext("9.3%/372k").usedPercent, 9.3);
   assert.equal(parseContext("7% until auto-compact").untilAutoCompactPercent, 7);
@@ -68,14 +88,26 @@ function selfTest() {
       [
         { pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", label: "app-pi-impl" },
         { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t2", label: "app-pi-impl" },
+        { pane_id: "w1:p3", workspace_id: "w1", tab_id: "w1:t1", label: "app-1234-pi-impl" },
+        {
+          pane_id: "w1:p4",
+          workspace_id: "w1",
+          tab_id: "w1:t1",
+          label: "app-custom",
+          tokens: { fleet_key: "app", fleet_owner: "owner-1", fleet_kind: "worker" },
+        },
       ],
       "w1",
       "w1:t1",
       "app",
+      "owner-1",
     ).map((pane) => pane.pane_id),
-    ["w1:p1"],
+    ["w1:p4"],
   );
-  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 6 })}\n`);
+  assert.equal(parseContext("task output: 99% context used\n[79% ▮▮]").usedPercent, 79);
+  assert.equal(positiveSeconds("0", 20), 20);
+  assert.equal(positiveSeconds("nope", 20), 20);
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 9 })}\n`);
 }
 
 if (process.argv.includes("--self-test")) {
@@ -86,16 +118,18 @@ if (process.argv.includes("--self-test")) {
 const workspaceId = process.env.HERDR_WORKSPACE_ID;
 const tabId = process.env.HERDR_TAB_ID;
 const projectKey = option("--project-key");
-const statusIntervalMs = Number(option("--status-interval", "20")) * 1000;
-const contextIntervalMs = Number(option("--context-interval", "300")) * 1000;
+const ownerToken = option("--owner-token");
+const statusIntervalMs = positiveSeconds(option("--status-interval", "20"), 20) * 1000;
+const contextIntervalMs = positiveSeconds(option("--context-interval", "300"), 300) * 1000;
+const startupGraceMs = positiveSeconds(option("--startup-grace", "30"), 30) * 1000;
 
-if (!workspaceId || !tabId || !projectKey) {
+if (!workspaceId || !tabId || !projectKey || !ownerToken) {
   process.stderr.write(
     `${JSON.stringify({
       level: "fatal",
       event: "invalid_scope",
       sessionId: "fleet:unscoped",
-      message: "watch-fleet requires HERDR_WORKSPACE_ID, HERDR_TAB_ID, and --project-key",
+      message: "watch-fleet requires HERDR_WORKSPACE_ID, HERDR_TAB_ID, --project-key, and --owner-token",
     })}\n`,
   );
   process.exit(2);
@@ -114,9 +148,33 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
+function validateCallerScope() {
+  const payload = JSON.parse(runHerdr(["pane", "current", "--current"]));
+  const pane = payload?.result?.pane ?? payload?.pane ?? payload?.result ?? payload;
+  return pane.workspace_id === workspaceId && pane.tab_id === tabId && pane.pane_id === process.env.HERDR_PANE_ID;
+}
+
 function listScopedPanes() {
   const payload = JSON.parse(runHerdr(["pane", "list", "--workspace", workspaceId]));
-  return scopePanes(extractPanes(payload), workspaceId, tabId, projectKey);
+  return scopePanes(extractPanes(payload), workspaceId, tabId, projectKey, ownerToken);
+}
+
+async function discoverInitialPanes() {
+  const deadline = Date.now() + startupGraceMs;
+  let message = "no owned worker panes discovered";
+  while (!stopping && Date.now() < deadline) {
+    try {
+      if (!validateCallerScope()) throw new Error("injected workspace, tab, and pane do not match");
+      const panes = listScopedPanes();
+      if (panes.length > 0) return panes;
+    } catch (error) {
+      message = error.message;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  emit(process.stderr, "fatal", "invalid_scope", { message });
+  process.exitCode = 2;
+  return undefined;
 }
 
 function pollContext(pane, state) {
@@ -138,24 +196,40 @@ function pollContext(pane, state) {
   }
 
   const context = parseContext(output);
-  if (context.usedPercent !== undefined && context.usedPercent <= 60 && state.compactionRequested) {
-    state.compactionRequested = false;
+  if (context.usedPercent !== undefined && context.usedPercent <= 60 && state.compactionAttempts > 0) {
+    state.compactionAttempts = 0;
+    state.lastCompactionRequestAt = undefined;
+    state.compactionBlocked = false;
     emit(process.stdout, "info", "compaction_rearmed", { paneId: pane.pane_id });
   }
 
-  if (context.usedPercent !== undefined && context.usedPercent >= 75 && !state.compactionRequested) {
+  if (context.usedPercent !== undefined && context.usedPercent >= 75) {
     if (pane.agent_status === "blocked") {
       emit(process.stdout, "warn", "compaction_deferred_blocked_dialog", {
         paneId: pane.pane_id,
         usedPercent: context.usedPercent,
       });
-    } else {
+    } else if (state.compactionAttempts >= 3) {
+      if (!state.compactionBlocked) {
+        state.compactionBlocked = true;
+        emit(process.stdout, "error", "pane_monitor_blocked", {
+          paneId: pane.pane_id,
+          reason: "compaction_unconfirmed",
+          attempts: state.compactionAttempts,
+        });
+      }
+    } else if (
+      state.lastCompactionRequestAt === undefined ||
+      Date.now() - state.lastCompactionRequestAt >= Math.max(contextIntervalMs, 60_000)
+    ) {
       try {
         runHerdr(["pane", "run", pane.pane_id, "/compact"]);
-        state.compactionRequested = true;
+        state.compactionAttempts += 1;
+        state.lastCompactionRequestAt = Date.now();
         emit(process.stdout, "info", "compaction_requested", {
           paneId: pane.pane_id,
           usedPercent: context.usedPercent,
+          attempt: state.compactionAttempts,
         });
       } catch (error) {
         emit(process.stderr, "error", "compaction_request_failed", {
@@ -179,12 +253,18 @@ function pollContext(pane, state) {
 }
 
 async function main() {
+  const initialPanes = await discoverInitialPanes();
+  if (!initialPanes) return;
+
   emit(process.stderr, "info", "watcher_started", {
     workspaceId,
     tabId,
     projectKey,
+    ownerToken,
     statusIntervalMs,
     contextIntervalMs,
+    startupGraceMs,
+    initialPaneCount: initialPanes.length,
   });
 
   while (!stopping) {
@@ -219,7 +299,9 @@ async function main() {
     for (const pane of panes) {
       const state = states.get(pane.pane_id) ?? {
         status: undefined,
-        compactionRequested: false,
+        compactionAttempts: 0,
+        lastCompactionRequestAt: undefined,
+        compactionBlocked: false,
         autoCompactWarning: false,
         contextFailures: 0,
       };

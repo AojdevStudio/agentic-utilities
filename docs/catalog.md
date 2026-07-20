@@ -31,6 +31,7 @@ Keep this as the human-readable record of what lives in the package.
 | `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Audits repo harness readiness and fix gaps; copy into harness-specific inventories for daily use when isolation matters. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `herdr-fleet` | Skill | `skills/herdr-fleet/SKILL.md` | active | Orchestrates user-confirmed, project-scoped Herdr worker rosters from one control pane. |
+| `pr-review-queue` | Skill | `skills/pr-review-queue/SKILL.md` | active | Standing PR-review loop for an explicitly assigned fleet reviewer worker; head-pinned claim election, two-axis completeness review, paginated gate evidence, and a versioned JSON verdict. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
 | `skill-inspector` | Skill | `skills/skill-inspector/SKILL.md` | active | Global-first skill (symlinked into `~/.claude/skills/skill-inspector`); security-scans agent skills with the `skillspector` CLI and renders a plain-English verdict report (safe/caution/do-not-install, threat breakdown, top findings) for chat. |
 | `critical-bug-hunt.prompt` | Prompt | `prompts/critical-bug-hunt.prompt.md` | active | Recent-commit audit prompt for high-severity correctness bugs and minimal fixes. |

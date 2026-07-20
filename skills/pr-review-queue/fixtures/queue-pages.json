@@ -1,0 +1,45 @@
+{
+  "pages": [
+    {
+      "data": {
+        "repository": {
+          "pullRequests": {
+            "nodes": [
+              { "number": 12, "title": "Oldest open PR", "isDraft": false, "createdAt": "2026-07-01T00:00:00Z" },
+              {
+                "number": 40,
+                "title": "A draft, must be filtered out",
+                "isDraft": true,
+                "createdAt": "2026-07-05T00:00:00Z"
+              }
+            ],
+            "pageInfo": { "hasNextPage": true, "endCursor": "cursor-1" }
+          }
+        }
+      }
+    },
+    {
+      "data": {
+        "repository": {
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 35,
+                "title": "Second-oldest reviewable PR",
+                "isDraft": false,
+                "createdAt": "2026-07-10T00:00:00Z"
+              },
+              {
+                "number": 41,
+                "title": "Newest open PR beyond any fixed limit",
+                "isDraft": false,
+                "createdAt": "2026-07-15T00:00:00Z"
+              }
+            ],
+            "pageInfo": { "hasNextPage": false, "endCursor": null }
+          }
+        }
+      }
+    }
+  ]
+}

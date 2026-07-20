@@ -1,0 +1,56 @@
+{
+  "pages": [
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "comments": {
+              "nodes": [
+                {
+                  "databaseId": 1,
+                  "createdAt": "2026-07-20T00:00:00Z",
+                  "body": "Looks good overall, just a nit on naming.",
+                  "author": { "login": "human-reviewer" }
+                },
+                {
+                  "databaseId": 2,
+                  "createdAt": "2026-07-20T00:01:00Z",
+                  "body": "<!-- pr-review-queue claim id=c1 head=abc123 -->",
+                  "author": { "login": "fleet-bot" }
+                }
+              ],
+              "pageInfo": { "hasNextPage": true, "endCursor": "cursor-1" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "comments": {
+              "nodes": [
+                {
+                  "databaseId": 3,
+                  "createdAt": "2026-07-20T00:02:00Z",
+                  "body": "<!-- pr-review-queue claim id=c2 head=abc123 -->",
+                  "author": { "login": "fleet-bot" }
+                },
+                {
+                  "databaseId": 4,
+                  "createdAt": "2026-07-20T00:03:00Z",
+                  "body": "<!-- pr-review-queue claim id=c3 head=abc123 -->",
+                  "author": { "login": "fleet-bot" }
+                }
+              ],
+              "pageInfo": { "hasNextPage": false, "endCursor": null }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

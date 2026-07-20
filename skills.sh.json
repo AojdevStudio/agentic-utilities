@@ -26,7 +26,8 @@
         "adversarial-review",
         "deep-dive",
         "grill-me",
-        "grill-with-docs"
+        "grill-with-docs",
+        "pr-review-queue"
       ]
     },
     {

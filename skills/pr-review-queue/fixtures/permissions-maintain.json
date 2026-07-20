@@ -1,0 +1,1 @@
+{ "permissions": { "admin": false, "maintain": true, "push": false, "triage": true, "pull": true } }

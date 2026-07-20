@@ -32,9 +32,15 @@ export function parsePermissions(payload) {
   };
 }
 
-/** Read access is sufficient to post reviews/comments; push/admin is not required for this skill. */
-export function canPostExternalComments(permissions) {
-  return permissions.pull === true;
+/**
+ * Repository *read* access is not sufficient authorization to post: any
+ * authenticated user with view access to a public repo can read it, but
+ * posting claims, reviews, and verdicts on behalf of the fleet requires a
+ * write-capable role. push (the "Write" role), maintain, and admin all
+ * qualify; pull and triage do not.
+ */
+export function hasWriteAuthorization(permissions) {
+  return permissions.push === true || permissions.maintain === true || permissions.admin === true;
 }
 
 /** Fail loud when the authenticated identity does not match what the dispatcher expected. */
@@ -45,10 +51,10 @@ export function assertExpectedIdentity(identity, expectedLogin) {
   return identity;
 }
 
-/** Fail loud when the authenticated identity cannot post to the target repository. */
+/** Fail closed when the authenticated identity lacks write authorization on the target repository. */
 export function assertCanPost(permissions, identityLogin) {
-  if (!canPostExternalComments(permissions)) {
-    throw new Error(`${identityLogin} lacks repository access to post external comments`);
+  if (!hasWriteAuthorization(permissions)) {
+    throw new Error(`${identityLogin} lacks write authorization (push/maintain/admin) to post external comments`);
   }
   return permissions;
 }

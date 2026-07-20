@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertCanPost,
   assertExpectedIdentity,
-  canPostExternalComments,
+  hasWriteAuthorization,
   parseIdentity,
   parsePermissions,
 } from "./identity.mjs";
@@ -25,9 +25,26 @@ test("parsePermissions normalizes missing fields to false", () => {
   });
 });
 
-test("canPostExternalComments requires only read access, not write", () => {
-  assert.equal(canPostExternalComments({ pull: true, push: false }), true);
-  assert.equal(canPostExternalComments({ pull: false, push: true }), false);
+// --- F2: read access is NOT sufficient; only a write-capable role is ------
+
+test("hasWriteAuthorization rejects read-only access (pull true, everything else false)", () => {
+  assert.equal(hasWriteAuthorization({ pull: true, triage: true, push: false, maintain: false, admin: false }), false);
+});
+
+test("hasWriteAuthorization accepts push (the Write role)", () => {
+  assert.equal(hasWriteAuthorization({ pull: true, push: true, maintain: false, admin: false }), true);
+});
+
+test("hasWriteAuthorization accepts maintain", () => {
+  assert.equal(hasWriteAuthorization({ pull: true, push: false, maintain: true, admin: false }), true);
+});
+
+test("hasWriteAuthorization accepts admin", () => {
+  assert.equal(hasWriteAuthorization({ pull: true, push: false, maintain: false, admin: true }), true);
+});
+
+test("hasWriteAuthorization rejects a fully empty permission set", () => {
+  assert.equal(hasWriteAuthorization({}), false);
 });
 
 test("assertExpectedIdentity fails loud on a mismatched login", () => {
@@ -41,19 +58,25 @@ test("assertExpectedIdentity is a no-op when no expected login was given", () =>
   assert.equal(assertExpectedIdentity(identity, undefined), identity);
 });
 
-test("assertCanPost fails loud when the identity cannot post", () => {
-  assert.throws(() => assertCanPost({ pull: false }, "reviewer-bot"), /lacks repository access/);
-  const permissions = { pull: true };
+test("assertCanPost fails closed when the identity has only read access", () => {
+  assert.throws(() => assertCanPost({ pull: true, push: false }, "reviewer-bot"), /lacks write authorization/);
+});
+
+test("assertCanPost passes for a write-capable identity", () => {
+  const permissions = { pull: true, push: true };
   assert.equal(assertCanPost(permissions, "reviewer-bot"), permissions);
 });
 
 const scriptPath = fileURLToPath(new URL("./identity.mjs", import.meta.url));
 const identityFixture = fileURLToPath(new URL("../fixtures/identity-ok.json", import.meta.url));
 const permissionsWrite = fileURLToPath(new URL("../fixtures/permissions-write.json", import.meta.url));
+const permissionsMaintain = fileURLToPath(new URL("../fixtures/permissions-maintain.json", import.meta.url));
+const permissionsAdmin = fileURLToPath(new URL("../fixtures/permissions-admin.json", import.meta.url));
+const permissionsReadOnly = fileURLToPath(new URL("../fixtures/permissions-read-only.json", import.meta.url));
 const permissionsNone = fileURLToPath(new URL("../fixtures/permissions-none.json", import.meta.url));
 
-test("identity CLI verifies and reports login + permissions", () => {
-  const result = Bun.spawnSync([
+function runIdentity(permissionsFixture, extraArgs = []) {
+  return Bun.spawnSync([
     "bun",
     scriptPath,
     "--repo",
@@ -61,37 +84,32 @@ test("identity CLI verifies and reports login + permissions", () => {
     "--identity-fixture",
     identityFixture,
     "--permissions-fixture",
-    permissionsWrite,
+    permissionsFixture,
+    ...extraArgs,
   ]);
-  assert.equal(result.exitCode, 0);
+}
+
+test("identity CLI passes for push (Write role)", () => {
+  assert.equal(runIdentity(permissionsWrite).exitCode, 0);
 });
 
-test("identity CLI fails loud when the identity lacks read access", () => {
-  const result = Bun.spawnSync([
-    "bun",
-    scriptPath,
-    "--repo",
-    "AojdevStudio/agentic-utilities",
-    "--identity-fixture",
-    identityFixture,
-    "--permissions-fixture",
-    permissionsNone,
-  ]);
-  assert.equal(result.exitCode, 1);
+test("identity CLI passes for maintain", () => {
+  assert.equal(runIdentity(permissionsMaintain).exitCode, 0);
+});
+
+test("identity CLI passes for admin", () => {
+  assert.equal(runIdentity(permissionsAdmin).exitCode, 0);
+});
+
+test("identity CLI fails closed for read-only access (the exact regression this round closes)", () => {
+  assert.equal(runIdentity(permissionsReadOnly).exitCode, 1);
+});
+
+test("identity CLI fails closed when the identity has no access at all", () => {
+  assert.equal(runIdentity(permissionsNone).exitCode, 1);
 });
 
 test("identity CLI fails loud on an unexpected identity", () => {
-  const result = Bun.spawnSync([
-    "bun",
-    scriptPath,
-    "--repo",
-    "AojdevStudio/agentic-utilities",
-    "--expect-login",
-    "someone-else",
-    "--identity-fixture",
-    identityFixture,
-    "--permissions-fixture",
-    permissionsWrite,
-  ]);
+  const result = runIdentity(permissionsWrite, ["--expect-login", "someone-else"]);
   assert.equal(result.exitCode, 1);
 });

@@ -1,17 +1,38 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { isStaleVerdict, parseVerdict, VERDICT_SCHEMA_VERSION, validateVerdict } from "./verdict.mjs";
+import {
+  isStaleVerdict,
+  parseVerdict,
+  VERDICT_SCHEMA_VERSION,
+  validateGateEvidence,
+  validateVerdict,
+} from "./verdict.mjs";
+
+function baseGateEvidence(headSha) {
+  return {
+    schemaVersion: 1,
+    headSha,
+    checkedAt: "2026-07-20T00:00:00Z",
+    threads: [],
+    blockingThreadIds: [],
+    humanBlockingThreadIds: [],
+    automatedBlockingThreadIds: [],
+    checks: [{ name: "lint", state: "pass", required: true, synthesized: false }],
+    overall: "pass",
+  };
+}
 
 function baseVerdict(overrides = {}) {
+  const head = overrides.head ?? "bda922abe9b44f9638acf6587ec68fc2bc3945fc";
   return {
     schemaVersion: VERDICT_SCHEMA_VERSION,
     repository: "AojdevStudio/agentic-utilities",
     pullRequest: 35,
-    head: "bda922abe9b44f9638acf6587ec68fc2bc3945fc",
+    head,
     status: "MERGE_READY",
     sync: "full-review",
-    gates: { overall: "pass" },
+    gates: baseGateEvidence(head),
     blocking: [],
     nonBlocking: [],
     timestamp: "2026-07-20T00:00:00Z",
@@ -107,6 +128,55 @@ test("BLOCKED without blockedReason is rejected", () => {
 test("MERGE_READY with blocking findings is rejected", () => {
   const errors = validateVerdict(baseVerdict({ status: "MERGE_READY", blocking: ["F1"] }));
   assert.ok(errors.some((e) => e.includes("MERGE_READY must have zero blocking")));
+});
+
+// --- F7: gate/verdict consistency (Codex's cited production probe) --------
+
+test("validateGateEvidence rejects an empty or malformed gates object", () => {
+  assert.deepEqual(validateGateEvidence(null), ["gates must be an object"]);
+  const errors = validateGateEvidence({});
+  assert.ok(errors.some((e) => e.includes("schemaVersion")));
+  assert.ok(errors.some((e) => e.includes("headSha")));
+  assert.ok(errors.some((e) => e.includes("overall")));
+  assert.ok(errors.some((e) => e.includes("checks must be an array")));
+  assert.ok(errors.some((e) => e.includes("blockingThreadIds must be an array")));
+});
+
+test("validateGateEvidence accepts a well-formed gate-evidence object", () => {
+  assert.deepEqual(validateGateEvidence(baseGateEvidence("abc1234")), []);
+});
+
+test("validateVerdict rejects a verdict whose gates object is empty or malformed", () => {
+  const errors = validateVerdict(baseVerdict({ gates: {} }));
+  assert.ok(
+    errors.some((e) => e.startsWith("gates.")),
+    "gates sub-errors must be prefixed for clarity",
+  );
+});
+
+test("validateVerdict rejects gates.headSha that does not match the verdict's head", () => {
+  const verdict = baseVerdict();
+  verdict.gates = baseGateEvidence("0000000000000000000000000000000000000");
+  const errors = validateVerdict(verdict);
+  assert.ok(errors.some((e) => e.includes("gates.headSha must equal the verdict's head")));
+});
+
+test("Codex production probe: MERGE_READY is rejected when gates.overall is fail", () => {
+  const verdict = baseVerdict();
+  verdict.gates.overall = "fail";
+  const errors = validateVerdict(verdict);
+  assert.ok(errors.some((e) => e.includes("MERGE_READY requires gates.overall to be pass")));
+});
+
+test("Codex production probe: MERGE_READY is rejected when gates carries unresolved blocking threads", () => {
+  const verdict = baseVerdict();
+  verdict.gates.blockingThreadIds = ["thread-1"];
+  const errors = validateVerdict(verdict);
+  assert.ok(errors.some((e) => e.includes("MERGE_READY requires zero unresolved blocking review threads")));
+});
+
+test("MERGE_READY with a consistent, passing, unblocked gates object has no errors", () => {
+  assert.deepEqual(validateVerdict(baseVerdict()), []);
 });
 
 const scriptPath = fileURLToPath(new URL("./verdict.mjs", import.meta.url));

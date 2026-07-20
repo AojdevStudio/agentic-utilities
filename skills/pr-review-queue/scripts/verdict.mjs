@@ -4,6 +4,8 @@
 // never has to regex-scrape prose to decide what to do next.
 
 export const VERDICT_SCHEMA_VERSION = 1;
+const GATE_EVIDENCE_SCHEMA_VERSION = 1;
+const CI_OVERALL_STATES = new Set(["pass", "fail", "pending", "cancelled", "unavailable", "error"]);
 
 const STATUS_VALUES = new Set(["MERGE_READY", "NEEDS_WORK", "BLOCKED"]);
 // Only full-review is valid this release. mechanical-delta-ack is removed:
@@ -11,6 +13,32 @@ const STATUS_VALUES = new Set(["MERGE_READY", "NEEDS_WORK", "BLOCKED"]);
 // verdict. The field stays machine-readable so a future release can widen
 // this set once a mechanically-proven carry-forward implementation exists.
 const SYNC_VALUES = new Set(["full-review"]);
+
+/**
+ * Validate the shape of a gate-evidence object (review-gate.mjs's
+ * gateEvidence() output), not merely that it's some object. A verdict
+ * carrying an empty, malformed, or wrong-shaped gates payload is rejected
+ * before it can ever be read as evidence of anything.
+ */
+export function validateGateEvidence(gates) {
+  if (!gates || typeof gates !== "object") return ["gates must be an object"];
+  const errors = [];
+  if (gates.schemaVersion !== GATE_EVIDENCE_SCHEMA_VERSION) {
+    errors.push(`gates.schemaVersion must be ${GATE_EVIDENCE_SCHEMA_VERSION}`);
+  }
+  if (typeof gates.headSha !== "string" || !/^[0-9a-f]{7,40}$/i.test(gates.headSha)) {
+    errors.push("gates.headSha must be a git SHA (7-40 hex characters)");
+  }
+  if (!CI_OVERALL_STATES.has(gates.overall)) {
+    errors.push(`gates.overall must be one of ${[...CI_OVERALL_STATES].join(", ")}`);
+  }
+  if (!Array.isArray(gates.checks)) errors.push("gates.checks must be an array");
+  if (!Array.isArray(gates.blockingThreadIds)) errors.push("gates.blockingThreadIds must be an array");
+  if (!Array.isArray(gates.humanBlockingThreadIds)) errors.push("gates.humanBlockingThreadIds must be an array");
+  if (!Array.isArray(gates.automatedBlockingThreadIds))
+    errors.push("gates.automatedBlockingThreadIds must be an array");
+  return errors;
+}
 
 /** Validate a parsed verdict object; returns an array of error strings (empty = valid). */
 export function validateVerdict(verdict) {
@@ -38,8 +66,14 @@ export function validateVerdict(verdict) {
   if (typeof verdict.timestamp !== "string" || Number.isNaN(Date.parse(verdict.timestamp))) {
     errors.push("timestamp must be an ISO 8601 string");
   }
-  if (!verdict.gates || typeof verdict.gates !== "object") {
-    errors.push("gates must be an object (gate evidence tied to head)");
+  for (const gateError of validateGateEvidence(verdict.gates)) errors.push(`gates.${gateError}`);
+  if (
+    verdict.gates &&
+    typeof verdict.gates.headSha === "string" &&
+    typeof verdict.head === "string" &&
+    verdict.gates.headSha !== verdict.head
+  ) {
+    errors.push("gates.headSha must equal the verdict's head");
   }
 
   const blocking = Array.isArray(verdict.blocking) ? verdict.blocking : null;
@@ -74,8 +108,14 @@ export function validateVerdict(verdict) {
       errors.push("blockedReason is required when status is BLOCKED");
     }
   }
-  if (verdict.status === "MERGE_READY" && blocking && blocking.length > 0) {
-    errors.push("MERGE_READY must have zero blocking findings");
+  if (verdict.status === "MERGE_READY") {
+    if (blocking && blocking.length > 0) errors.push("MERGE_READY must have zero blocking findings");
+    if (verdict.gates && verdict.gates.overall !== "pass") {
+      errors.push("MERGE_READY requires gates.overall to be pass");
+    }
+    if (verdict.gates && Array.isArray(verdict.gates.blockingThreadIds) && verdict.gates.blockingThreadIds.length > 0) {
+      errors.push("MERGE_READY requires zero unresolved blocking review threads in gates");
+    }
   }
 
   return errors;

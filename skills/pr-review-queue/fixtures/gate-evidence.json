@@ -81,36 +81,65 @@
       }
     }
   ],
-  "checks": {
-    "data": {
-      "repository": {
-        "pullRequest": {
-          "headRefOid": "abc123",
-          "baseRefName": "main",
-          "commits": {
-            "nodes": [
-              {
-                "commit": {
-                  "statusCheckRollup": {
-                    "state": "FAILURE",
-                    "contexts": {
-                      "nodes": [
-                        { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS" },
-                        { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE" },
-                        { "__typename": "StatusContext", "context": "advisory/coverage", "state": "PENDING" }
-                      ]
+  "checkPages": [
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "contexts": {
+                        "nodes": [
+                          { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                          { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE" }
+                        ],
+                        "pageInfo": { "hasNextPage": true, "endCursor": "check-cursor-1" }
+                      }
                     }
                   }
                 }
-              }
-            ]
+              ]
+            }
           }
         }
-      },
-      "branchProtection": {
+      }
+    },
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "contexts": {
+                        "nodes": [
+                          { "__typename": "StatusContext", "context": "advisory/coverage", "state": "PENDING" }
+                        ],
+                        "pageInfo": { "hasNextPage": false, "endCursor": null }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "requiredNames": {
+    "data": {
+      "repository": {
         "pullRequest": {
           "baseRef": {
-            "branchProtectionRule": { "requiredStatusCheckContexts": ["lint", "test"] }
+            "branchProtectionRule": { "requiredStatusCheckContexts": ["lint", "test", "e2e"] }
           }
         }
       }

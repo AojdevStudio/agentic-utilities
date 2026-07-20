@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 // classification and CI rollup; kept self-contained here rather than
 // importing across skills so pr-review-queue stays installable alone.
 
-const GATE_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
+const THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       headRefOid
@@ -27,22 +27,24 @@ const GATE_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after
   }
 }`;
 
-const CHECKS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+// Contexts are paginated separately from threads: a rollup can carry more
+// than 100 check contexts (many required checks across a monorepo), and a
+// single unpaginated fetch silently truncates the rest.
+const CHECK_CONTEXTS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       headRefOid
-      baseRefName
       commits(last: 1) {
         nodes {
           commit {
             statusCheckRollup {
-              state
-              contexts(first: 100) {
+              contexts(first: 100, after: $after) {
                 nodes {
                   __typename
                   ... on CheckRun { name status conclusion }
                   ... on StatusContext { context state }
                 }
+                pageInfo { hasNextPage endCursor }
               }
             }
           }
@@ -50,7 +52,13 @@ const CHECKS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
       }
     }
   }
-  branchProtection: repository(owner: $owner, name: $name) {
+}`;
+
+// Required-check names come from classic branch protection. This is a
+// one-shot query (the list itself doesn't paginate in practice), kept
+// separate from context pagination so the two concerns don't share cursors.
+const REQUIRED_NAMES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       baseRef {
         branchProtectionRule { requiredStatusCheckContexts }
@@ -164,6 +172,34 @@ export function classifyCheckNode(node) {
   throw new Error(`unknown check node type: ${node.__typename}`);
 }
 
+/** Paginate every check-rollup context, head-pinned, until pageInfo.hasNextPage is false. */
+export async function collectCheckContexts(fetchPage) {
+  const nodes = [];
+  const seenCursors = new Set();
+  let cursor;
+  let headSha;
+  for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+    const payload = await fetchPage(cursor);
+    const pullRequest = payload?.data?.repository?.pullRequest;
+    if (!pullRequest) throw new Error("pull request not found for check query");
+    if (headSha && pullRequest.headRefOid !== headSha) throw new Error("pull request head changed during pagination");
+    headSha = pullRequest.headRefOid;
+    const connection = pullRequest.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+    if (!Array.isArray(connection?.nodes)) throw new Error("invalid check context response");
+    nodes.push(...connection.nodes);
+    if (!connection.pageInfo?.hasNextPage) return { headSha, checks: nodes.map(classifyCheckNode) };
+    cursor = connection.pageInfo.endCursor;
+    if (!cursor || seenCursors.has(cursor)) throw new Error("invalid check context pagination cursor");
+    seenCursors.add(cursor);
+  }
+  throw new Error("check context pagination exceeded 100 pages");
+}
+
+/** Parse the one-shot REQUIRED_NAMES_QUERY response into a plain array of required check names. */
+export function parseRequiredNames(payload) {
+  return payload?.data?.repository?.pullRequest?.baseRef?.branchProtectionRule?.requiredStatusCheckContexts ?? [];
+}
+
 const SEVERITY_WORST_FIRST = ["error", "fail", "cancelled", "pending", "unavailable", "pass"];
 
 function worstState(states) {
@@ -172,29 +208,26 @@ function worstState(states) {
 }
 
 /**
- * Summarize a flat list of { name, state } checks against the branch's
- * required-status-check names. Only required checks affect `overall`;
- * advisory checks are reported but never block.
+ * Summarize observed checks against the full required-name list. A
+ * required name with no matching observed check is synthesized as
+ * `unavailable` rather than silently dropped — otherwise a required check
+ * that never reported (not merely pending) reads as if it didn't exist,
+ * and an unrelated observed subset could be blessed as passing.
  */
 export function summarizeGates(checks, requiredNames) {
-  const named = checks.map((check) => ({ ...check, required: requiredNames.includes(check.name) }));
+  const observedNames = new Set(checks.map((check) => check.name));
+  const synthesized = requiredNames
+    .filter((name) => !observedNames.has(name))
+    .map((name) => ({ name, state: "unavailable", synthesized: true }));
+  const named = [...checks.map((check) => ({ ...check, synthesized: false })), ...synthesized].map((check) => ({
+    ...check,
+    required: requiredNames.includes(check.name),
+  }));
   const requiredStates = named.filter((check) => check.required).map((check) => check.state);
   return { checks: named, overall: requiredStates.length === 0 ? "unavailable" : worstState(requiredStates) };
 }
 
-/** Parse the raw CHECKS_QUERY response into { headSha, checks, requiredNames }. */
-export function parseCheckPayload(payload) {
-  const pullRequest = payload?.data?.repository?.pullRequest;
-  if (!pullRequest) throw new Error("pull request not found for check query");
-  const rollup = pullRequest.commits?.nodes?.[0]?.commit?.statusCheckRollup;
-  const nodes = rollup?.contexts?.nodes ?? [];
-  const checks = nodes.map(classifyCheckNode);
-  const requiredNames =
-    payload?.data?.branchProtection?.pullRequest?.baseRef?.branchProtectionRule?.requiredStatusCheckContexts ?? [];
-  return { headSha: pullRequest.headRefOid, checks, requiredNames };
-}
-
-/** Combine thread evidence and gate evidence into one head-pinned, timestamped result. */
+/** Combine thread evidence and gate evidence into one flat, head-pinned, timestamped result. */
 export function gateEvidence(threadResult, checkResult, now) {
   if (threadResult.headSha !== checkResult.headSha) {
     throw new Error("review threads and check state were read for different heads");
@@ -202,6 +235,7 @@ export function gateEvidence(threadResult, checkResult, now) {
   const threads = reviewThreadEvidence(threadResult);
   const gates = summarizeGates(checkResult.checks, checkResult.requiredNames);
   return {
+    schemaVersion: 1,
     headSha: threadResult.headSha,
     checkedAt: now,
     threads: threads.threads,
@@ -212,7 +246,8 @@ export function gateEvidence(threadResult, checkResult, now) {
     automatedBlockingThreadIds: threads.threads
       .filter((thread) => !thread.isResolved && !thread.isOutdated && thread.automated)
       .map((thread) => thread.id),
-    gates,
+    checks: gates.checks,
+    overall: gates.overall,
   };
 }
 
@@ -230,22 +265,35 @@ function option(name) {
   return !value || value.startsWith("--") ? undefined : value;
 }
 
-function fixtureThreadPageFetcher(fixturePath) {
+function fixtureFetchers(fixturePath) {
   const fixture = parseJson(readFileSync(fixturePath, "utf8"), "invalid gate fixture");
-  let pageIndex = 0;
+  let threadPageIndex = 0;
+  let checkPageIndex = 0;
   return {
     fetchThreadPage: (cursor) => {
-      if (pageIndex > 0) {
+      if (threadPageIndex > 0) {
         const expectedCursor =
-          fixture.threadPages[pageIndex - 1].data.repository.pullRequest.reviewThreads.pageInfo.endCursor;
-        if (cursor !== expectedCursor) throw new Error("fixture pagination cursor mismatch");
+          fixture.threadPages[threadPageIndex - 1].data.repository.pullRequest.reviewThreads.pageInfo.endCursor;
+        if (cursor !== expectedCursor) throw new Error("fixture thread pagination cursor mismatch");
       }
-      const page = fixture.threadPages[pageIndex];
-      pageIndex += 1;
+      const page = fixture.threadPages[threadPageIndex];
+      threadPageIndex += 1;
       if (!page) throw new Error("fixture thread page missing");
       return page;
     },
-    checkPayload: fixture.checks,
+    fetchCheckPage: (cursor) => {
+      if (checkPageIndex > 0) {
+        const expectedCursor =
+          fixture.checkPages[checkPageIndex - 1].data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup
+            .contexts.pageInfo.endCursor;
+        if (cursor !== expectedCursor) throw new Error("fixture check pagination cursor mismatch");
+      }
+      const page = fixture.checkPages[checkPageIndex];
+      checkPageIndex += 1;
+      if (!page) throw new Error("fixture check page missing");
+      return page;
+    },
+    requiredNamesPayload: fixture.requiredNames,
   };
 }
 
@@ -271,8 +319,9 @@ function githubFetchers(owner, name, number) {
     return parseJson(result.stdout, "invalid GitHub gate response");
   }
   return {
-    fetchThreadPage: (cursor) => run(GATE_QUERY, cursor ? ["-f", `after=${cursor}`] : []),
-    checkPayload: run(CHECKS_QUERY),
+    fetchThreadPage: (cursor) => run(THREADS_QUERY, cursor ? ["-f", `after=${cursor}`] : []),
+    fetchCheckPage: (cursor) => run(CHECK_CONTEXTS_QUERY, cursor ? ["-f", `after=${cursor}`] : []),
+    requiredNamesPayload: run(REQUIRED_NAMES_QUERY),
   };
 }
 
@@ -285,15 +334,16 @@ async function main() {
   if (!owner || !name || extra || !Number.isSafeInteger(number) || number <= 0 || !expectedHead) {
     throw new Error("review-gate requires --repo owner/name, --pr, and --expected-head");
   }
-  const { fetchThreadPage, checkPayload } = fixturePath
-    ? fixtureThreadPageFetcher(fixturePath)
+  const { fetchThreadPage, fetchCheckPage, requiredNamesPayload } = fixturePath
+    ? fixtureFetchers(fixturePath)
     : githubFetchers(owner, name, number);
   const threadResult = await collectReviewThreads(fetchThreadPage);
-  const checkResult = parseCheckPayload(checkPayload);
-  const evidence = gateEvidence(threadResult, checkResult, new Date().toISOString());
+  const checkResult = await collectCheckContexts(fetchCheckPage);
+  const requiredNames = parseRequiredNames(requiredNamesPayload);
+  const evidence = gateEvidence(threadResult, { ...checkResult, requiredNames }, new Date().toISOString());
   assertHeadUnchanged(evidence, expectedHead);
   process.stdout.write(`${JSON.stringify({ repository, pullRequest: number, ...evidence })}\n`);
-  if (evidence.blockingThreadIds.length > 0 || evidence.gates.overall !== "pass") process.exitCode = 3;
+  if (evidence.blockingThreadIds.length > 0 || evidence.overall !== "pass") process.exitCode = 3;
 }
 
 if (import.meta.path === Bun.main) {

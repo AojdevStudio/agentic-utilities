@@ -1,0 +1,141 @@
+#!/usr/bin/env bun
+import assert from "node:assert/strict";
+
+// Polling and stop state machine for the fleet-mode reviewer lane. All
+// timing/randomness is injectable so the whole thing is deterministically
+// testable; the CLI entrypoint at the bottom is the only place that touches
+// real wall-clock time or real sleeping.
+
+const BACKOFF_STEPS_MS = [30_000, 60_000, 120_000, 300_000]; // 30s, 60s, 120s, capped at 5min
+
+/** Per-PR record persisted across polls: last-seen head, thread/gate observation, and claim state. */
+export function initialObservation(pr) {
+  return { pr, head: null, updatedAt: null, threadState: null, claimState: null };
+}
+
+/** Fold fresh gate/claim evidence into the persisted per-PR observation. */
+export function updateObservation(previous, { head, gateEvidence, election, now }) {
+  return {
+    pr: previous.pr,
+    head,
+    updatedAt: now,
+    threadState: { blockingThreadIds: gateEvidence.blockingThreadIds, gatesOverall: gateEvidence.gates.overall },
+    claimState: election.winner ? { claimId: election.winner.claimId, state: election.winner.state } : null,
+  };
+}
+
+/** True when the head or the observed thread/gate/claim state differs from what was last persisted. */
+export function observationChanged(previous, next) {
+  if (!previous) return true;
+  return (
+    previous.head !== next.head ||
+    JSON.stringify(previous.threadState) !== JSON.stringify(next.threadState) ||
+    JSON.stringify(previous.claimState) !== JSON.stringify(next.claimState)
+  );
+}
+
+/**
+ * Decide the next action for a PR from its claim election and whether gate
+ * evidence changed since the last observation. Keeps full-review work
+ * strictly separate from same-head gate-only revalidation.
+ */
+export function nextAction(election, gatesChanged) {
+  if (election.winner === null) return "full-review";
+  if (election.winner.state === "active") return election.winner.reclaimable ? "reclaim-and-full-review" : "skip";
+  if (election.winner.state === "completed") return gatesChanged ? "gate-only" : "skip";
+  return "full-review"; // released or abandoned: no live claim, needs a fresh full review
+}
+
+// --- backoff -----------------------------------------------------------
+
+export function initialBackoff() {
+  return { stepIndex: 0, consecutiveErrors: 0 };
+}
+
+/** Step backoff up (capped at the last step) after an idle poll finds no work. */
+export function stepBackoff(state) {
+  return { ...state, stepIndex: Math.min(state.stepIndex + 1, BACKOFF_STEPS_MS.length - 1) };
+}
+
+/** Reset backoff to the shortest interval after any poll finds real work, clearing any prior abort. */
+export function resetBackoffOnActivity(state) {
+  return { ...state, stepIndex: 0, consecutiveErrors: 0, aborted: false };
+}
+
+/** Record a poll failure; `aborted` becomes true once consecutiveErrors reaches maxErrors. */
+export function recordError(state, maxErrors) {
+  const consecutiveErrors = state.consecutiveErrors + 1;
+  return { ...state, consecutiveErrors, aborted: consecutiveErrors >= maxErrors };
+}
+
+/** Backoff delay with bounded jitter (+/- jitterRatio of the base step), never negative. */
+export function backoffDelayMs(state, { jitterRatio = 0.2, randomFn = Math.random } = {}) {
+  const base = BACKOFF_STEPS_MS[state.stepIndex];
+  const jitter = base * jitterRatio * (randomFn() * 2 - 1);
+  return Math.max(0, Math.round(base + jitter));
+}
+
+// --- stop primitive ------------------------------------------------------
+
+/** An idempotent, observable stop signal checked before AND after any sleep. */
+export function createStopSignal() {
+  let stopped = false;
+  let reason = null;
+  return {
+    requestStop(why) {
+      if (stopped) return;
+      stopped = true;
+      reason = why ?? "stop requested";
+    },
+    shouldStop() {
+      return stopped;
+    },
+    reason() {
+      return reason;
+    },
+  };
+}
+
+/** Sleep `ms`, checking the stop signal both before and after. False if stopped at either check. */
+export async function sleepUnlessStopped(ms, stopSignal, sleepFn) {
+  if (stopSignal.shouldStop()) return false;
+  await sleepFn(ms);
+  return !stopSignal.shouldStop();
+}
+
+// --- interrupted review + terminal status ---------------------------------
+
+/**
+ * A stop requested mid-review normally finishes the in-flight review (a
+ * half-posted review is worse than a slightly late shutdown), unless the
+ * head has already moved, in which case the in-flight work is for a dead
+ * head and must abort rather than post a stale verdict.
+ */
+export function interruptedReviewDecision({ stopRequested, headChangedDuringReview }) {
+  if (!stopRequested) return { action: "continue" };
+  if (headChangedDuringReview) return { action: "abort", reason: "head changed during review" };
+  return { action: "finish", reason: "stop requested; finishing in-flight review before terminating" };
+}
+
+/** The single terminal status emitted exactly once when the worker actually stops. */
+export function terminalStatus({ reason, reviewsCompleted, lastError, timestamp }) {
+  return { event: "terminal_status", reason, reviewsCompleted, lastError: lastError ?? null, timestamp };
+}
+
+function selfTest() {
+  const backoffAfterTwoSteps = stepBackoff(stepBackoff(initialBackoff()));
+  assert.equal(backoffAfterTwoSteps.stepIndex, 2);
+  assert.equal(resetBackoffOnActivity(backoffAfterTwoSteps).stepIndex, 0);
+  assert.equal(backoffDelayMs({ stepIndex: 0 }, { randomFn: () => 0.5 }), 30_000);
+  const stop = createStopSignal();
+  assert.equal(stop.shouldStop(), false);
+  stop.requestStop("test");
+  assert.equal(stop.shouldStop(), true);
+  stop.requestStop("second call is a no-op");
+  assert.equal(stop.reason(), "test");
+  process.stdout.write(`${JSON.stringify({ status: "pass", checks: 5 })}\n`);
+}
+
+if (import.meta.path === Bun.main) {
+  if (process.argv.includes("--self-test")) selfTest();
+}

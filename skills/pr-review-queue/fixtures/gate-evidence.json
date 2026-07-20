@@ -1,0 +1,119 @@
+{
+  "threadPages": [
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "reviewThreads": {
+              "nodes": [
+                {
+                  "id": "thread-human-unresolved",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "nodes": [
+                      {
+                        "url": "https://example.test/human-unresolved",
+                        "author": { "login": "human-reviewer", "__typename": "User" }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "thread-resolved",
+                  "isResolved": true,
+                  "isOutdated": false,
+                  "comments": {
+                    "nodes": [
+                      {
+                        "url": "https://example.test/resolved",
+                        "author": { "login": "human-reviewer", "__typename": "User" }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "pageInfo": { "hasNextPage": true, "endCursor": "cursor-1" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "data": {
+        "repository": {
+          "pullRequest": {
+            "headRefOid": "abc123",
+            "reviewThreads": {
+              "nodes": [
+                {
+                  "id": "thread-outdated",
+                  "isResolved": false,
+                  "isOutdated": true,
+                  "comments": {
+                    "nodes": [
+                      {
+                        "url": "https://example.test/outdated",
+                        "author": { "login": "human-reviewer", "__typename": "User" }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "thread-automated-unresolved",
+                  "isResolved": false,
+                  "isOutdated": false,
+                  "comments": {
+                    "nodes": [
+                      {
+                        "url": "https://example.test/automated",
+                        "author": { "login": "coderabbitai", "__typename": "Bot" }
+                      }
+                    ]
+                  }
+                }
+              ],
+              "pageInfo": { "hasNextPage": false, "endCursor": null }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "checks": {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "headRefOid": "abc123",
+          "baseRefName": "main",
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "FAILURE",
+                    "contexts": {
+                      "nodes": [
+                        { "__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE" },
+                        { "__typename": "StatusContext", "context": "advisory/coverage", "state": "PENDING" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "branchProtection": {
+        "pullRequest": {
+          "baseRef": {
+            "branchProtectionRule": { "requiredStatusCheckContexts": ["lint", "test"] }
+          }
+        }
+      }
+    }
+  }
+}

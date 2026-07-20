@@ -53,7 +53,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs && bun run test:herdr-fleet",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs && bun test skills/pr-review-queue/skill-content.test.mjs && bun run test:herdr-fleet",
     "test:herdr-fleet": "bun skills/herdr-fleet/scripts/resolve-project-key.mjs --self-test && bun skills/herdr-fleet/scripts/watch-fleet.mjs --self-test && bun skills/herdr-fleet/scripts/consume-events.mjs --self-test && bun test skills/herdr-fleet/scripts/fleet-state.test.mjs skills/herdr-fleet/scripts/review-thread-gate.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:skills": "bun scripts/validate-agent-skills.mjs"

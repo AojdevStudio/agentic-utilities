@@ -5,7 +5,6 @@ Build or reconcile a user-selected worker fleet inside the current Herdr tab. Th
 ## Step 1: Verify the environment and scope
 
 ```bash
-test "${HERDR_ENV:-}" = 1 || exit 1
 test -n "${HERDR_WORKSPACE_ID:-}" || exit 1
 test -n "${HERDR_TAB_ID:-}" || exit 1
 test -n "${HERDR_PANE_ID:-}" || exit 1
@@ -85,13 +84,24 @@ If any worker is ambiguous, metadata is incomplete, command evidence differs, or
 
 ### New or edited intake
 
-Use a free-form `AskUserQuestion` asking for one worker per line:
+Guide the principal through a short roster wizard using `AskUserQuestion` (batched rounds where the harness supports them). The first wizard question offers an **Advanced: paste roster lines** escape that switches to free-form intake of one worker per line:
 
 ```text
 label | launch command | role | optional assignment/lane | desired placement
 ```
 
-Requirements:
+Wizard steps:
+
+1. **Fleet size.** Ask how many worker panes to create. Accept any number, including zero. The control pane is fixed and never counted.
+2. **Per worker, in order:**
+   - **Launch command** — present the human [launcher menu](README.md#launcher-menu) as choices: every documented `claudex` variant, `claude`, `pi`, `codex`, plus a free-form custom-command option.
+   - **Label** — free-form; suggest a default derived from role and index (e.g. `impl-1`, `review-1`).
+   - **Role** — `implementer`, `reviewer`, or a free-form role.
+   - **Assignment/lane** — optional free-form; empty means unassigned.
+   - **Placement** — offer the split placements available in the current tab.
+3. **Preview** — proceed to validation and the confirmation preview below.
+
+Batch per-worker questions when the harness supports it, but never skip the preview. Requirements for both wizard and free-form intake:
 
 - accept any number of workers, including zero;
 - require a unique non-empty label and launch command per worker;
@@ -158,7 +168,7 @@ If this fails, topology changed during intake. Abort mutation and ask the user t
 Use `AskUserQuestion` to establish merge policy. Default to `report-only` and record the answer in the control transcript.
 
 | Policy | Behavior |
-|---|---|
+| --- | --- |
 | `report-only` | Stop at a fresh `MERGE_READY` verdict and report it. This is the default. |
 | `authorized-merge` | Merge only on explicitly allowed base branches, with the explicitly selected strategy, after a fresh verdict and green required checks. |
 
@@ -256,7 +266,7 @@ The verifier compares every field, the rendered pane label, and `fleet_metadata_
 
 Send this to every new or reused worker before assignment:
 
-> STANDING CONSTRAINT: you are a worker pane. Remote control of this Herdr session is reserved for the control pane (`$CONTROL_LABEL`). Follow your confirmed role and assignment. Never run Herdr commands or merge pull requests. Never switch branches in the canonical checkout; use short-lived worktrees from the required remote base. Commit incrementally. Report results only in your own transcript.
+> STANDING CONSTRAINT: you are a worker pane. Remote control of this Herdr session is reserved for the control pane (`$CONTROL_LABEL`). Follow your confirmed role and assignment. Never run Herdr commands or merge pull requests. Never switch branches in the canonical checkout; use short-lived worktrees from the required remote base — your worktree is retired after your pull request merges. Commit incrementally. Report results only in your own transcript.
 
 For workers prone to nested delegation, add bounded-delegation guidance. Read each transcript and verify delivery; re-send after blocked dialogs or unsubmitted pastes.
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   backoffDelayMs,
   createStopSignal,
+  fingerprintGateEvidence,
   initialBackoff,
   initialObservation,
   interruptedReviewDecision,
@@ -54,6 +55,30 @@ test("backoff delay includes bounded jitter and is never negative", () => {
   assert.ok(min >= 0);
 });
 
+// --- named bug: positive jitter must never push the delay past the
+// documented cap (the audit's cited "5-minute cap actually reaches 6
+// minutes" defect) ---
+
+test("backoffDelayMs clamps positive jitter at the final step so the documented cap is never exceeded", () => {
+  const state = { stepIndex: 3 }; // the 300_000ms (5 min) cap step
+  const delay = backoffDelayMs(state, { randomFn: () => 1 }); // maximum positive jitter
+  assert.ok(delay <= 300_000, `expected delay clamped to the 5-minute cap, got ${delay}ms`);
+});
+
+// --- named bug: a successful idle poll must reset consecutiveErrors, not
+// just resetBackoffOnActivity (the audit's "idle success doesn't reset
+// consecutive errors" defect) ---
+
+test("stepBackoff resets consecutiveErrors on any successful poll, even an idle one, while still advancing the step", () => {
+  let state = initialBackoff();
+  state = recordError(state, 5);
+  state = recordError(state, 5);
+  assert.equal(state.consecutiveErrors, 2);
+  state = stepBackoff(state);
+  assert.equal(state.consecutiveErrors, 0, "an idle successful poll must reset consecutive errors");
+  assert.equal(state.stepIndex, 1, "backoff still advances on an idle poll, unlike resetBackoffOnActivity");
+});
+
 // --- stop primitive ---
 
 test("stop signal is idempotent and records the first reason", () => {
@@ -88,6 +113,26 @@ test("sleepUnlessStopped returns true when nothing requested a stop", async () =
   const stop = createStopSignal();
   const result = await sleepUnlessStopped(1000, stop, async () => {});
   assert.equal(result, true);
+});
+
+// --- named bug: a stop requested mid-sleep must be observed immediately,
+// not only after the full sleep duration has already elapsed ---
+
+test("sleepUnlessStopped is interruptible mid-sleep instead of waiting out the full timer", async () => {
+  const stop = createStopSignal();
+  let sleepFired = false;
+  const longSleep = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(() => {
+        sleepFired = true;
+        resolve();
+      }, ms);
+    });
+  const pending = sleepUnlessStopped(2000, stop, longSleep);
+  setTimeout(() => stop.requestStop("interrupt"), 5);
+  const result = await pending;
+  assert.equal(result, false);
+  assert.equal(sleepFired, false, "must return as soon as stopped, without waiting for the full 2000ms sleep");
 });
 
 // --- interrupted review + terminal status ---
@@ -151,6 +196,47 @@ test("nextAction requires a full review for a released or abandoned claim", () =
   assert.equal(nextAction({ winner: { state: "abandoned" } }, false), "full-review");
 });
 
+// --- gate-evidence fingerprinting ---
+
+function evidence(overrides = {}) {
+  return {
+    threads: [{ id: "t1", isResolved: false, isOutdated: false, automated: false }],
+    checks: [
+      { name: "lint", state: "pass", required: true },
+      { name: "advisory/coverage", state: "pending", required: false },
+    ],
+    ...overrides,
+  };
+}
+
+test("fingerprintGateEvidence is stable across GraphQL response reordering", () => {
+  const a = evidence();
+  const b = evidence({ checks: [...evidence().checks].reverse() });
+  assert.equal(fingerprintGateEvidence(a), fingerprintGateEvidence(b));
+});
+
+test("fingerprintGateEvidence changes when an individual check's state flips, even if overall stays the same", () => {
+  const before = fingerprintGateEvidence(evidence());
+  const after = fingerprintGateEvidence(evidence({ checks: [{ name: "lint", state: "fail", required: true }] }));
+  assert.notEqual(before, after);
+});
+
+test("fingerprintGateEvidence changes when an advisory (non-required) check's state changes", () => {
+  const before = fingerprintGateEvidence(evidence());
+  const after = fingerprintGateEvidence(
+    evidence({ checks: [evidence().checks[0], { name: "advisory/coverage", state: "pass", required: false }] }),
+  );
+  assert.notEqual(before, after);
+});
+
+test("fingerprintGateEvidence changes when a thread's human/automated classification changes", () => {
+  const before = fingerprintGateEvidence(evidence());
+  const after = fingerprintGateEvidence(
+    evidence({ threads: [{ id: "t1", isResolved: false, isOutdated: false, automated: true }] }),
+  );
+  assert.notEqual(before, after);
+});
+
 // --- observation persistence ---
 
 test("initialObservation starts with no head and no state", () => {
@@ -158,31 +244,65 @@ test("initialObservation starts with no head and no state", () => {
     pr: 35,
     head: null,
     updatedAt: null,
-    threadState: null,
+    gateFingerprint: null,
     claimState: null,
   });
 });
 
-test("updateObservation folds gate and claim evidence into the persisted record", () => {
+test("updateObservation folds a gate-evidence fingerprint and claim evidence into the persisted record", () => {
   const previous = initialObservation(35);
-  const gateEvidence = { blockingThreadIds: ["t1"], gates: { overall: "fail" } };
+  const gateEvidence = evidence();
   const election = { winner: { claimId: "c1", state: "active" } };
   const next = updateObservation(previous, { head: "abc123", gateEvidence, election, now: "2026-07-20T00:00:00Z" });
   assert.deepEqual(next, {
     pr: 35,
     head: "abc123",
     updatedAt: "2026-07-20T00:00:00Z",
-    threadState: { blockingThreadIds: ["t1"], gatesOverall: "fail" },
+    gateFingerprint: fingerprintGateEvidence(gateEvidence),
     claimState: { claimId: "c1", state: "active" },
   });
 });
 
-test("observationChanged detects a head change, a gate change, and no change", () => {
-  const previous = { head: "abc123", threadState: { blockingThreadIds: [] }, claimState: null };
+test("observationChanged detects a head change, a fingerprint change, and no change", () => {
+  const previous = { head: "abc123", gateFingerprint: fingerprintGateEvidence(evidence()), claimState: null };
   assert.equal(observationChanged(null, previous), true, "no prior observation counts as changed");
   assert.equal(observationChanged(previous, { ...previous }), false);
   assert.equal(observationChanged(previous, { ...previous, head: "def456" }), true);
-  assert.equal(observationChanged(previous, { ...previous, threadState: { blockingThreadIds: ["t1"] } }), true);
+  const changedFingerprint = fingerprintGateEvidence(
+    evidence({ checks: [{ name: "lint", state: "fail", required: true }] }),
+  );
+  assert.equal(observationChanged(previous, { ...previous, gateFingerprint: changedFingerprint }), true);
+});
+
+test("observationChanged is a same-overall/different-check transition detector: overall unchanged, one check flipped", () => {
+  // Both snapshots would summarize to overall="fail" (lint failing dominates),
+  // but which check is failing is different — the fingerprint must still
+  // register this as a change so a same-overall gate-only re-poll isn't
+  // silently skipped.
+  const before = {
+    head: "abc123",
+    gateFingerprint: fingerprintGateEvidence(
+      evidence({
+        checks: [
+          { name: "lint", state: "fail", required: true },
+          { name: "test", state: "pass", required: true },
+        ],
+      }),
+    ),
+    claimState: null,
+  };
+  const after = {
+    ...before,
+    gateFingerprint: fingerprintGateEvidence(
+      evidence({
+        checks: [
+          { name: "lint", state: "pass", required: true },
+          { name: "test", state: "fail", required: true },
+        ],
+      }),
+    ),
+  };
+  assert.equal(observationChanged(before, after), true);
 });
 
 // --- self-test CLI ---

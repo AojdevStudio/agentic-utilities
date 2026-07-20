@@ -133,6 +133,7 @@ const CHECK_RUN_CONCLUSION_STATE = {
   TIMED_OUT: "fail",
   ACTION_REQUIRED: "fail",
   STALE: "fail",
+  STARTUP_FAILURE: "fail",
   CANCELLED: "cancelled",
 };
 

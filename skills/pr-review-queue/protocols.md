@@ -38,10 +38,17 @@ process.stdout.write(JSON.parse(await Bun.stdin.text()).queue.join("\n"));
 For each PR number, oldest first, capture the current head and run claim
 election:
 
+`$AUTHORIZED_WORKERS` is the comma-separated set of fleet-worker logins
+allowed to hold a claim (it must include this worker's own login). It comes
+from the dispatcher's assignment; `claim.mjs` folds any claim or abandon
+event from a login outside this set as if it never existed, and **requires**
+the flag. Omitting `--authorized` makes every election exit non-zero.
+
 ```bash
 HEAD_SHA="$(gh pr view "$PR" -R "$REPO" --json headRefOid --jq .headRefOid)"
 set +e
-ELECTION_JSON="$(bun <skill-directory>/scripts/claim.mjs --repo "$REPO" --pr "$PR" --expected-head "$HEAD_SHA")"
+ELECTION_JSON="$(bun <skill-directory>/scripts/claim.mjs --repo "$REPO" --pr "$PR" \
+  --expected-head "$HEAD_SHA" --authorized "$AUTHORIZED_WORKERS")"
 ELECTION_STATUS=$?
 set -e
 ```
@@ -52,9 +59,12 @@ ambient repo a shell happens to be sitting in: a worker polling multiple
 repositories, or running from an unrelated working directory, must not
 silently write to the wrong one.
 
-`ELECTION_STATUS != 0` means the head moved while claims were being
-paginated (a real race, not an error). Re-read `$HEAD_SHA` and retry once;
-if it happens twice, move on and revisit this PR on the next poll.
+`ELECTION_STATUS != 0` with an `ELECTION_JSON` that reports a head mismatch
+means the head moved while claims were being paginated (a real race, not an
+error): re-read `$HEAD_SHA` and retry once; if it happens twice, move on and
+revisit this PR on the next poll. A non-zero exit with no election payload is
+a genuine failure (missing `--authorized`, bad repo, `gh` error): fail loud
+and stop, do not treat it as a race.
 
 Decide the next action from the election (`election.winner`), following
 `nextAction` in `poll-state.mjs`:

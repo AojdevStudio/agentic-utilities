@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   backoffDelayMs,
   createStopSignal,
@@ -33,9 +33,20 @@ import {
 export async function pollOnce({ fetchQueue, fetchPrState, observations, now }) {
   const queue = await fetchQueue();
   const actionable = [];
+  const errors = [];
   const nextObservations = new Map(observations);
   for (const pr of queue) {
-    const { head, election, gateEvidence: evidence } = await fetchPrState(pr);
+    let state;
+    try {
+      state = await fetchPrState(pr);
+    } catch (error) {
+      // Per-PR isolation: one bad PR (closed mid-cycle, permission hiccup,
+      // transient gh error) must not abort polling for every other PR. Keep
+      // the prior observation and retry this PR next cycle.
+      errors.push({ pr, message: error.message });
+      continue;
+    }
+    const { head, election, gateEvidence: evidence } = state;
     const previous = observations.get(pr) ?? initialObservation(pr);
     const next = updateObservation(previous, { head, gateEvidence: evidence, election, now });
     const gatesChanged = observationChanged(previous, next);
@@ -43,19 +54,36 @@ export async function pollOnce({ fetchQueue, fetchPrState, observations, now }) 
     const action = nextAction(election, gatesChanged);
     if (action !== "skip") actionable.push({ pr, head, action });
   }
-  return { actionable, observations: nextObservations };
+  // Systemic-failure guard: if every PR in a non-empty queue failed, surface it
+  // as a real cycle error so runLoop's maxErrors abort still fires.
+  if (queue.length > 0 && errors.length === queue.length) {
+    throw new Error(`all ${queue.length} queued PRs failed to poll: ${errors[0].message}`);
+  }
+  return { actionable, observations: nextObservations, errors };
 }
 
 /** Load persisted per-PR observations from disk, or start fresh if the file doesn't exist yet. */
 export function loadObservations(path) {
   if (!existsSync(path)) return new Map();
-  const entries = JSON.parse(readFileSync(path, "utf8"));
+  let entries;
+  try {
+    entries = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // A corrupt state file (e.g. truncated by a kill mid-write on an older
+    // build) must not brick every restart. Observations are a cache of gate
+    // evidence, so starting fresh is safe — the next poll rebuilds them.
+    return new Map();
+  }
   return new Map(entries.map((entry) => [entry.pr, entry]));
 }
 
 /** Persist per-PR observations to disk so a restart or worker handoff resumes from the same state. */
 export function saveObservations(path, observations) {
-  writeFileSync(path, `${JSON.stringify([...observations.values()], null, 2)}\n`);
+  // Atomic write: a kill mid-write leaves the previous complete file intact
+  // rather than a half-truncated one that fails to parse on restart.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify([...observations.values()], null, 2)}\n`);
+  renameSync(tmp, path);
 }
 
 /**
@@ -129,6 +157,9 @@ function runScript(scriptName, args) {
   const scriptPath = new URL(`./${scriptName}`, import.meta.url).pathname;
   const result = spawnSync("bun", [scriptPath, ...args], { encoding: "utf8", timeout: 30_000 });
   if (result.error) throw new Error(result.error.message);
+  if (result.status !== 0) {
+    throw new Error(`${scriptName} exited ${result.status}: ${(result.stderr || result.stdout || "").trim()}`);
+  }
   try {
     return JSON.parse(result.stdout);
   } catch {
@@ -201,7 +232,9 @@ async function main() {
     statePath,
     stopSignal,
     nowFn: () => new Date().toISOString(),
-    sleepFn: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    // unref so a pending backoff timer never keeps the process alive after a
+    // graceful stop resolves the sleep-unless-stopped promise early.
+    sleepFn: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
     randomFn: Math.random,
     maxErrors,
     emit: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),

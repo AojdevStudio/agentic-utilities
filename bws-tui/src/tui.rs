@@ -137,7 +137,9 @@ pub fn run() -> Result<()> {
 fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
         term.draw(|f| draw(f, app))?;
-        let Event::Key(key) = event::read()? else { continue };
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
         if key.kind != KeyEventKind::Press {
             continue;
         }
@@ -238,9 +240,7 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
             Mode::Search => match key.code {
                 KeyCode::Esc => app.mode = Mode::Menu,
                 KeyCode::Up => app.sel = app.sel.saturating_sub(1),
-                KeyCode::Down => {
-                    app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1))
-                }
+                KeyCode::Down => app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1)),
                 KeyCode::Backspace => {
                     app.filter.pop();
                     app.refilter();
@@ -258,7 +258,8 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Char('c') if app.filter.is_empty() => {
                     if let Some(s) = app.selected_secret() {
                         copy_with_autoclear(s.value.clone());
-                        app.status = format!("copied {} — clears in 30s while app stays open", s.key);
+                        app.status =
+                            format!("copied {} — clears in 30s while app stays open", s.key);
                     }
                 }
                 KeyCode::Char('e') if app.filter.is_empty() => {
@@ -354,8 +355,11 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     ])
     .split(area);
 
-    let title = Paragraph::new("bws-tui")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    let title = Paragraph::new("bws-tui").style(
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_widget(title, chunks[0]);
 
     match app.mode {
@@ -380,7 +384,11 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                     ListItem::new(format!("{marker}{}", p.name))
                 })
                 .collect();
-            let list = List::new(items).block(Block::default().borders(Borders::TOP).title("add: pick project"));
+            let list = List::new(items).block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .title("add: pick project"),
+            );
             f.render_widget(list, chunks[1]);
         }
         Mode::AddKey => {
@@ -390,16 +398,22 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                     .title(format!("add to {}", app.projects[app.sel].name)),
             );
             f.render_widget(p, chunks[1]);
-            f.set_cursor_position(Position::new(chunks[1].x + 6 + app.input.len() as u16, chunks[1].y + 1));
+            f.set_cursor_position(Position::new(
+                chunks[1].x + 6 + app.input.len() as u16,
+                chunks[1].y + 1,
+            ));
         }
         Mode::AddValue => {
             let p = Paragraph::new(format!("value: {}", masked(&app.value_buf))).block(
-                Block::default().borders(Borders::TOP).title("value (masked)"),
+                Block::default()
+                    .borders(Borders::TOP)
+                    .title("value (masked)"),
             );
             f.render_widget(p, chunks[1]);
         }
         Mode::Search => {
-            let rows = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(chunks[1]);
+            let rows =
+                Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(chunks[1]);
             let filter_line = Paragraph::new(format!("filter: {}", app.filter));
             f.render_widget(filter_line, rows[0]);
             let items: Vec<ListItem> = app
@@ -476,7 +490,9 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         Mode::AddProject => "↑↓/jk move · Enter select · Esc back",
         Mode::AddKey => "type key · Enter next · Esc back",
         Mode::AddValue => "type value (masked) · Enter create · Esc back",
-        Mode::Search => "type to filter · Enter print · c copy · e edit · d delete · r refresh · Esc back",
+        Mode::Search => {
+            "type to filter · Enter print · c copy · e edit · d delete · r refresh · Esc back"
+        }
         Mode::Edit => "Tab/↑↓ field · Enter save · Esc cancel",
         Mode::ConfirmDelete => "y confirm · anything else cancels",
     };
@@ -485,10 +501,23 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     } else {
         format!("{}  |  {}", app.status, hints)
     };
-    f.render_widget(Paragraph::new(bottom).style(Style::default().fg(Color::DarkGray)), chunks[2]);
+    f.render_widget(
+        Paragraph::new(bottom).style(Style::default().fg(Color::DarkGray)),
+        chunks[2],
+    );
 }
 
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
-    let v = Layout::vertical([Constraint::Min(0), Constraint::Length(h), Constraint::Min(0)]).split(area);
-    Layout::horizontal([Constraint::Min(0), Constraint::Length(w), Constraint::Min(0)]).split(v[1])[1]
+    let v = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(h),
+        Constraint::Min(0),
+    ])
+    .split(area);
+    Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(w),
+        Constraint::Min(0),
+    ])
+    .split(v[1])[1]
 }

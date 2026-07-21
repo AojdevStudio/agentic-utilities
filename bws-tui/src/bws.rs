@@ -29,11 +29,7 @@ fn run(args: &[&str]) -> Result<String> {
         .context("failed to run `bws` — is it installed and on PATH?")?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow!(
-            "bws {} failed: {}",
-            args.join(" "),
-            stderr.trim()
-        ));
+        return Err(anyhow!("bws {} failed: {}", args.join(" "), stderr.trim()));
     }
     Ok(String::from_utf8(out.stdout)?)
 }

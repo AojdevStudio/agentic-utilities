@@ -114,7 +114,12 @@ fn run_cmd(cmd: Cmd) -> Result<()> {
                 Some(v) => v,
                 None => stdin_value()?.context("no --value given and nothing piped on stdin")?,
             };
-            let created = bws::create_secret(&key, &SecretString::from(value), &project_id, note.as_deref())?;
+            let created = bws::create_secret(
+                &key,
+                &SecretString::from(value),
+                &project_id,
+                note.as_deref(),
+            )?;
             println!("created {} ({})", created.key, created.id);
         }
         Cmd::List { project } => {

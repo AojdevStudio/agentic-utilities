@@ -10,14 +10,16 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
 use secrecy::SecretString;
 use std::io::{self, Stdout};
 use std::thread;
 use std::time::Duration;
 
-const MENU: [&str; 2] = ["Add secret", "Search / manage secrets"];
+const ACCENT: Color = Color::Cyan;
+const DIM: Style = Style::new().fg(Color::DarkGray);
+const MENU: [&str; 2] = ["Add a secret", "Search / manage secrets"];
 
 #[derive(PartialEq)]
 enum Mode {
@@ -45,9 +47,20 @@ struct App {
     edit_value: String,
     edit_note: String,
     status: String,
+    status_err: bool,
 }
 
 impl App {
+    fn set_ok(&mut self, msg: impl Into<String>) {
+        self.status = msg.into();
+        self.status_err = false;
+    }
+
+    fn set_err(&mut self, e: &anyhow::Error) {
+        self.status = format!("{e:#}");
+        self.status_err = true;
+    }
+
     fn project_name(&self, id: &str) -> &str {
         self.projects
             .iter()
@@ -73,7 +86,7 @@ impl App {
                 self.secrets = s;
                 self.refilter();
             }
-            Err(e) => self.status = format!("{e:#}"),
+            Err(e) => self.set_err(&e),
         }
     }
 }
@@ -122,6 +135,7 @@ pub fn run() -> Result<()> {
         edit_value: String::new(),
         edit_note: String::new(),
         status: String::new(),
+        status_err: false,
     };
 
     enable_raw_mode()?;
@@ -137,9 +151,7 @@ pub fn run() -> Result<()> {
 fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
         term.draw(|f| draw(f, app))?;
-        let Event::Key(key) = event::read()? else {
-            continue;
-        };
+        let Event::Key(key) = event::read()? else { continue };
         if key.kind != KeyEventKind::Press {
             continue;
         }
@@ -166,7 +178,7 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                         }
                         _ => {
                             if app.secrets.is_empty() {
-                                app.status = "loading secrets…".into();
+                                app.set_ok("loading secrets…");
                                 term.draw(|f| draw(f, app))?;
                                 app.reload_secrets();
                             } else {
@@ -195,7 +207,7 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Esc => app.mode = Mode::AddProject,
                 KeyCode::Enter => {
                     if app.input.trim().is_empty() {
-                        app.status = "key cannot be empty".into();
+                        app.set_ok("give the secret a name first");
                     } else {
                         app.value_buf.clear();
                         app.mode = Mode::AddValue;
@@ -211,7 +223,7 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Esc => app.mode = Mode::AddKey,
                 KeyCode::Enter => {
                     if app.value_buf.is_empty() {
-                        app.status = "value cannot be empty".into();
+                        app.set_ok("paste the secret value first");
                     } else {
                         let project_id = app.projects[app.sel].id.clone();
                         let key_name = app.input.trim().to_string();
@@ -222,11 +234,11 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                             None,
                         ) {
                             Ok(_) => {
-                                app.status = format!("created {key_name}");
+                                app.set_ok(format!("✓ created “{key_name}”"));
                                 app.secrets.clear(); // force reload next search
                                 app.mode = Mode::Menu;
                             }
-                            Err(e) => app.status = format!("{e:#}"),
+                            Err(e) => app.set_err(&e),
                         }
                         app.value_buf.clear();
                     }
@@ -240,7 +252,9 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
             Mode::Search => match key.code {
                 KeyCode::Esc => app.mode = Mode::Menu,
                 KeyCode::Up => app.sel = app.sel.saturating_sub(1),
-                KeyCode::Down => app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1)),
+                KeyCode::Down => {
+                    app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1))
+                }
                 KeyCode::Backspace => {
                     app.filter.pop();
                     app.refilter();
@@ -258,8 +272,10 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Char('c') if app.filter.is_empty() => {
                     if let Some(s) = app.selected_secret() {
                         copy_with_autoclear(s.value.clone());
-                        app.status =
-                            format!("copied {} — clears in 30s while app stays open", s.key);
+                        app.set_ok(format!(
+                            "✓ copied “{}” — clears in 30s while app stays open",
+                            s.key
+                        ));
                     }
                 }
                 KeyCode::Char('e') if app.filter.is_empty() => {
@@ -299,16 +315,16 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                         .then(|| SecretString::from(app.edit_value.clone()));
                     let note_chg = (app.edit_note != orig.note).then_some(app.edit_note.as_str());
                     if key_chg.is_none() && val_chg.is_none() && note_chg.is_none() {
-                        app.status = "no changes".into();
+                        app.set_ok("no changes");
                         app.mode = Mode::Search;
                     } else {
                         match bws::edit_secret(&orig.id, key_chg, val_chg.as_ref(), note_chg) {
                             Ok(u) => {
-                                app.status = format!("updated {}", u.key);
+                                app.set_ok(format!("✓ updated “{}”", u.key));
                                 app.reload_secrets();
                                 app.mode = Mode::Search;
                             }
-                            Err(e) => app.status = format!("{e:#}"),
+                            Err(e) => app.set_err(&e),
                         }
                     }
                 }
@@ -320,10 +336,10 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                     if let Some(s) = app.selected_secret().cloned() {
                         match bws::delete_secret(&s.id) {
                             Ok(()) => {
-                                app.status = format!("deleted {}", s.key);
+                                app.set_ok(format!("✓ deleted “{}”", s.key));
                                 app.reload_secrets();
                             }
-                            Err(e) => app.status = format!("{e:#}"),
+                            Err(e) => app.set_err(&e),
                         }
                     }
                     app.mode = Mode::Search;
@@ -346,178 +362,254 @@ fn masked(s: &str) -> String {
     "•".repeat(s.chars().count())
 }
 
+fn panel(title: impl Into<Line<'static>>) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(DIM)
+        .title(title)
+        .title_style(Style::default().fg(ACCENT))
+}
+
+fn key_hints(pairs: &[(&str, &str)]) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (i, (cap, desc)) in pairs.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled("  ", DIM));
+        }
+        spans.push(Span::styled(
+            format!(" {cap} "),
+            Style::default().fg(Color::Black).bg(Color::DarkGray),
+        ));
+        spans.push(Span::styled(format!(" {desc}"), DIM));
+    }
+    Line::from(spans)
+}
+
 fn draw(f: &mut ratatui::Frame, app: &App) {
     let area = f.area();
     let chunks = Layout::vertical([
         Constraint::Length(2),
-        Constraint::Min(1),
+        Constraint::Min(3),
         Constraint::Length(2),
     ])
+    .horizontal_margin(1)
     .split(area);
 
-    let title = Paragraph::new("bws-tui").style(
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
+    // header
+    let header = Layout::horizontal([Constraint::Min(20), Constraint::Length(28)]).split(chunks[0]);
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            "◆ bws-tui",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )),
+        header[0],
     );
-    f.render_widget(title, chunks[0]);
+    let stats = format!("{} projects · {} secrets", app.projects.len(), app.secrets.len());
+    f.render_widget(Paragraph::new(Span::styled(stats, DIM)), header[1]);
+
+    let hints: &[(&str, &str)] = match app.mode {
+        Mode::Menu => &[("↑↓", "move"), ("Enter", "select"), ("q", "quit")],
+        Mode::AddProject => &[("↑↓", "move"), ("Enter", "select"), ("Esc", "back")],
+        Mode::AddKey => &[("Enter", "next"), ("Esc", "back")],
+        Mode::AddValue => &[("Enter", "create"), ("Esc", "back")],
+        Mode::Search => &[
+            ("Enter", "print value"),
+            ("c", "copy"),
+            ("e", "edit"),
+            ("d", "delete"),
+            ("r", "refresh"),
+            ("Esc", "back"),
+        ],
+        Mode::Edit => &[("Tab", "next field"), ("Enter", "save"), ("Esc", "cancel")],
+        Mode::ConfirmDelete => &[("y", "confirm delete"), ("any key", "cancel")],
+    };
 
     match app.mode {
         Mode::Menu => {
-            let items: Vec<ListItem> = MENU
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    let marker = if i == app.menu_idx { "> " } else { "  " };
-                    ListItem::new(format!("{marker}{m}"))
-                })
-                .collect();
-            f.render_widget(List::new(items), chunks[1]);
+            let items: Vec<ListItem> = MENU.iter().map(|m| ListItem::new(format!("  {m}"))).collect();
+            let list = List::new(items)
+                .block(panel(" menu "))
+                .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                .highlight_symbol("▸");
+            let mut state = ListState::default();
+            state.select(Some(app.menu_idx));
+            f.render_stateful_widget(list, chunks[1], &mut state);
         }
         Mode::AddProject => {
             let items: Vec<ListItem> = app
                 .projects
                 .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let marker = if i == app.sel { "> " } else { "  " };
-                    ListItem::new(format!("{marker}{}", p.name))
-                })
+                .map(|p| ListItem::new(format!("  {}", p.name)))
                 .collect();
-            let list = List::new(items).block(
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title("add: pick project"),
-            );
-            f.render_widget(list, chunks[1]);
+            let list = List::new(items)
+                .block(panel(" step 1/3 — which project does it belong to? "))
+                .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                .highlight_symbol("▸");
+            let mut state = ListState::default();
+            state.select(Some(app.sel));
+            f.render_stateful_widget(list, chunks[1], &mut state);
         }
         Mode::AddKey => {
-            let p = Paragraph::new(format!("key: {}", app.input)).block(
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title(format!("add to {}", app.projects[app.sel].name)),
-            );
-            f.render_widget(p, chunks[1]);
+            let block = panel(format!(
+                " step 2/3 — name this secret (e.g. STRIPE_API_KEY) · project: {} ",
+                app.projects[app.sel].name
+            ));
+            let inner = block.inner(chunks[1]);
+            f.render_widget(block, chunks[1]);
+            let label = "key name: ";
+            f.render_widget(Paragraph::new(format!("{label}{}", app.input)), inner);
             f.set_cursor_position(Position::new(
-                chunks[1].x + 6 + app.input.len() as u16,
-                chunks[1].y + 1,
+                inner.x + (label.len() + app.input.len()) as u16,
+                inner.y,
             ));
         }
         Mode::AddValue => {
-            let p = Paragraph::new(format!("value: {}", masked(&app.value_buf))).block(
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title("value (masked)"),
+            let block = panel(format!(
+                " step 3/3 — paste the secret value for “{}” (hidden while you type) ",
+                app.input.trim()
+            ));
+            let inner = block.inner(chunks[1]);
+            f.render_widget(block, chunks[1]);
+            let label = "value: ";
+            f.render_widget(
+                Paragraph::new(format!("{label}{}", masked(&app.value_buf))),
+                inner,
             );
-            f.render_widget(p, chunks[1]);
+            f.set_cursor_position(Position::new(
+                inner.x + (label.len() + app.value_buf.chars().count()) as u16,
+                inner.y,
+            ));
         }
         Mode::Search => {
-            let rows =
-                Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(chunks[1]);
-            let filter_line = Paragraph::new(format!("filter: {}", app.filter));
-            f.render_widget(filter_line, rows[0]);
-            let items: Vec<ListItem> = app
-                .filtered
-                .iter()
-                .enumerate()
-                .map(|(row, &i)| {
-                    let s = &app.secrets[i];
-                    let marker = if row == app.sel { "> " } else { "  " };
-                    let badge = s
-                        .project_id
-                        .as_deref()
-                        .map(|pid| app.project_name(pid))
-                        .unwrap_or("no project");
-                    ListItem::new(format!("{marker}{}  [{}]", s.key, badge))
-                })
-                .collect();
-            let mut state = ListState::default();
-            state.select(Some(app.sel));
-            f.render_stateful_widget(List::new(items), rows[1], &mut state);
+            let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(chunks[1]);
+            let filter_block = panel(" search ");
+            let filter_inner = filter_block.inner(rows[0]);
+            f.render_widget(filter_block, rows[0]);
+            f.render_widget(
+                Paragraph::new(app.filter.to_string()),
+                filter_inner,
+            );
+            f.set_cursor_position(Position::new(
+                filter_inner.x + app.filter.len() as u16,
+                filter_inner.y,
+            ));
+
+            let title = format!(" secrets — {}/{} ", app.filtered.len(), app.secrets.len());
+            let list_block = panel(title);
+            if app.filtered.is_empty() {
+                f.render_widget(
+                    Paragraph::new(Span::styled("  no secrets match", DIM)).block(list_block),
+                    rows[1],
+                );
+            } else {
+                let items: Vec<ListItem> = app
+                    .filtered
+                    .iter()
+                    .map(|&i| {
+                        let s = &app.secrets[i];
+                        let badge = s
+                            .project_id
+                            .as_deref()
+                            .map(|pid| app.project_name(pid))
+                            .unwrap_or("no project");
+                        ListItem::new(Line::from(vec![
+                            Span::raw(format!("  {}", s.key)),
+                            Span::styled(format!("  {badge}"), DIM),
+                        ]))
+                    })
+                    .collect();
+                let list = List::new(items)
+                    .block(list_block)
+                    .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                    .highlight_symbol("▸");
+                let mut state = ListState::default();
+                state.select(Some(app.sel));
+                f.render_stateful_widget(list, rows[1], &mut state);
+            }
         }
         Mode::Edit => {
-            let fields = [
-                ("key", app.edit_key.clone(), false),
-                ("value", masked(&app.edit_value), true),
-                ("note", app.edit_note.clone(), false),
+            let fields: [(&str, String); 3] = [
+                ("key name", app.edit_key.clone()),
+                ("value", masked(&app.edit_value)),
+                ("note", app.edit_note.clone()),
             ];
             let lines: Vec<Line> = fields
                 .iter()
                 .enumerate()
-                .map(|(i, (name, val, is_masked))| {
-                    let marker = if i == app.edit_field { "> " } else { "  " };
-                    let style = if i == app.edit_field {
-                        Style::default().fg(Color::Yellow)
+                .map(|(i, (name, val))| {
+                    if i == app.edit_field {
+                        Line::from(vec![
+                            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
+                            Span::styled(
+                                format!("{name}: {val}"),
+                                Style::default().fg(Color::Yellow),
+                            ),
+                        ])
                     } else {
-                        Style::default()
-                    };
-                    let _ = is_masked;
-                    Line::from(Span::styled(format!("{marker}{name}: {val}"), style))
+                        Line::from(format!("  {name}: {val}"))
+                    }
                 })
                 .collect();
-            let p = Paragraph::new(lines).block(
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title("edit (Tab moves, Enter saves, Esc cancels)"),
+            f.render_widget(
+                Paragraph::new(lines).block(panel(" edit — type to change, Enter saves ")),
+                chunks[1],
             );
-            f.render_widget(p, chunks[1]);
         }
         Mode::ConfirmDelete => {
-            // dim background list, then modal
             let items: Vec<ListItem> = app
                 .filtered
                 .iter()
-                .map(|&i| ListItem::new(app.secrets[i].key.clone()))
+                .map(|&i| ListItem::new(format!("  {}", app.secrets[i].key)))
                 .collect();
-            f.render_widget(List::new(items), chunks[1]);
+            f.render_widget(List::new(items).block(panel(" secrets ")), chunks[1]);
             if let Some(s) = app.selected_secret() {
-                let dialog = centered(chunks[1], 46, 5);
+                let dialog = centered(chunks[1], 50, 7);
                 f.render_widget(Clear, dialog);
                 let p = Paragraph::new(vec![
-                    Line::from(format!("Delete '{}' permanently?", s.key)),
                     Line::from(""),
-                    Line::from("[y] confirm    [any other key] cancel"),
+                    Line::from(vec![
+                        Span::raw("Delete "),
+                        Span::styled(
+                            format!("“{}”", s.key),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(" permanently?"),
+                    ]),
+                    Line::from(""),
+                    key_hints(&[("y", "delete forever"), ("any other key", "cancel")]),
                 ])
-                .block(Block::default().borders(Borders::ALL).title("confirm"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(Color::Red))
+                        .title(" confirm ")
+                        .title_style(Style::default().fg(Color::Red)),
+                )
                 .wrap(Wrap { trim: false });
                 f.render_widget(p, dialog);
             }
         }
     }
 
-    let hints = match app.mode {
-        Mode::Menu => "↑↓/jk move · Enter select · q quit",
-        Mode::AddProject => "↑↓/jk move · Enter select · Esc back",
-        Mode::AddKey => "type key · Enter next · Esc back",
-        Mode::AddValue => "type value (masked) · Enter create · Esc back",
-        Mode::Search => {
-            "type to filter · Enter print · c copy · e edit · d delete · r refresh · Esc back"
-        }
-        Mode::Edit => "Tab/↑↓ field · Enter save · Esc cancel",
-        Mode::ConfirmDelete => "y confirm · anything else cancels",
-    };
-    let bottom = if app.status.is_empty() {
-        hints.to_string()
+    // footer: status (colored) + key hints
+    let status_line = if app.status.is_empty() {
+        Line::from("")
     } else {
-        format!("{}  |  {}", app.status, hints)
+        Line::from(Span::styled(
+            format!("  {}", app.status),
+            Style::default().fg(if app.status_err { Color::Red } else { Color::Green }),
+        ))
     };
     f.render_widget(
-        Paragraph::new(bottom).style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new(vec![status_line, key_hints(hints)]),
         chunks[2],
     );
 }
 
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
-    let v = Layout::vertical([
-        Constraint::Min(0),
-        Constraint::Length(h),
-        Constraint::Min(0),
-    ])
-    .split(area);
-    Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Length(w),
-        Constraint::Min(0),
-    ])
-    .split(v[1])[1]
+    let v =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(h), Constraint::Min(0)]).split(area);
+    Layout::horizontal([Constraint::Min(0), Constraint::Length(w), Constraint::Min(0)]).split(v[1])[1]
 }

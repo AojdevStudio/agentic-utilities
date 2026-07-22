@@ -208,7 +208,7 @@ test("runLoop resets backoff to the shortest interval once actionable work appea
   );
   assert.equal(activity.length, 1);
   assert.equal(activity[0].prs[0].pr, 35);
-  assert.equal(status.reviewsCompleted, 1, "terminal status must report how much actionable work was dispatched");
+  assert.equal(status.reviewsCompleted, 0, "dispatching work must not be reported as a completed review");
 });
 
 test("runLoop aborts after maxErrors consecutive poll failures and still emits exactly one terminal status", async () => {

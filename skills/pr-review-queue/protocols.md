@@ -48,7 +48,7 @@ the flag. Omitting `--authorized` makes every election exit non-zero.
 HEAD_SHA="$(gh pr view "$PR" -R "$REPO" --json headRefOid --jq .headRefOid)"
 set +e
 ELECTION_JSON="$(bun <skill-directory>/scripts/claim.mjs --repo "$REPO" --pr "$PR" \
-  --expected-head "$HEAD_SHA" --authorized "$AUTHORIZED_WORKERS")"
+  --expected-head "$HEAD_SHA" --authorized "$AUTHORIZED_WORKERS" 2>&1)"
 ELECTION_STATUS=$?
 set -e
 ```
@@ -59,12 +59,13 @@ ambient repo a shell happens to be sitting in: a worker polling multiple
 repositories, or running from an unrelated working directory, must not
 silently write to the wrong one.
 
-`ELECTION_STATUS != 0` with an `ELECTION_JSON` that reports a head mismatch
-means the head moved while claims were being paginated (a real race, not an
-error): re-read `$HEAD_SHA` and retry once; if it happens twice, move on and
-revisit this PR on the next poll. A non-zero exit with no election payload is
-a genuine failure (missing `--authorized`, bad repo, `gh` error): fail loud
-and stop, do not treat it as a race.
+`ELECTION_STATUS != 0` is a race only when `ELECTION_JSON` is valid JSON with
+`event: "claim_election_failed"` and
+`message: "pull request head does not match expected SHA"`. Re-read
+`$HEAD_SHA` and retry once; if it happens twice, move on and revisit this PR
+on the next poll. Any other non-zero result—including malformed or missing
+JSON—is a genuine failure (missing `--authorized`, bad repo, `gh` error):
+fail loud and stop, do not treat it as a race.
 
 Decide the next action from the election (`election.winner`), following
 `nextAction` in `poll-state.mjs`:
@@ -98,7 +99,8 @@ Then re-read and re-elect to confirm you actually won:
 
 ```bash
 set +e
-RECHECK_JSON="$(bun <skill-directory>/scripts/claim.mjs --repo "$REPO" --pr "$PR" --expected-head "$HEAD_SHA")"
+RECHECK_JSON="$(bun <skill-directory>/scripts/claim.mjs --repo "$REPO" --pr "$PR" \
+  --expected-head "$HEAD_SHA" --authorized "$AUTHORIZED_WORKERS" 2>&1)"
 RECHECK_STATUS=$?
 set -e
 ```

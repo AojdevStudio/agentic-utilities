@@ -4,11 +4,12 @@
 
 - Treat daily-use skills as harness-isolated resources by default.
 - Keep canonical shared skills in `skills/<name>/` so this package can validate, document, and distribute them.
+- A skill may instead use a documented global-canonical source such as `~/.agents/skills/<name>/` only when its approved spec requires identical coupled behavior across harnesses. Every harness path must intentionally symlink to that source, and `skills/<name>/` must be documented as the one-way public snapshot.
 - Copy a canonical skill into the harness inventory that should use it: `~/.pi/agent/skills/<name>/`, `~/.codex/skills/<name>/`, or `~/.claude/skills/<name>/`.
 - Prefer copy mode when Pi, Codex, and Claude Code should diverge in tools, prompts, paths, model assumptions, or workflow details.
 - Use symlinks only when you intentionally want coupled behavior between a harness inventory and the canonical repo skill.
 - When using a symlink, document the source of truth in the skill or nearby docs so future edits do not fork behavior accidentally.
-- Avoid a shared `~/.agents` bridge as the default install path because it hides which harness owns which behavior.
+- Avoid a shared `~/.agents` bridge as the default install path because it hides which harness owns which behavior; the documented global-canonical exception above is opt-in, never inferred.
 - Preserve Agent Skills structure: `skills/<name>/SKILL.md`, frontmatter `name` matching the directory, and a precise trigger-oriented `description`.
 - Treat duplicate skill-name warnings across root skills and Claude Code plugin skills as expected distribution-lane signal, not validation failure. Investigate them when the duplicate was not intentional or when one lane drifts semantically from the other.
 

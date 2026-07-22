@@ -10,6 +10,7 @@
 
 ### Added
 
+- global, guided, and worktree-safe (#41) [#41]
 - rename command, fix review blockers, add launch README
 - semantic colors in action menu
 - restyle TUI + action-submenu UX

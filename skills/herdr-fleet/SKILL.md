@@ -1,6 +1,6 @@
 ---
 name: herdr-fleet
-description: This skill should be used when a project requires Herdr fleet launch, worker-pane startup, surviving-pane rebuilds, or control of a project-scoped issue and pull-request queue. Requires HERDR_ENV=1.
+description: This skill should be used when a project requires Herdr fleet launch, worker-pane startup, surviving-pane rebuilds, or control of a project-scoped issue and pull-request queue. Launch interviews the user for fleet size, per-pane harness (claudex, claude, codex, pi), and roles before any pane mutation.
 ---
 
 # Herdr Fleet
@@ -19,6 +19,7 @@ Choose the active branch:
 - Reconcile surviving project-owned panes before creating anything. Reuse healthy panes, retire only proven stale owned panes, and create only missing roles.
 - Reserve Herdr remote control for the control pane. Broadcast this boundary before assigning work.
 - Default to report-only. Merge only when explicit launch-time authorization covers the repository, base branch, and strategy, and a fresh verdict names the current head with green required checks. If policy or tooling requires approval, ask the principal directly; routing it through a worker is permission laundering.
+- After any merge — fleet-performed or principal-performed — retire the merged pull request's worktree and branch, and record the cleanup. A merge cycle is incomplete until cleanup is recorded.
 - Delegate parallel work and retain only findings in the control context. Read worker transcripts with `herdr pane read`; dispatch with `herdr pane run`.
 - Report events in proportion to their importance. Use the environment's notification mechanism for unattended merges, blockers, and decisions. Ask the principal only for genuine product, scope, cost, or irreversible decisions, with a recommendation first.
 - Resolve reversible, PR-gated worker questions in the control pane. Verify every claim that the principal "approved" a choice.
@@ -46,3 +47,4 @@ Read the human [launcher menu](README.md#launcher-menu) before presenting comman
 13. **Long dispatches may paste without submitting.** Confirm every dispatch changes the pane to `working`. If a paste placeholder remains at the prompt, submit it with an empty `herdr pane run <id> ""`, then verify again.
 14. **Repository policy is runtime input.** Before assigning work, derive lane labels, branch prefixes, provenance variables, hook requirements, issue-link rules, and worktree cleanup commands from the repository's checked-in instructions. Include only the applicable rules in each brief.
 15. **Context footer formats vary.** The scoped watcher recognizes forms such as `[79% ...]`, `90% context used`, and `9.3%/372k`. It re-arms compaction after usage drops below 60%; a permanent "already compacted" set would disable protection for the rest of the session.
+16. **Diff-verify completion claims before relaying them to reviewers.** A worker can report review blockers as "addressed in the branch" when only part of its scope actually landed. Relaying that claim primes the reviewer to confirm instead of check. Before telling a reviewer that a delta addresses a finding, verify the change exists in the pushed diff, not just in the worker's report.

@@ -6,6 +6,8 @@ See [SKILL.md](SKILL.md) for the agent contract, [launch-fleet.md](launch-fleet.
 
 ## Roster intake
 
+Intake is a guided wizard: fleet size, then per-worker harness (claudex / claude / codex / pi / custom), label, role, and assignment — with a paste-lines escape for large rosters.
+
 Each worker is user-selected:
 
 - label;
@@ -34,3 +36,7 @@ The roster can also use `pi`, `codex`, or any user-provided command.
 Claudex keeps the Claude Code harness—its tools, permissions, skills, hooks, context management, and interface—while routing model traffic through CLIProxyAPI. Ossie's setup article, [The Fable Effect](https://aojdevstudio.me/blog/the-fable-effect/#how-i-ran-gpt-56-sol-inside-the-claude-code-harness), is the canonical setup reference. The article is currently a draft, so the URL may return 404 until publication.
 
 This package intentionally does not duplicate proxy configuration, credentials, local paths, or setup secrets.
+
+## Source of truth
+
+The canonical copy of this skill lives in the publisher's global skills directory (`~/.agents/skills/herdr-fleet`); the publisher's harness skill directories (`~/.pi`, `~/.claude`, `~/.codex`) intentionally symlink to it. This repository is the public snapshot, synced one-way from the canonical copy.

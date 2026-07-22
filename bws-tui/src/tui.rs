@@ -648,10 +648,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                     if i == app.edit_field {
                         Line::from(vec![
                             Span::styled("▸ ", Style::default().fg(ACCENT)),
-                            Span::styled(
-                                format!("{name}: {val}"),
-                                Style::default().fg(ACCENT),
-                            ),
+                            Span::styled(format!("{name}: {val}"), Style::default().fg(ACCENT)),
                         ])
                     } else {
                         Line::from(format!("  {name}: {val}"))

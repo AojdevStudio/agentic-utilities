@@ -31,6 +31,7 @@
 
 ### Changed
 
+- bump brace-expansion
 - bump ws from 8.20.0 to 8.21.1 in the npm_and_yarn group across 1 directory (#31) [#31]
 - bump undici in the npm_and_yarn group across 1 directory (#29) [#29]
 - bump shell-quote (#16) [#16]

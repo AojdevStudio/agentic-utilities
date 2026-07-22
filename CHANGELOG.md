@@ -10,6 +10,7 @@
 
 ### Added
 
+- global canonical, guided roster wizard, post-merge worktree cleanup
 - add pr-review-queue fleet reviewer skill (#35) [#35]
 - add public Herdr fleet workflow (#32) [#32]
 - add plugin packaging and question TUI (#26) [#26]

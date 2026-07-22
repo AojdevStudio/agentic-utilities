@@ -14,7 +14,7 @@ Authoritative rule files live under `rules/`:
 Quick rules:
 
 - Keep resources discoverable through `package.json#pi`.
-- Daily-use skills are harness-isolated by default: keep canonical shared files in `skills/<name>/`, then copy them into `~/.pi/agent/skills/<name>/`, `~/.codex/skills/<name>/`, or `~/.claude/skills/<name>/` as needed. Use symlinks only when you intentionally want coupled behavior and have documented the source of truth.
+- Daily-use skills are harness-isolated by default: keep canonical shared files in `skills/<name>/`, then copy them into `~/.pi/agent/skills/<name>/`, `~/.codex/skills/<name>/`, or `~/.claude/skills/<name>/` as needed. A spec may explicitly designate `~/.agents/skills/<name>/` as global-canonical when all harnesses must stay coupled; document the symlinks and keep the repo copy as the one-way public snapshot.
 - Do not commit secrets, API keys, credentials, session files, or machine-local config. A gitleaks pre-commit hook + CI gate enforces this — see "Secret + PII gate" below.
 - Extension names and skill names use kebab-case directories.
 - Tool names inside extensions should use snake_case and be globally specific, e.g. `agentic_utilities_ping`.

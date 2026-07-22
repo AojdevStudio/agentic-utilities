@@ -270,11 +270,29 @@ Send this to every new or reused worker before assignment:
 
 For workers prone to nested delegation, add bounded-delegation guidance. Read each transcript and verify delivery; re-send after blocked dialogs or unsubmitted pastes.
 
+### Allocate collision-safe implementer worktrees
+
+Before dispatching each implementer, generate a distinct worktree identity and create its worktree from the assignment's required remote base. Never reuse a branch or path merely because a prior pane disappeared.
+
+```bash
+WORKTREE_ID="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
+WORKTREE_ROOT="${TMPDIR:-/tmp}/herdr-worktrees/$PROJECT_KEY"
+WORKTREE_BRANCH="herdr/$PROJECT_KEY/$WORKTREE_ID"
+WORKTREE_PATH="$WORKTREE_ROOT/$WORKTREE_ID"
+mkdir -p "$WORKTREE_ROOT"
+test ! -e "$WORKTREE_PATH" || exit 1
+git show-ref --verify --quiet "refs/heads/$WORKTREE_BRANCH" && exit 1
+git fetch origin "$BASE_BRANCH"
+git worktree add -b "$WORKTREE_BRANCH" "$WORKTREE_PATH" "origin/$BASE_BRANCH"
+```
+
+`git worktree add -b` is the final atomic collision check. If any check fails, generate a new `WORKTREE_ID`; never delete or commandeer the existing path or branch. Record the `WORKTREE_ID`, `WORKTREE_BRANCH`, and `WORKTREE_PATH` in the control transcript and the worker assignment. Dispatch the worker into that exact path. These recorded values are the cleanup identity used after its pull request merges.
+
 ## Step 9: Dispatch confirmed assignments
 
 Inspect repository instructions, contribution guidance, pull-request templates, issue labels, open pull requests, and worktree conventions first.
 
-- **Implementers:** include claim procedure, branch/worktree rules, gates, hooks, and the confirmed assignment/lane.
+- **Implementers:** include claim procedure, assigned `WORKTREE_ID`, `WORKTREE_BRANCH`, and `WORKTREE_PATH`, gates, hooks, and the confirmed assignment/lane.
 - **Reviewers:** include the review workflow, claim mutex, peer labels, fresh-head verdict requirement, and confirmed queue scope.
 - **Other roles:** dispatch only the user-confirmed responsibility and boundaries.
 - **Unassigned workers:** hold idle or ask; do not invent work merely to occupy panes.

@@ -1,12 +1,17 @@
 [package]
 name = "bws-tui"
-version = "0.0.1"
+version = "0.0.3"
 edition = "2021"
+autobins = false
 description = "Interactive TUI and script-friendly CLI wrapper around the Bitwarden Secrets Manager `bws` CLI"
 license = "MIT"
 repository = "https://github.com/AojdevStudio/agentic-utilities"
 keywords = ["bitwarden", "secrets-manager", "tui", "cli", "bws"]
 categories = ["command-line-utilities"]
+
+[[bin]]
+name = "hush"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.29"

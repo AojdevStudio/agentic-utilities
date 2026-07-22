@@ -21,15 +21,19 @@ pub struct Secret {
     pub project_id: Option<String>,
 }
 
+fn operation_name(args: &[&str]) -> String {
+    args.iter().take(2).copied().collect::<Vec<_>>().join(" ")
+}
+
 fn run(args: &[&str]) -> Result<String> {
+    let operation = operation_name(args);
     let out = Command::new("bws")
         .args(args)
         .args(["-o", "json"])
         .output()
         .context("failed to run `bws` — is it installed and on PATH?")?;
     if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow!("bws {} failed: {}", args.join(" "), stderr.trim()));
+        return Err(anyhow!("bws {operation} failed ({})", out.status));
     }
     Ok(String::from_utf8(out.stdout)?)
 }
@@ -120,5 +124,44 @@ pub fn find_by_key<'a>(
         _ => Err(anyhow!(
             "multiple secrets named '{key}' — narrow with --project"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_name_never_contains_secret_values() {
+        assert_eq!(
+            operation_name(&["secret", "create", "API_KEY", "super-secret", "project-id"]),
+            "secret create"
+        );
+        assert_eq!(
+            operation_name(&["secret", "edit", "--value", "super-secret", "secret-id"]),
+            "secret edit"
+        );
+    }
+
+    #[test]
+    fn find_by_key_requires_an_unambiguous_match() {
+        let secrets = vec![
+            Secret {
+                id: "one".into(),
+                key: "TOKEN".into(),
+                value: "first".into(),
+                note: String::new(),
+                project_id: Some("a".into()),
+            },
+            Secret {
+                id: "two".into(),
+                key: "TOKEN".into(),
+                value: "second".into(),
+                note: String::new(),
+                project_id: Some("b".into()),
+            },
+        ];
+        assert!(find_by_key(&secrets, "TOKEN", None).is_err());
+        assert_eq!(find_by_key(&secrets, "TOKEN", Some("b")).unwrap().id, "two");
     }
 }

@@ -1,5 +1,5 @@
 use crate::bws::{self, Project, Secret};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use arboard::Clipboard;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
@@ -114,12 +114,13 @@ fn fuzzy_match(hay: &str, needle: &str) -> bool {
     cur.is_none()
 }
 
-fn copy_with_autoclear(value: String) {
-    if let Ok(mut cb) = Clipboard::new() {
-        let _ = cb.set_text(value.clone());
-    }
+fn copy_with_autoclear(value: String) -> Result<()> {
+    let mut clipboard = Clipboard::new().context("macOS clipboard is unavailable")?;
+    clipboard
+        .set_text(value.clone())
+        .context("failed to copy the secret value")?;
     // ponytail: the clear thread dies if the process exits first — clipboard is
-    // only guaranteed cleared while bws-tui stays open. Daemonize if that hurts.
+    // only guaranteed cleared while hush stays open. Daemonize if that hurts.
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(30));
         if let Ok(mut cb) = Clipboard::new() {
@@ -128,6 +129,7 @@ fn copy_with_autoclear(value: String) {
             }
         }
     });
+    Ok(())
 }
 
 pub fn run() -> Result<()> {
@@ -349,8 +351,11 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
 fn copy_action(app: &mut App) {
     if let Some(s) = app.selected_secret() {
         let key = s.key.clone();
-        copy_with_autoclear(s.value.clone());
-        app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)"));
+        let value = s.value.clone();
+        match copy_with_autoclear(value) {
+            Ok(()) => app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)")),
+            Err(error) => app.set_err(&error),
+        }
     }
     app.mode = Mode::Search;
 }
@@ -425,7 +430,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     let header = Layout::horizontal([Constraint::Min(20), Constraint::Length(28)]).split(chunks[0]);
     f.render_widget(
         Paragraph::new(Span::styled(
-            "◆ bws-tui",
+            "◆ hush",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )),
         header[0],

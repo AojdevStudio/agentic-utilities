@@ -1,0 +1,14 @@
+#!/bin/sh
+# Safe fixture for docs/assets/hush-demo.tape. Contains no real projects or secrets.
+case "$1 $2" in
+  "project list")
+    printf '%s\n' '[{"id":"proj-api","name":"API Keys"},{"id":"proj-db","name":"Databases"},{"id":"proj-login","name":"Logins"}]'
+    ;;
+  "secret list")
+    printf '%s\n' '[{"id":"sec-1","key":"STRIPE_API_KEY","value":"sk_demo_not_a_real_secret","note":"Demo only","projectId":"proj-api"},{"id":"sec-2","key":"DATABASE_URL","value":"demo-database-value-not-a-url","note":"Demo only","projectId":"proj-db"},{"id":"sec-3","key":"RESEND_API_KEY","value":"re_demo_not_real","note":"Demo only","projectId":"proj-api"},{"id":"sec-4","key":"ADMIN_LOGIN","value":"demo-password","note":"Demo only","projectId":"proj-login"}]'
+    ;;
+  *)
+    printf '%s\n' 'demo bws: unsupported command' >&2
+    exit 2
+    ;;
+esac

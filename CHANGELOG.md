@@ -36,6 +36,7 @@
 
 ### Changed
 
+- bump brace-expansion from 5.0.5 to 5.0.7 in the npm_and_yarn group across 1 directory (#37) [#37]
 - bump ws from 8.20.0 to 8.21.1 in the npm_and_yarn group across 1 directory (#31) [#31]
 - bump undici in the npm_and_yarn group across 1 directory (#29) [#29]
 - bump shell-quote (#16) [#16]
@@ -48,6 +49,8 @@
 
 ### Fixed
 
+- remediate merged-#35 CodeRabbit findings (#36) [#35]
+- harden terminal and clipboard lifecycle
 - aggregate every terminal cleanup failure
 - make clipboard and empty-project failures visible
 - post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]

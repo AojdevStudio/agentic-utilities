@@ -86,6 +86,13 @@ test("classifyCheckNode maps CheckRun and StatusContext to the six-state model",
   assert.throws(() => classifyCheckNode({ __typename: "Something" }), /unknown check node type/);
 });
 
+test("classifyCheckNode maps STARTUP_FAILURE to fail instead of throwing", () => {
+  assert.deepEqual(
+    classifyCheckNode({ __typename: "CheckRun", name: "deploy", status: "COMPLETED", conclusion: "STARTUP_FAILURE" }),
+    { name: "deploy", state: "fail" },
+  );
+});
+
 // --- F7: paginate check contexts to exhaustion ------------------------------
 
 test("collectCheckContexts follows every page and stays pinned to one head", async () => {

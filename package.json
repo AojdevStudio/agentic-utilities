@@ -42,7 +42,7 @@
     ]
   },
   "scripts": {
-    "check": "bun run lint && bun run check:bws-tui && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
+    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
     "list": "bun scripts/list-resources.mjs",
     "check:bws-tui": "cargo fmt --manifest-path bws-tui/Cargo.toml -- --check && cargo test --manifest-path bws-tui/Cargo.toml && cargo clippy --manifest-path bws-tui/Cargo.toml -- -D warnings",
     "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
@@ -54,7 +54,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs && bun test skills/pr-review-queue/ && bun run test:herdr-fleet",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs scripts/validate-lockfile.test.mjs && bun test skills/pr-review-queue/ && bun run test:herdr-fleet",
     "test:herdr-fleet": "bun skills/herdr-fleet/scripts/resolve-project-key.mjs --self-test && bun skills/herdr-fleet/scripts/watch-fleet.mjs --self-test && bun skills/herdr-fleet/scripts/consume-events.mjs --self-test && bun test skills/herdr-fleet/scripts/fleet-state.test.mjs skills/herdr-fleet/scripts/review-thread-gate.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:skills": "bun scripts/validate-agent-skills.mjs"

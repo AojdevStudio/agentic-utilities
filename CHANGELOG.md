@@ -10,6 +10,11 @@
 
 ### Added
 
+- rename command, fix review blockers, add launch README
+- semantic colors in action menu
+- restyle TUI + action-submenu UX
+- restyle TUI — rounded panels, selection bars, human labels
+- TUI/CLI wrapper around the bws CLI
 - add pr-review-queue fleet reviewer skill (#35) [#35]
 - add public Herdr fleet workflow (#32) [#32]
 - add plugin packaging and question TUI (#26) [#26]
@@ -43,6 +48,8 @@
 
 ### Fixed
 
+- aggregate every terminal cleanup failure
+- make clipboard and empty-project failures visible
 - post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]
 - complete issue #10 port hardening (#33) [#10]
 

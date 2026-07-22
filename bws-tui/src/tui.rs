@@ -14,10 +14,9 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
 };
 use ratatui::Terminal;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use std::io::{self, Stdout};
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const ACCENT: Color = Color::Cyan;
 const DIM: Style = Style::new().fg(Color::DarkGray);
@@ -60,6 +59,8 @@ struct App {
     status_err: bool,
     action_idx: usize,
     revealed: bool,
+    clipboard_value: Option<SecretString>,
+    clipboard_clear_at: Option<Instant>,
 }
 
 impl App {
@@ -68,8 +69,12 @@ impl App {
         self.status_err = false;
     }
 
-    fn set_err(&mut self, e: &anyhow::Error) {
-        self.status = format!("{e:#}");
+    fn set_err(&mut self, error: &anyhow::Error) {
+        self.set_error_message(format!("{error:#}"));
+    }
+
+    fn set_error_message(&mut self, message: impl Into<String>) {
+        self.status = message.into();
         self.status_err = true;
     }
 
@@ -92,13 +97,45 @@ impl App {
         self.sel = self.sel.min(self.filtered.len().saturating_sub(1));
     }
 
-    fn reload_secrets(&mut self) {
+    fn reload_secrets(&mut self) -> bool {
         match bws::list_secrets(None) {
-            Ok(s) => {
-                self.secrets = s;
+            Ok(secrets) => {
+                self.secrets = secrets;
                 self.refilter();
+                true
             }
-            Err(e) => self.set_err(&e),
+            Err(error) => {
+                self.set_err(&error);
+                false
+            }
+        }
+    }
+
+    fn clear_clipboard_if_due(&mut self) {
+        if self.clipboard_clear_at.is_none_or(|at| Instant::now() < at) {
+            return;
+        }
+        self.clipboard_clear_at = None;
+        let Some(copied) = self.clipboard_value.take() else {
+            return;
+        };
+        let result = (|| -> Result<bool> {
+            let mut clipboard = Clipboard::new().context("macOS clipboard is unavailable")?;
+            let current = clipboard
+                .get_text()
+                .context("failed to read the clipboard")?;
+            if !clipboard_holds_copied_value(&current, &copied) {
+                return Ok(false);
+            }
+            clipboard
+                .set_text(String::new())
+                .context("failed to clear the clipboard")?;
+            Ok(true)
+        })();
+        match result {
+            Ok(true) => self.set_ok("✓ clipboard cleared"),
+            Ok(false) => {}
+            Err(error) => self.set_err(&error),
         }
     }
 }
@@ -114,21 +151,21 @@ fn fuzzy_match(hay: &str, needle: &str) -> bool {
     cur.is_none()
 }
 
-fn copy_with_autoclear(value: String) -> Result<()> {
+fn can_add_secret(projects: &[Project]) -> bool {
+    !projects.is_empty()
+}
+
+fn clipboard_holds_copied_value(current: &str, copied: &SecretString) -> bool {
+    current == copied.expose_secret()
+}
+
+fn copy_with_autoclear(app: &mut App, value: String) -> Result<()> {
     let mut clipboard = Clipboard::new().context("macOS clipboard is unavailable")?;
     clipboard
         .set_text(value.clone())
         .context("failed to copy the secret value")?;
-    // ponytail: the clear thread dies if the process exits first — clipboard is
-    // only guaranteed cleared while hush stays open. Daemonize if that hurts.
-    thread::spawn(move || {
-        thread::sleep(Duration::from_secs(30));
-        if let Ok(mut cb) = Clipboard::new() {
-            if cb.get_text().map(|t| t == value).unwrap_or(false) {
-                let _ = cb.set_text(String::new());
-            }
-        }
-    });
+    app.clipboard_value = Some(SecretString::from(value));
+    app.clipboard_clear_at = Some(Instant::now() + Duration::from_secs(30));
     Ok(())
 }
 
@@ -152,21 +189,31 @@ pub fn run() -> Result<()> {
         status_err: false,
         action_idx: 0,
         revealed: false,
+        clipboard_value: None,
+        clipboard_clear_at: None,
     };
 
     enable_raw_mode()?;
     let mut out = io::stdout();
     execute!(out, EnterAlternateScreen)?;
     let mut term = Terminal::new(CrosstermBackend::new(out))?;
-    let result = event_loop(&mut term, &mut app);
-    let _ = disable_raw_mode();
-    let _ = execute!(term.backend_mut(), LeaveAlternateScreen);
-    result
+    let event_result = event_loop(&mut term, &mut app);
+    let raw_result = disable_raw_mode().context("failed to restore terminal input mode");
+    let screen_result = execute!(term.backend_mut(), LeaveAlternateScreen)
+        .context("failed to leave the alternate terminal screen");
+    event_result?;
+    raw_result?;
+    screen_result?;
+    Ok(())
 }
 
 fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
+        app.clear_clipboard_if_due();
         term.draw(|f| draw(f, app))?;
+        if !event::poll(Duration::from_millis(100))? {
+            continue;
+        }
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -181,15 +228,20 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Down => app.menu_idx = (app.menu_idx + 1).min(MENU.len() - 1),
                 KeyCode::Enter => match app.menu_idx {
                     0 => {
-                        app.sel = 0;
-                        app.mode = Mode::AddProject;
+                        if !can_add_secret(&app.projects) {
+                            app.set_error_message("no accessible BWS projects");
+                        } else {
+                            app.sel = 0;
+                            app.mode = Mode::AddProject;
+                        }
                     }
                     _ => {
                         app.set_ok("loading secrets…");
                         term.draw(|f| draw(f, app))?;
-                        app.reload_secrets();
-                        app.status.clear();
-                        app.mode = Mode::Search;
+                        if app.reload_secrets() {
+                            app.status.clear();
+                            app.mode = Mode::Search;
+                        }
                     }
                 },
                 _ => {}
@@ -352,7 +404,7 @@ fn copy_action(app: &mut App) {
     if let Some(s) = app.selected_secret() {
         let key = s.key.clone();
         let value = s.value.clone();
-        match copy_with_autoclear(value) {
+        match copy_with_autoclear(app, value) {
             Ok(()) => app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)")),
             Err(error) => app.set_err(&error),
         }
@@ -734,4 +786,25 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
         Constraint::Min(0),
     ])
     .split(v[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_clear_only_targets_the_value_hush_copied() {
+        let copied = SecretString::from("secret-value".to_string());
+        assert!(clipboard_holds_copied_value("secret-value", &copied));
+        assert!(!clipboard_holds_copied_value("newer-user-copy", &copied));
+    }
+
+    #[test]
+    fn add_requires_at_least_one_accessible_project() {
+        assert!(!can_add_secret(&[]));
+        assert!(can_add_secret(&[Project {
+            id: "demo".into(),
+            name: "Demo".into(),
+        }]));
+    }
 }

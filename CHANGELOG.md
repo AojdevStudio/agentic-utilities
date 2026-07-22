@@ -10,7 +10,8 @@
 
 ### Added
 
-- add public Herdr fleet workflow
+- add pr-review-queue fleet reviewer skill (#35) [#35]
+- add public Herdr fleet workflow (#32) [#32]
 - add plugin packaging and question TUI (#26) [#26]
 - share documentation workflows (#30) [#30]
 - add skill-inspector plugin + verdict-aware renderer
@@ -42,7 +43,8 @@
 
 ### Fixed
 
-- harden Herdr fleet orchestration
+- post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]
+- complete issue #10 port hardening (#33) [#10]
 
 ### Security
 

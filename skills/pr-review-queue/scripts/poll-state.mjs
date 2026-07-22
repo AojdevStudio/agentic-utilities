@@ -117,6 +117,7 @@ export function createStopSignal() {
   let stopped = false;
   let reason = null;
   let resolveStopped;
+  const listeners = new Set();
   const stoppedPromise = new Promise((resolve) => {
     resolveStopped = resolve;
   });
@@ -126,15 +127,19 @@ export function createStopSignal() {
       stopped = true;
       reason = why ?? "stop requested";
       resolveStopped();
+      for (const listener of listeners) listener();
+      listeners.clear();
     },
-    shouldStop() {
-      return stopped;
-    },
-    reason() {
-      return reason;
-    },
-    whenStopped() {
-      return stoppedPromise;
+    shouldStop: () => stopped,
+    reason: () => reason,
+    whenStopped: () => stoppedPromise,
+    subscribe(listener) {
+      if (stopped) {
+        listener();
+        return () => {};
+      }
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }
@@ -147,7 +152,12 @@ export function createStopSignal() {
  */
 export async function sleepUnlessStopped(ms, stopSignal, sleepFn) {
   if (stopSignal.shouldStop()) return false;
-  await Promise.race([sleepFn(ms), stopSignal.whenStopped()]);
+  let unsubscribe = () => {};
+  const stopped = new Promise((resolve) => {
+    unsubscribe = stopSignal.subscribe(resolve);
+  });
+  await Promise.race([sleepFn(ms, stopSignal), stopped]);
+  unsubscribe();
   return !stopSignal.shouldStop();
 }
 

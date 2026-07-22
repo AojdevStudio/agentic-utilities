@@ -90,6 +90,17 @@ test("stop signal is idempotent and records the first reason", () => {
   assert.equal(stop.reason(), "shutdown");
 });
 
+test("stop subscriptions can be removed after a completed sleep", () => {
+  const stop = createStopSignal();
+  let calls = 0;
+  const unsubscribe = stop.subscribe(() => {
+    calls += 1;
+  });
+  unsubscribe();
+  stop.requestStop("shutdown");
+  assert.equal(calls, 0);
+});
+
 test("sleepUnlessStopped returns false immediately if already stopped, without sleeping", async () => {
   const stop = createStopSignal();
   stop.requestStop("pre-stopped");

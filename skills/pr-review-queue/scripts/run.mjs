@@ -1,123 +1,9 @@
 #!/usr/bin/env bun
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import {
-  backoffDelayMs,
-  createStopSignal,
-  initialBackoff,
-  initialObservation,
-  nextAction,
-  observationChanged,
-  recordError,
-  resetBackoffOnActivity,
-  sleepUnlessStopped,
-  stepBackoff,
-  terminalStatus,
-  updateObservation,
-} from "./poll-state.mjs";
+import { createStopSignal } from "./poll-state.mjs";
+import { runLoop } from "./run-loop.mjs";
 
-// The fleet-mode reviewer lane's persisted, interruptible polling loop.
-// QUEUE EMPTY must never terminate this loop: it backs off, heartbeats,
-// and keeps rechecking open PR heads and gate evidence until the control
-// pane requests a stop. All GitHub access is injected (fetchQueue,
-// fetchPrState) so the decision logic is fully unit-testable without a
-// network; the CLI entrypoint at the bottom wires real `gh`-backed
-// fetchers by delegating to queue.mjs/claim.mjs/review-gate.mjs's own
-// already-paginated, already-authorized CLIs instead of re-implementing
-// GraphQL pagination a fourth time.
-
-/**
- * One poll cycle: walk the reviewable queue, fold fresh claim/gate state
- * into each PR's persisted observation, and report which PRs need action.
- */
-export async function pollOnce({ fetchQueue, fetchPrState, observations, now }) {
-  const queue = await fetchQueue();
-  const actionable = [];
-  const nextObservations = new Map(observations);
-  for (const pr of queue) {
-    const { head, election, gateEvidence: evidence } = await fetchPrState(pr);
-    const previous = observations.get(pr) ?? initialObservation(pr);
-    const next = updateObservation(previous, { head, gateEvidence: evidence, election, now });
-    const gatesChanged = observationChanged(previous, next);
-    nextObservations.set(pr, next);
-    const action = nextAction(election, gatesChanged);
-    if (action !== "skip") actionable.push({ pr, head, action });
-  }
-  return { actionable, observations: nextObservations };
-}
-
-/** Load persisted per-PR observations from disk, or start fresh if the file doesn't exist yet. */
-export function loadObservations(path) {
-  if (!existsSync(path)) return new Map();
-  const entries = JSON.parse(readFileSync(path, "utf8"));
-  return new Map(entries.map((entry) => [entry.pr, entry]));
-}
-
-/** Persist per-PR observations to disk so a restart or worker handoff resumes from the same state. */
-export function saveObservations(path, observations) {
-  writeFileSync(path, `${JSON.stringify([...observations.values()], null, 2)}\n`);
-}
-
-/**
- * The executable persisted loop: poll, heartbeat or report actionable
- * work, back off with jitter, and stop cleanly and exactly once when the
- * stop signal fires (interruptible mid-sleep, never after a full fixed
- * wait). Repeated poll errors abort after maxErrors consecutive failures.
- */
-export async function runLoop({
-  fetchQueue,
-  fetchPrState,
-  statePath,
-  stopSignal,
-  nowFn,
-  sleepFn,
-  randomFn,
-  maxErrors = 5,
-  emit = () => {},
-}) {
-  let observations = loadObservations(statePath);
-  let backoff = initialBackoff();
-  let lastError = null;
-  let actionableDispatched = 0;
-
-  while (!stopSignal.shouldStop()) {
-    try {
-      const now = nowFn();
-      const result = await pollOnce({ fetchQueue, fetchPrState, observations, now });
-      observations = result.observations;
-      saveObservations(statePath, observations);
-      if (result.actionable.length > 0) {
-        actionableDispatched += result.actionable.length;
-        backoff = resetBackoffOnActivity(backoff);
-        emit({ event: "actionable_prs", prs: result.actionable, timestamp: now });
-      } else {
-        backoff = stepBackoff(backoff);
-        emit({ event: "heartbeat", queueEmpty: true, stepIndex: backoff.stepIndex, timestamp: now });
-      }
-    } catch (error) {
-      lastError = error.message;
-      backoff = recordError(backoff, maxErrors);
-      emit({ event: "poll_error", message: error.message, consecutiveErrors: backoff.consecutiveErrors });
-      if (backoff.aborted) break;
-    }
-
-    if (stopSignal.shouldStop()) break;
-    const delay = backoffDelayMs(backoff, { randomFn });
-    const keepGoing = await sleepUnlessStopped(delay, stopSignal, sleepFn);
-    if (!keepGoing) break;
-  }
-
-  const status = terminalStatus({
-    reason: stopSignal.reason() ?? (lastError ? `aborted after ${maxErrors} consecutive errors` : "stopped"),
-    reviewsCompleted: actionableDispatched,
-    lastError,
-    timestamp: nowFn(),
-  });
-  emit(status);
-  return status;
-}
-
-// --- CLI: real gh/bun-backed fetchers, composed from the sibling scripts --
+export { loadObservations, pollOnce, runLoop, saveObservations } from "./run-loop.mjs";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -125,10 +11,13 @@ function option(name, fallback) {
   return !value || value.startsWith("--") ? fallback : value;
 }
 
-function runScript(scriptName, args) {
+export function runScript(scriptName, args, acceptedStatuses = [0]) {
   const scriptPath = new URL(`./${scriptName}`, import.meta.url).pathname;
   const result = spawnSync("bun", [scriptPath, ...args], { encoding: "utf8", timeout: 30_000 });
   if (result.error) throw new Error(result.error.message);
+  if (!acceptedStatuses.includes(result.status)) {
+    throw new Error(`${scriptName} exited ${result.status}: ${(result.stderr || result.stdout || "").trim()}`);
+  }
   try {
     return JSON.parse(result.stdout);
   } catch {
@@ -136,10 +25,10 @@ function runScript(scriptName, args) {
   }
 }
 
-function currentHead(owner, name, number) {
+function currentHead(repository, number) {
   const result = spawnSync(
     "gh",
-    ["pr", "view", String(number), "-R", `${owner}/${name}`, "--json", "headRefOid", "-q", ".headRefOid"],
+    ["pr", "view", String(number), "-R", repository, "--json", "headRefOid", "-q", ".headRefOid"],
     { encoding: "utf8", timeout: 15_000 },
   );
   if (result.error || result.status !== 0) {
@@ -152,56 +41,76 @@ function githubFetchQueue(repository) {
   return async () => runScript("queue.mjs", ["--repo", repository]).queue;
 }
 
-function githubFetchPrState(repository, authorizedIdentities, staleMs) {
-  const [owner, name] = repository.split("/");
+function claimArgs(repository, pr, head, identities, staleMs) {
+  return [
+    "--repo",
+    repository,
+    "--pr",
+    String(pr),
+    "--expected-head",
+    head,
+    "--stale-ms",
+    String(staleMs),
+    "--authorized",
+    identities.join(","),
+  ];
+}
+
+function githubFetchPrState(repository, identities, staleMs) {
   return async (pr) => {
-    const head = currentHead(owner, name, pr);
-    const election = runScript("claim.mjs", [
-      "--repo",
-      repository,
-      "--pr",
-      String(pr),
-      "--expected-head",
-      head,
-      "--stale-ms",
-      String(staleMs),
-      "--authorized",
-      authorizedIdentities.join(","),
-    ]);
-    const gateEvidence = runScript("review-gate.mjs", [
-      "--repo",
-      repository,
-      "--pr",
-      String(pr),
-      "--expected-head",
-      head,
-    ]);
+    const head = currentHead(repository, pr);
+    const election = runScript("claim.mjs", claimArgs(repository, pr, head, identities, staleMs));
+    const gateArgs = ["--repo", repository, "--pr", String(pr), "--expected-head", head];
+    const gateEvidence = runScript("review-gate.mjs", gateArgs, [0, 3]);
     return { head, election, gateEvidence };
   };
 }
 
-async function main() {
+export function sleepWithStop(ms, stopSignal) {
+  return new Promise((resolve) => {
+    let unsubscribe = () => {};
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    }
+    unsubscribe = stopSignal.subscribe(finish);
+  });
+}
+
+function cliOptions() {
   const repository = option("--repo");
-  const statePath = option("--state", ".pr-review-queue-state.json");
   const authorizedIdentities = (option("--authorized") ?? "").split(",").filter(Boolean);
-  const staleMs = Number(option("--stale-ms") ?? 20 * 60 * 1000);
-  const maxErrors = Number(option("--max-errors") ?? 5);
   const [owner, name, extra] = repository?.split("/") ?? [];
   if (!owner || !name || extra) throw new Error("run requires --repo owner/name");
   if (authorizedIdentities.length === 0) throw new Error("run requires --authorized as a comma-separated list");
-
-  const stopSignal = createStopSignal();
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.on(signal, () => stopSignal.requestStop(signal));
+  const staleMs = Number(option("--stale-ms") ?? 20 * 60 * 1000);
+  const maxErrors = Number(option("--max-errors") ?? 5);
+  if (!Number.isFinite(staleMs) || staleMs < 0) throw new Error("run requires --stale-ms as a non-negative number");
+  if (!Number.isSafeInteger(maxErrors) || maxErrors <= 0) {
+    throw new Error("run requires --max-errors as a positive integer");
   }
+  return {
+    repository,
+    authorizedIdentities,
+    statePath: option("--state", ".pr-review-queue-state.json"),
+    staleMs,
+    maxErrors,
+  };
+}
 
+async function main() {
+  const { repository, authorizedIdentities, statePath, staleMs, maxErrors } = cliOptions();
+  const stopSignal = createStopSignal();
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => stopSignal.requestStop(signal));
   const status = await runLoop({
     fetchQueue: githubFetchQueue(repository),
     fetchPrState: githubFetchPrState(repository, authorizedIdentities, staleMs),
     statePath,
     stopSignal,
     nowFn: () => new Date().toISOString(),
-    sleepFn: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleepFn: sleepWithStop,
     randomFn: Math.random,
     maxErrors,
     emit: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),

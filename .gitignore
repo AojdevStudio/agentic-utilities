@@ -38,3 +38,6 @@ CHANGES.md
 
 # Local research/reference clones — kept on disk for context, not shared.
 indydevdan/
+
+# Local git worktrees (review fleets, ad-hoc audits) — never shared.
+.worktrees/

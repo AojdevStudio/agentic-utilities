@@ -42,8 +42,9 @@
     ]
   },
   "scripts": {
-    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
+    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
     "list": "bun scripts/list-resources.mjs",
+    "check:bws-tui": "cargo fmt --manifest-path bws-tui/Cargo.toml -- --check && cargo test --manifest-path bws-tui/Cargo.toml && cargo clippy --manifest-path bws-tui/Cargo.toml -- -D warnings",
     "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
     "install:bash-guard:global": "node scripts/install-bash-guard-global.mjs",
     "new:extension": "node scripts/new-extension.mjs",

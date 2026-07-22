@@ -23,6 +23,7 @@ Quick rules:
 - Custom tools that mutate files must use `withFileMutationQueue()` around the full read-modify-write window.
 - Custom tools with large output must truncate output and report where the full output is stored.
 - Keep each resource documented in `docs/catalog.md`.
+- Every Rust subproject must be covered by `npm run check` with `cargo fmt --check`, `cargo test`, and `cargo clippy -- -D warnings`; CI installs the matching Rust components.
 - Verify identifiers before writing them. Before writing any GitHub user/org slug, repo name, package name, version number, or other identity-bearing value into `plugin.json`, `marketplace.json`, READMEs, or other manifests, confirm it with the source-of-truth tool (`gh api user --jq .login`, `git remote -v`, `npm whoami`, `git config user.email`, registry queries). Pattern-matched plausible values are not facts.
 
 ## Verification

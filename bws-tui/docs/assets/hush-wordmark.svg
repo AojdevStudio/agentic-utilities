@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240" role="img" aria-labelledby="title desc">
+  <title id="title">hush</title>
+  <desc id="desc">A cyan lock mark beside the word hush and the tagline secrets, without the ceremony.</desc>
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <style>
+      .word { fill: #0f172a; }
+      .tag { fill: #64748b; }
+      @media (prefers-color-scheme: dark) {
+        .word { fill: #f8fafc; }
+        .tag { fill: #94a3b8; }
+      }
+    </style>
+  </defs>
+  <g transform="translate(36 32)">
+    <rect width="176" height="176" rx="44" fill="url(#mark)"/>
+    <path d="M55 79V65c0-26 14-43 33-43s33 17 33 43v14" fill="none" stroke="#07111f" stroke-width="13" stroke-linecap="round" opacity=".9"/>
+    <rect x="40" y="72" width="96" height="77" rx="22" fill="#07111f" opacity=".92"/>
+    <circle cx="88" cy="105" r="10" fill="#22d3ee"/>
+    <path d="M88 113v15" stroke="#22d3ee" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <text x="244" y="139" class="word" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="112" font-weight="750" letter-spacing="-8">hush</text>
+  <text x="252" y="184" class="tag" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="24" letter-spacing="1">secrets, without the ceremony.</text>
+</svg>

@@ -178,26 +178,24 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 KeyCode::Up => app.menu_idx = app.menu_idx.saturating_sub(1),
                 KeyCode::Down => app.menu_idx = (app.menu_idx + 1).min(MENU.len() - 1),
                 KeyCode::Enter => match app.menu_idx {
-                        0 => {
-                            app.sel = 0;
-                            app.mode = Mode::AddProject;
-                        }
-                        _ => {
-                            app.set_ok("loading secrets…");
-                            term.draw(|f| draw(f, app))?;
-                            app.reload_secrets();
-                            app.status.clear();
-                            app.mode = Mode::Search;
-                        }
+                    0 => {
+                        app.sel = 0;
+                        app.mode = Mode::AddProject;
                     }
+                    _ => {
+                        app.set_ok("loading secrets…");
+                        term.draw(|f| draw(f, app))?;
+                        app.reload_secrets();
+                        app.status.clear();
+                        app.mode = Mode::Search;
+                    }
+                },
                 _ => {}
             },
             Mode::AddProject => match key.code {
                 KeyCode::Esc => app.mode = Mode::Menu,
                 KeyCode::Up => app.sel = app.sel.saturating_sub(1),
-                KeyCode::Down => {
-                    app.sel = (app.sel + 1).min(app.projects.len().saturating_sub(1))
-                }
+                KeyCode::Down => app.sel = (app.sel + 1).min(app.projects.len().saturating_sub(1)),
                 KeyCode::Enter => {
                     app.input.clear();
                     app.mode = Mode::AddKey;
@@ -595,6 +593,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                         Block::default()
                             .borders(Borders::ALL)
                             .border_type(BorderType::Rounded)
+                            .border_style(Style::default().fg(Color::Yellow))
                             .title(format!(" “{}” ", s.key))
                             .title_style(Style::default().fg(ACCENT)),
                     )
@@ -607,16 +606,22 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                         .iter()
                         .enumerate()
                         .map(|(i, a)| {
-                            if i == app.action_idx {
-                                Line::from(Span::styled(
-                                    format!("▸ {a}"),
-                                    Style::default()
-                                        .fg(Color::Yellow)
-                                        .add_modifier(Modifier::BOLD),
-                                ))
+                            // semantic: green=safe action, yellow=caution (value visible),
+                            // cyan=modify, red=destructive, dim=cancel
+                            let color = match i {
+                                0 => Color::Green,
+                                1 => Color::Yellow,
+                                2 => ACCENT,
+                                3 => Color::Red,
+                                _ => Color::DarkGray,
+                            };
+                            let style = if i == app.action_idx {
+                                Style::default().fg(color).add_modifier(Modifier::BOLD)
                             } else {
-                                Line::from(format!("  {a}"))
-                            }
+                                Style::default().fg(color)
+                            };
+                            let marker = if i == app.action_idx { "▸ " } else { "  " };
+                            Line::from(Span::styled(format!("{marker}{a}"), style))
                         })
                         .collect();
                     let p = Paragraph::new(lines).block(
@@ -642,10 +647,10 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                 .map(|(i, (name, val))| {
                     if i == app.edit_field {
                         Line::from(vec![
-                            Span::styled("▸ ", Style::default().fg(Color::Yellow)),
+                            Span::styled("▸ ", Style::default().fg(ACCENT)),
                             Span::styled(
                                 format!("{name}: {val}"),
-                                Style::default().fg(Color::Yellow),
+                                Style::default().fg(ACCENT),
                             ),
                         ])
                     } else {

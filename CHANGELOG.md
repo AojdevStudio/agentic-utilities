@@ -10,6 +10,7 @@
 
 ### Added
 
+- global canonical, guided roster wizard, post-merge worktree cleanup
 - add pr-review-queue fleet reviewer skill (#35) [#35]
 - add public Herdr fleet workflow (#32) [#32]
 - add plugin packaging and question TUI (#26) [#26]
@@ -31,7 +32,7 @@
 
 ### Changed
 
-- bump brace-expansion
+- bump brace-expansion from 5.0.5 to 5.0.7 in the npm_and_yarn group across 1 directory (#37) [#37]
 - bump ws from 8.20.0 to 8.21.1 in the npm_and_yarn group across 1 directory (#31) [#31]
 - bump undici in the npm_and_yarn group across 1 directory (#29) [#29]
 - bump shell-quote (#16) [#16]
@@ -44,8 +45,8 @@
 
 ### Fixed
 
-- harden polling contracts
-- remediate merged-#35 CodeRabbit findings [#35]
+- remediate merged-#35 CodeRabbit findings (#36) [#35]
+- align global policy and isolate worktrees
 - post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]
 - complete issue #10 port hardening (#33) [#10]
 

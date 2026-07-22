@@ -88,6 +88,22 @@ Act by verdict:
 
 A merge cycle is complete only when the policy decision, remote pull-request state, cleanup result, tracking update, and affected sibling pull requests are known.
 
+## Retire worktrees after merge
+
+A pull request's worktree is short-lived. After its merge — performed by the fleet under `authorized-merge` or by the principal under `report-only` — the control pane retires it:
+
+1. Confirm the merge on the remote (`gh pr view <pr> --json state,mergedAt`) and record the evidence.
+2. Confirm the owning worker is idle, reassign it, or move its shell out of the worktree. Never remove a worktree a worker is actively using; recycle the pane first when in doubt.
+3. Remove the worktree and delete the merged branch:
+
+```bash
+git worktree remove <worktree-path>   # --force only for recorded salvage debris
+git branch -d <merged-branch>         # -D only when a squash merge defeats -d; record why
+git worktree prune
+```
+
+1. Record the cleanup result in the control transcript. Cleanup applies to every merged pull request, including salvaged and conflict-synced ones.
+
 ## Handle every head change
 
 Any content push, conflict resolution, metadata commit, or base sync invalidates the prior verdict.

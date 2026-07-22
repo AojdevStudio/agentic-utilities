@@ -24,11 +24,9 @@ cargo install bws-tui
 Bare `bws-tui` launches the TUI:
 
 - **Add** — pick a project (fetched live), enter a key, enter a masked value, done.
-- **Search** — fuzzy-filter secrets across all projects as you type; project shown per row. Values are never rendered in lists.
-  - `Enter` print the value to stdout (leaves the TUI first)
-  - `c` copy to clipboard (auto-clears after 30 seconds)
-  - `e` edit key / value / note
-  - `d` delete (two-step confirmation)
+- **Search** — fuzzy-filter secrets across all projects as you type; project shown per row. Values are never rendered in lists, and the list reloads every time you open Search so it's always fresh.
+  - `Enter` opens the action menu for the selected secret: **Copy value to clipboard** (auto-clears after 30s), **Reveal value**, **Edit secret**, **Delete secret** (two-step), or Cancel.
+  - Menu shortcuts: `c` copy · `r` reveal · `e` edit · `d` delete. `Esc` backs out of everything.
 
 Every operation also works non-interactively for scripts and CI:
 
@@ -47,7 +45,7 @@ bws-tui delete --key OLD_SECRET --yes # --yes required; deletion is permanent
 
 - Values are passed to `bws` as **argv** (its only accepted input in v2.1.0) and are therefore briefly visible in `ps`. Single-user machines: acceptable. Multi-user hosts: be aware. <!-- ponytail: bws has no stdin/file input for values; nothing a wrapper can do until upstream adds one -->
 - TUI value entry is masked; values never appear in lists or logs.
-- Clipboard copies auto-clear after 30s (only if the clipboard still holds the copied value).
+- Clipboard copies auto-clear after 30s, only if the clipboard still holds the copied value, and only while the app stays open (the clear timer exits with the process).
 - Secret buffers use `secrecy`/`zeroize`.
 
 ## License

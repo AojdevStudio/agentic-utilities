@@ -10,7 +10,9 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
+};
 use ratatui::Terminal;
 use secrecy::SecretString;
 use std::io::{self, Stdout};
@@ -20,6 +22,13 @@ use std::time::Duration;
 const ACCENT: Color = Color::Cyan;
 const DIM: Style = Style::new().fg(Color::DarkGray);
 const MENU: [&str; 2] = ["Add a secret", "Search / manage secrets"];
+const ACTIONS: [&str; 5] = [
+    "Copy value to clipboard",
+    "Reveal value",
+    "Edit secret",
+    "Delete secret",
+    "Cancel",
+];
 
 #[derive(PartialEq)]
 enum Mode {
@@ -28,6 +37,7 @@ enum Mode {
     AddKey,
     AddValue,
     Search,
+    ActionMenu,
     Edit,
     ConfirmDelete,
 }
@@ -48,6 +58,8 @@ struct App {
     edit_note: String,
     status: String,
     status_err: bool,
+    action_idx: usize,
+    revealed: bool,
 }
 
 impl App {
@@ -136,6 +148,8 @@ pub fn run() -> Result<()> {
         edit_note: String::new(),
         status: String::new(),
         status_err: false,
+        action_idx: 0,
+        revealed: false,
     };
 
     enable_raw_mode()?;
@@ -151,50 +165,37 @@ pub fn run() -> Result<()> {
 fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
         term.draw(|f| draw(f, app))?;
-        let Event::Key(key) = event::read()? else { continue };
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
         if key.kind != KeyEventKind::Press {
             continue;
         }
         app.status.clear();
         match app.mode {
             Mode::Menu => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Up | KeyCode::Char('k') => app.menu_idx = app.menu_idx.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => {
-                    app.menu_idx = (app.menu_idx + 1).min(MENU.len() - 1)
-                }
-                KeyCode::Enter | KeyCode::Char('a') | KeyCode::Char('s') => {
-                    let pick = if matches!(key.code, KeyCode::Enter) {
-                        app.menu_idx
-                    } else if key.code == KeyCode::Char('a') {
-                        0
-                    } else {
-                        1
-                    };
-                    match pick {
+                KeyCode::Esc => return Ok(()),
+                KeyCode::Up => app.menu_idx = app.menu_idx.saturating_sub(1),
+                KeyCode::Down => app.menu_idx = (app.menu_idx + 1).min(MENU.len() - 1),
+                KeyCode::Enter => match app.menu_idx {
                         0 => {
                             app.sel = 0;
                             app.mode = Mode::AddProject;
                         }
                         _ => {
-                            if app.secrets.is_empty() {
-                                app.set_ok("loading secrets…");
-                                term.draw(|f| draw(f, app))?;
-                                app.reload_secrets();
-                            } else {
-                                app.refilter();
-                            }
+                            app.set_ok("loading secrets…");
+                            term.draw(|f| draw(f, app))?;
+                            app.reload_secrets();
                             app.status.clear();
                             app.mode = Mode::Search;
                         }
                     }
-                }
                 _ => {}
             },
             Mode::AddProject => match key.code {
                 KeyCode::Esc => app.mode = Mode::Menu,
-                KeyCode::Up | KeyCode::Char('k') => app.sel = app.sel.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Up => app.sel = app.sel.saturating_sub(1),
+                KeyCode::Down => {
                     app.sel = (app.sel + 1).min(app.projects.len().saturating_sub(1))
                 }
                 KeyCode::Enter => {
@@ -252,50 +253,47 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
             Mode::Search => match key.code {
                 KeyCode::Esc => app.mode = Mode::Menu,
                 KeyCode::Up => app.sel = app.sel.saturating_sub(1),
-                KeyCode::Down => {
-                    app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1))
-                }
+                KeyCode::Down => app.sel = (app.sel + 1).min(app.filtered.len().saturating_sub(1)),
                 KeyCode::Backspace => {
                     app.filter.pop();
                     app.refilter();
                 }
-                KeyCode::Char('r') if app.filter.is_empty() => app.reload_secrets(),
                 KeyCode::Enter => {
-                    if let Some(s) = app.selected_secret() {
-                        let value = s.value.clone();
-                        let _ = disable_raw_mode();
-                        let _ = execute!(term.backend_mut(), LeaveAlternateScreen);
-                        println!("{value}");
-                        return Ok(());
-                    }
-                }
-                KeyCode::Char('c') if app.filter.is_empty() => {
-                    if let Some(s) = app.selected_secret() {
-                        copy_with_autoclear(s.value.clone());
-                        app.set_ok(format!(
-                            "✓ copied “{}” — clears in 30s while app stays open",
-                            s.key
-                        ));
-                    }
-                }
-                KeyCode::Char('e') if app.filter.is_empty() => {
-                    if let Some(s) = app.selected_secret().cloned() {
-                        app.edit_key = s.key;
-                        app.edit_value = s.value;
-                        app.edit_note = s.note;
-                        app.edit_field = 0;
-                        app.mode = Mode::Edit;
-                    }
-                }
-                KeyCode::Char('d') if app.filter.is_empty() => {
                     if app.selected_secret().is_some() {
-                        app.mode = Mode::ConfirmDelete;
+                        app.action_idx = 0;
+                        app.revealed = false;
+                        app.mode = Mode::ActionMenu;
                     }
                 }
                 KeyCode::Char(c) => {
                     app.filter.push(c);
                     app.refilter();
                 }
+                _ => {}
+            },
+            Mode::ActionMenu => match key.code {
+                KeyCode::Esc => {
+                    if app.revealed {
+                        app.revealed = false;
+                    } else {
+                        app.mode = Mode::Search;
+                    }
+                }
+                KeyCode::Up => {
+                    if !app.revealed {
+                        app.action_idx = app.action_idx.saturating_sub(1);
+                    }
+                }
+                KeyCode::Down => {
+                    if !app.revealed {
+                        app.action_idx = (app.action_idx + 1).min(ACTIONS.len() - 1);
+                    }
+                }
+                KeyCode::Enter => run_action(app),
+                KeyCode::Char('c') => copy_action(app),
+                KeyCode::Char('r') => app.revealed = !app.revealed,
+                KeyCode::Char('e') => edit_action(app),
+                KeyCode::Char('d') => app.mode = Mode::ConfirmDelete,
                 _ => {}
             },
             Mode::Edit => match key.code {
@@ -347,6 +345,35 @@ fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> R
                 _ => app.mode = Mode::Search,
             },
         }
+    }
+}
+
+fn copy_action(app: &mut App) {
+    if let Some(s) = app.selected_secret() {
+        let key = s.key.clone();
+        copy_with_autoclear(s.value.clone());
+        app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)"));
+    }
+    app.mode = Mode::Search;
+}
+
+fn edit_action(app: &mut App) {
+    if let Some(s) = app.selected_secret().cloned() {
+        app.edit_key = s.key;
+        app.edit_value = s.value;
+        app.edit_note = s.note;
+        app.edit_field = 0;
+        app.mode = Mode::Edit;
+    }
+}
+
+fn run_action(app: &mut App) {
+    match app.action_idx {
+        0 => copy_action(app),
+        1 => app.revealed = true,
+        2 => edit_action(app),
+        3 => app.mode = Mode::ConfirmDelete,
+        _ => app.mode = Mode::Search,
     }
 }
 
@@ -405,32 +432,42 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         )),
         header[0],
     );
-    let stats = format!("{} projects · {} secrets", app.projects.len(), app.secrets.len());
+    let stats = format!(
+        "{} projects · {} secrets",
+        app.projects.len(),
+        app.secrets.len()
+    );
     f.render_widget(Paragraph::new(Span::styled(stats, DIM)), header[1]);
 
     let hints: &[(&str, &str)] = match app.mode {
-        Mode::Menu => &[("↑↓", "move"), ("Enter", "select"), ("q", "quit")],
+        Mode::Menu => &[("↑↓", "move"), ("Enter", "select"), ("Esc", "quit")],
         Mode::AddProject => &[("↑↓", "move"), ("Enter", "select"), ("Esc", "back")],
         Mode::AddKey => &[("Enter", "next"), ("Esc", "back")],
         Mode::AddValue => &[("Enter", "create"), ("Esc", "back")],
         Mode::Search => &[
-            ("Enter", "print value"),
-            ("c", "copy"),
-            ("e", "edit"),
-            ("d", "delete"),
-            ("r", "refresh"),
+            ("type", "filter"),
+            ("↑↓", "move"),
+            ("Enter", "actions"),
             ("Esc", "back"),
         ],
+        Mode::ActionMenu => &[("↑↓", "choose"), ("Enter", "select"), ("Esc", "close")],
         Mode::Edit => &[("Tab", "next field"), ("Enter", "save"), ("Esc", "cancel")],
         Mode::ConfirmDelete => &[("y", "confirm delete"), ("any key", "cancel")],
     };
 
     match app.mode {
         Mode::Menu => {
-            let items: Vec<ListItem> = MENU.iter().map(|m| ListItem::new(format!("  {m}"))).collect();
+            let items: Vec<ListItem> = MENU
+                .iter()
+                .map(|m| ListItem::new(format!("  {m}")))
+                .collect();
             let list = List::new(items)
                 .block(panel(" menu "))
-                .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .highlight_symbol("▸");
             let mut state = ListState::default();
             state.select(Some(app.menu_idx));
@@ -444,7 +481,11 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                 .collect();
             let list = List::new(items)
                 .block(panel(" step 1/3 — which project does it belong to? "))
-                .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )
                 .highlight_symbol("▸");
             let mut state = ListState::default();
             state.select(Some(app.sel));
@@ -482,14 +523,12 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
             ));
         }
         Mode::Search => {
-            let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(chunks[1]);
+            let rows =
+                Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(chunks[1]);
             let filter_block = panel(" search ");
             let filter_inner = filter_block.inner(rows[0]);
             f.render_widget(filter_block, rows[0]);
-            f.render_widget(
-                Paragraph::new(app.filter.to_string()),
-                filter_inner,
-            );
+            f.render_widget(Paragraph::new(app.filter.to_string()), filter_inner);
             f.set_cursor_position(Position::new(
                 filter_inner.x + app.filter.len() as u16,
                 filter_inner.y,
@@ -521,11 +560,74 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
                     .collect();
                 let list = List::new(items)
                     .block(list_block)
-                    .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
                     .highlight_symbol("▸");
                 let mut state = ListState::default();
                 state.select(Some(app.sel));
                 f.render_stateful_widget(list, rows[1], &mut state);
+            }
+        }
+        Mode::ActionMenu => {
+            let items: Vec<ListItem> = app
+                .filtered
+                .iter()
+                .map(|&i| ListItem::new(format!("  {}", app.secrets[i].key)))
+                .collect();
+            f.render_widget(List::new(items).block(panel(" secrets ")), chunks[1]);
+            if let Some(s) = app.selected_secret() {
+                if app.revealed {
+                    let dialog = centered(chunks[1], 60, 9);
+                    f.render_widget(Clear, dialog);
+                    let p = Paragraph::new(vec![
+                        Line::from(""),
+                        Line::from(Span::styled(
+                            s.value.clone(),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        )),
+                        Line::from(""),
+                        key_hints(&[("Esc", "hide")]),
+                    ])
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(BorderType::Rounded)
+                            .title(format!(" “{}” ", s.key))
+                            .title_style(Style::default().fg(ACCENT)),
+                    )
+                    .wrap(Wrap { trim: false });
+                    f.render_widget(p, dialog);
+                } else {
+                    let dialog = centered(chunks[1], 40, 9);
+                    f.render_widget(Clear, dialog);
+                    let lines: Vec<Line> = ACTIONS
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| {
+                            if i == app.action_idx {
+                                Line::from(Span::styled(
+                                    format!("▸ {a}"),
+                                    Style::default()
+                                        .fg(Color::Yellow)
+                                        .add_modifier(Modifier::BOLD),
+                                ))
+                            } else {
+                                Line::from(format!("  {a}"))
+                            }
+                        })
+                        .collect();
+                    let p = Paragraph::new(lines).block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(BorderType::Rounded)
+                            .title(format!(" “{}” ", s.key))
+                            .title_style(Style::default().fg(ACCENT)),
+                    );
+                    f.render_widget(p, dialog);
+                }
             }
         }
         Mode::Edit => {
@@ -599,7 +701,11 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     } else {
         Line::from(Span::styled(
             format!("  {}", app.status),
-            Style::default().fg(if app.status_err { Color::Red } else { Color::Green }),
+            Style::default().fg(if app.status_err {
+                Color::Red
+            } else {
+                Color::Green
+            }),
         ))
     };
     f.render_widget(
@@ -609,7 +715,16 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
 }
 
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
-    let v =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(h), Constraint::Min(0)]).split(area);
-    Layout::horizontal([Constraint::Min(0), Constraint::Length(w), Constraint::Min(0)]).split(v[1])[1]
+    let v = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(h),
+        Constraint::Min(0),
+    ])
+    .split(area);
+    Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(w),
+        Constraint::Min(0),
+    ])
+    .split(v[1])[1]
 }

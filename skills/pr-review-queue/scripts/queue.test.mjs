@@ -15,7 +15,7 @@ test("collectOpenPullRequests rejects a repeated cursor instead of looping forev
   const pages = structuredClone(fixture.pages);
   // Force a second page: still has more, but hands back the same cursor it was fetched with.
   pages[1].data.repository.pullRequests.pageInfo.hasNextPage = true;
-  pages[1].data.repository.pullRequests.pageInfo.endCursor = "cursor-1";
+  pages[1].data.repository.pullRequests.pageInfo.endCursor = pages[0].data.repository.pullRequests.pageInfo.endCursor;
   let pageIndex = 0;
   await assert.rejects(
     collectOpenPullRequests(async () => pages[pageIndex++]),

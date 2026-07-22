@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,7 +87,49 @@ test("pollOnce requests gate-only revalidation exactly when gate evidence change
   );
 });
 
+test("pollOnce isolates a single failing PR and still processes the rest of the queue", async () => {
+  const { actionable, observations, errors } = await pollOnce({
+    fetchQueue: async () => [35, 36],
+    fetchPrState: async (pr) => {
+      if (pr === 35) throw new Error("PR 35 was closed mid-cycle");
+      return { head: "abc123", election: election(), gateEvidence: evidence() };
+    },
+    observations: new Map(),
+    now: "2026-07-20T00:00:00Z",
+  });
+  assert.deepEqual(
+    actionable,
+    [{ pr: 36, head: "abc123", action: "full-review" }],
+    "the healthy PR must still be flagged",
+  );
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].pr, 35);
+  assert.ok(!observations.has(35), "a PR that failed to poll must not get a fabricated observation");
+});
+
+test("pollOnce surfaces a cycle error only when every PR in a non-empty queue fails", async () => {
+  await assert.rejects(
+    pollOnce({
+      fetchQueue: async () => [35, 36],
+      fetchPrState: async () => {
+        throw new Error("auth broken for all PRs");
+      },
+      observations: new Map(),
+      now: "t",
+    }),
+    /all 2 queued PRs failed to poll/,
+    "a systemic failure must still throw so runLoop's maxErrors abort fires",
+  );
+});
+
 // --- persisted state on disk ---
+
+test("loadObservations recovers from a corrupt state file instead of throwing", () => {
+  const path = tempStatePath();
+  writeFileSync(path, "{ this is not valid json");
+  const loaded = loadObservations(path);
+  assert.equal(loaded.size, 0, "a truncated/corrupt state file must start fresh, not brick the restart");
+});
 
 test("saveObservations/loadObservations round-trip through disk", () => {
   const path = tempStatePath();
@@ -166,7 +208,7 @@ test("runLoop resets backoff to the shortest interval once actionable work appea
   );
   assert.equal(activity.length, 1);
   assert.equal(activity[0].prs[0].pr, 35);
-  assert.equal(status.reviewsCompleted, 1, "terminal status must report how much actionable work was dispatched");
+  assert.equal(status.reviewsCompleted, 0, "dispatching work must not be reported as a completed review");
 });
 
 test("runLoop aborts after maxErrors consecutive poll failures and still emits exactly one terminal status", async () => {

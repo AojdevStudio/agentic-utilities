@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const skillDir = fileURLToPath(new URL(".", import.meta.url));
 const skill = await Bun.file(new URL("./SKILL.md", import.meta.url)).text();
 const protocols = await Bun.file(new URL("./protocols.md", import.meta.url)).text();
+const gitignore = await Bun.file(new URL("../../.gitignore", import.meta.url)).text();
 // Multi-word phrase checks match against whitespace-normalized text so
 // markdown's own line-wrapping can never break an assertion that has
 // nothing to do with formatting.
@@ -14,7 +15,7 @@ const protocolsFlat = protocols.replace(/\s+/g, " ");
 
 function bareFences(text) {
   const openers = (text.match(/^```.*$/gm) ?? []).filter((_, index) => index % 2 === 0);
-  return openers.filter((fence) => fence === "```");
+  return openers.filter((fence) => fence.trim() === "```");
 }
 
 test("every fenced code block in SKILL.md and protocols.md declares a language", () => {
@@ -33,10 +34,19 @@ test("the queue is fetched via real pagination, not a fixed --limit ceiling", ()
   assert.match(protocols, /queue\.mjs/);
 });
 
+test("local review worktrees stay out of repository tooling", () => {
+  assert.match(gitignore, /^\.worktrees\/$/m);
+});
+
 test("claims are bound to a captured head, not comment timing, and re-read after posting", () => {
   assert.match(protocols, /claim\.mjs/);
   assert.match(protocols, /claim id=\$CLAIM_ID head=\$HEAD_SHA/);
   assert.match(protocolsFlat, /re-read and re-elect to confirm you actually won/i);
+});
+
+test("every claim election is authorized and preserves mismatch payloads", () => {
+  assert.equal(protocols.match(/--authorized "\$AUTHORIZED_WORKERS"/g)?.length, 2);
+  assert.match(protocols, /ELECTION_JSON=.*claim\.mjs[\s\S]*?2>&1\)"/);
 });
 
 test("the verdict schema is versioned JSON with head and sync fields, not free-form prose", () => {
@@ -59,7 +69,7 @@ test("the untrusted-data boundary is stated explicitly, not just implied", () =>
 });
 
 test("the frontmatter description requires explicit assignment and identity/access verification", () => {
-  const frontmatter = skill.match(/^---\n([\s\S]*?)\n---/)?.[1]?.replace(/\s+/g, " ") ?? "";
+  const frontmatter = skill.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1]?.replace(/\s+/g, " ") ?? "";
   assert.match(frontmatter, /explicitly assigned/i);
   assert.match(frontmatter, /authenticated gh/i);
   assert.match(frontmatter, /posting authorization/i);

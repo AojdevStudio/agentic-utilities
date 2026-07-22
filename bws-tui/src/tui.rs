@@ -1,5 +1,5 @@
 use crate::bws::{self, Project, Secret};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use arboard::Clipboard;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
@@ -201,10 +201,23 @@ pub fn run() -> Result<()> {
     let raw_result = disable_raw_mode().context("failed to restore terminal input mode");
     let screen_result = execute!(term.backend_mut(), LeaveAlternateScreen)
         .context("failed to leave the alternate terminal screen");
-    event_result?;
-    raw_result?;
-    screen_result?;
-    Ok(())
+    finish_terminal(event_result, raw_result, screen_result)
+}
+
+fn finish_terminal(event: Result<()>, raw: Result<()>, screen: Result<()>) -> Result<()> {
+    let errors = [
+        ("event loop", event),
+        ("input mode", raw),
+        ("screen", screen),
+    ]
+    .into_iter()
+    .filter_map(|(label, result)| result.err().map(|error| format!("{label}: {error:#}")))
+    .collect::<Vec<_>>();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(errors.join("; ")))
+    }
 }
 
 fn event_loop(term: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
@@ -806,5 +819,19 @@ mod tests {
             id: "demo".into(),
             name: "Demo".into(),
         }]));
+    }
+
+    #[test]
+    fn terminal_cleanup_reports_every_failure() {
+        let error = finish_terminal(
+            Err(anyhow!("event failed")),
+            Err(anyhow!("raw failed")),
+            Err(anyhow!("screen failed")),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("event failed"));
+        assert!(error.contains("raw failed"));
+        assert!(error.contains("screen failed"));
     }
 }

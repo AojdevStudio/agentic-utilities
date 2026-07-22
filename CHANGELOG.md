@@ -43,6 +43,7 @@
 
 ### Fixed
 
+- harden polling contracts
 - remediate merged-#35 CodeRabbit findings [#35]
 - post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]
 - complete issue #10 port hardening (#33) [#10]

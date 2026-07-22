@@ -68,11 +68,14 @@ function githubFetchPrState(repository, identities, staleMs) {
 
 export function sleepWithStop(ms, stopSignal) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    stopSignal.whenStopped().then(() => {
+    let unsubscribe = () => {};
+    const timer = setTimeout(finish, ms);
+    function finish() {
       clearTimeout(timer);
+      unsubscribe();
       resolve();
-    });
+    }
+    unsubscribe = stopSignal.subscribe(finish);
   });
 }
 
@@ -82,12 +85,18 @@ function cliOptions() {
   const [owner, name, extra] = repository?.split("/") ?? [];
   if (!owner || !name || extra) throw new Error("run requires --repo owner/name");
   if (authorizedIdentities.length === 0) throw new Error("run requires --authorized as a comma-separated list");
+  const staleMs = Number(option("--stale-ms") ?? 20 * 60 * 1000);
+  const maxErrors = Number(option("--max-errors") ?? 5);
+  if (!Number.isFinite(staleMs) || staleMs < 0) throw new Error("run requires --stale-ms as a non-negative number");
+  if (!Number.isSafeInteger(maxErrors) || maxErrors <= 0) {
+    throw new Error("run requires --max-errors as a positive integer");
+  }
   return {
     repository,
     authorizedIdentities,
     statePath: option("--state", ".pr-review-queue-state.json"),
-    staleMs: Number(option("--stale-ms") ?? 20 * 60 * 1000),
-    maxErrors: Number(option("--max-errors") ?? 5),
+    staleMs,
+    maxErrors,
   };
 }
 
@@ -101,7 +110,7 @@ async function main() {
     statePath,
     stopSignal,
     nowFn: () => new Date().toISOString(),
-    sleepFn: (ms) => sleepWithStop(ms, stopSignal),
+    sleepFn: sleepWithStop,
     randomFn: Math.random,
     maxErrors,
     emit: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),

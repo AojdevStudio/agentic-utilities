@@ -25,7 +25,8 @@ export async function pollOnce({ fetchQueue, fetchPrState, observations, now }) 
   const queue = await fetchQueue();
   const actionable = [];
   const errors = [];
-  const nextObservations = new Map(observations);
+  const queued = new Set(queue);
+  const nextObservations = new Map([...observations].filter(([pr]) => queued.has(pr)));
   for (const pr of queue) {
     try {
       const result = await pollPr(pr, fetchPrState, observations, now);
@@ -46,6 +47,9 @@ export function loadObservations(path) {
   const serialized = readFileSync(path, "utf8");
   try {
     const entries = JSON.parse(serialized);
+    if (!Array.isArray(entries) || entries.some((entry) => !entry || !Number.isSafeInteger(entry.pr))) {
+      return new Map();
+    }
     return new Map(entries.map((entry) => [entry.pr, entry]));
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
@@ -85,6 +89,7 @@ export async function runLoop(options) {
   while (!stopSignal.shouldStop()) {
     try {
       ({ observations, backoff } = await pollCycle({ ...options, observations, backoff, now: nowFn(), emit }));
+      lastError = null;
     } catch (error) {
       lastError = error.message;
       backoff = recordError(backoff, maxErrors);

@@ -88,7 +88,7 @@ Shells do not load `~/.env` automatically. Source it from your shell startup fil
 Load it now, then verify the official CLI before starting `hush`:
 
 ```bash
-source ~/.zshrc # use ~/.bashrc for Bash
+source "$HOME/.env"
 bws project list
 ```
 

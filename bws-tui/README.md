@@ -63,15 +63,36 @@ The official `bws` CLI already has the authentication and API access. What it do
 
 Install the official [`bws` binary](https://github.com/bitwarden/sdk-sm/releases) and make sure it is on `PATH`. `hush` is developed against `bws` 2.1.0.
 
-### 2. Export a machine-account token
+### 2. Load a machine-account token automatically
 
-Create a token under **Secrets Manager → Machine accounts** in Bitwarden, then:
+Create a token under **Secrets Manager → Machine accounts** in Bitwarden. Put it in your global `~/.env` so every terminal can use it without another setup step:
 
 ```bash
+# ~/.env
 export BWS_ACCESS_TOKEN="..."
 ```
 
-No login flow exists in `hush`; the token is consumed by `bws` itself.
+Protect the file after saving it:
+
+```bash
+chmod 600 ~/.env
+```
+
+Shells do not load `~/.env` automatically. Source it from your shell startup file:
+
+```bash
+# ~/.zshrc on macOS, or ~/.bashrc when using Bash
+[ -f "$HOME/.env" ] && source "$HOME/.env"
+```
+
+Load it now, then verify the official CLI before starting `hush`:
+
+```bash
+source "$HOME/.env"
+bws project list
+```
+
+New terminals will load the token automatically. No login flow exists in `hush`; the token is consumed by `bws` itself.
 
 ### 3. Install the crate, run the good command
 

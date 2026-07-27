@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Dive"
+  short_description: "Deliver thorough, decisive, actionable analysis"
+  default_prompt: "Use $deep-dive to deliver a thorough, opinionated, and actionable analysis of this topic."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bambu Slicer"
+  short_description: "Design, slice, and prepare Bambu 3D prints"
+  default_prompt: "Use $bambu-slicer to design, slice, or prepare this model for a Bambu Lab printer."

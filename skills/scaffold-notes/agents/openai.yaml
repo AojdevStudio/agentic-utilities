@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scaffold Notes"
+  short_description: "Maintain this repo's reusable Pi resources"
+  default_prompt: "Use $scaffold-notes to add and document a reusable Pi resource in this repository."

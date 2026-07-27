@@ -1,0 +1,7 @@
+interface:
+  display_name: "Herdr Fleet"
+  short_description: "Launch and control project-scoped Herdr fleets"
+  default_prompt: "Use $herdr-fleet to launch or resume a project-scoped worker fleet."
+
+policy:
+  allow_implicit_invocation: false

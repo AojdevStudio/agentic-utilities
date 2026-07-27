@@ -23,7 +23,6 @@
 | [`conditional-hooks`](extensions/conditional-hooks/) | Pi Extension | Loads explicit JSON hook policy, including the documented worktree-GC-on-merge example. |
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
 | [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
-| [`grill-with-docs`](skills/grill-with-docs/) | Skill | Stress-tests plans against project domain language and captures resolved terms/ADRs. |
 | [`scaffold-notes`](skills/scaffold-notes/) | Skill | Maintenance helper for adding resources to this repo consistently. |
 | [`youtube-analyzer`](claude-code/plugins/youtube-analyzer/) | Claude Code plugin | Format-aware YouTube video analysis with multi-agent transcript chunking. |
 | [`critical-bug-hunt`](prompts/critical-bug-hunt.prompt.md) | Prompt template | Recent-commit audit for high-severity correctness bugs and minimal fixes. |

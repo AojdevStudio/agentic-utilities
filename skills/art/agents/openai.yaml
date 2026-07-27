@@ -1,0 +1,4 @@
+interface:
+  display_name: "Art"
+  short_description: "Create polished visuals and art direction"
+  default_prompt: "Use $art to create a polished visual concept and production-ready asset for this request."

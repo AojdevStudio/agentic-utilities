@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Documentation"
+  short_description: "Retrieve current technical documentation"
+  default_prompt: "Use $find-docs to retrieve authoritative current documentation for this technical question."

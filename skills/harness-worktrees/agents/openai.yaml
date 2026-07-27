@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Worktrees"
+  short_description: "Reset Pi worktrees safely to latest main"
+  default_prompt: "Use $harness-worktrees to safely sync this worktree with the latest origin/main."

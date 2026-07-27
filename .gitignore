@@ -17,6 +17,10 @@ pnpm-debug.log*
 # Local harness state
 .claude/
 .cursor/
+.codegraph/
+.codex/environments/
+.pi-subagents/
+.pi/todos/
 .pi/autopilot/issues/
 .pi/autopilot/locks/
 .pi/autopilot/logs/
@@ -24,6 +28,7 @@ pnpm-debug.log*
 .pi/autopilot/runs/
 .pi/autopilot/status/
 .pi/autopilot/workflows/
+/subagents/
 
 # opensrc - source code for packages
 opensrc/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Workflow"
+  short_description: "Run Git, PR, CI, release, and issue workflows"
+  default_prompt: "Use $gitworkflow to carry this Git task through the appropriate repository workflow."

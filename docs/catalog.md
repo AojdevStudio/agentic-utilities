@@ -26,8 +26,6 @@ Keep this as the human-readable record of what lives in the package.
 | `find-docs` | Skill | `skills/find-docs/SKILL.md` | active | Retrieves authoritative, current technical docs and API references before answering or coding. |
 | `gitworkflow` | Skill | `skills/gitworkflow/SKILL.md` | active | Handles Git Flow branching, CI monitoring, PRs, merges, releases, submodules, and issue routing. |
 | `github-wiki` | Skill | `skills/github-wiki/SKILL.md` | active | Builds and maintains canonical, source-backed GitHub Wikis with rendered verification and event-driven maintenance. |
-| `grill-me` | Skill | `skills/grill-me/SKILL.md` | active | Stress-tests a plan or design through a rigorous user interview. |
-| `grill-with-docs` | Skill | `skills/grill-with-docs/SKILL.md` | active | Stress-tests plans against project domain language, updates `CONTEXT.md`/ADRs as decisions crystallize, and uses recommendation-first `AskUserQuestion` decision prompts. |
 | `harness-audit` | Skill | `skills/harness-audit/SKILL.md` | active | Audits repo harness readiness and fix gaps; copy into harness-specific inventories for daily use when isolation matters. |
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `herdr-fleet` | Skill | `skills/herdr-fleet/SKILL.md` | active | Global-canonical skill (canonical at `~/.agents/skills/herdr-fleet`, symlinked into pi/claude/codex; repo is the public snapshot). Orchestrates user-confirmed, project-scoped Herdr worker rosters from one control pane via a guided roster wizard. |

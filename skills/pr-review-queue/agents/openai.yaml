@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Review Queue"
+  short_description: "Review queued PRs with head-pinned verdicts"
+  default_prompt: "Use $pr-review-queue to review the oldest eligible pull request in the assigned repository queue."

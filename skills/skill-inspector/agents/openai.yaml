@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Inspector"
+  short_description: "Security-scan AI agent skills before trust"
+  default_prompt: "Use $skill-inspector to run a deep security scan on this agent skill and explain the verdict."

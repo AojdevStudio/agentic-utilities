@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Audit"
+  short_description: "Audit autonomous-agent harness readiness"
+  default_prompt: "Use $harness-audit to assess this repository's agent harness readiness and report the highest-leverage gaps."

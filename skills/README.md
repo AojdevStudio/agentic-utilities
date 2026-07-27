@@ -15,8 +15,6 @@ This directory is the repo's generic skills lane. The skills CLI also discovers 
 | `deep-dive` | [`deep-dive/`](deep-dive/) | Structured technical, operational, and strategic deep-dive analysis. | Generic Agent Skill; also available as a Claude Code plugin. |
 | `find-docs` | [`find-docs/`](find-docs/) | Retrieves authoritative current docs, API references, setup notes, and examples before answering or coding. | Generic Agent Skill. |
 | `gitworkflow` | [`gitworkflow/`](gitworkflow/) | Git Flow branching, commits, PRs, CI monitoring, merges, releases, submodules, and issue routing. | Generic Agent Skill; also available as a Claude Code plugin. |
-| `grill-me` | [`grill-me/`](grill-me/) | Stress-tests plans and designs through a rigorous user interview. | Generic Agent Skill. |
-| `grill-with-docs` | [`grill-with-docs/`](grill-with-docs/) | Stress-tests plans against project domain language and records resolved terms/ADRs as decisions crystallize. | Generic Agent Skill. |
 | `harness-audit` | [`harness-audit/`](harness-audit/) | Audits repos for autonomous-agent harness readiness and unattended ticket execution gaps. | Generic Agent Skill; also available as a Claude Code plugin. |
 | `harness-worktrees` | [`harness-worktrees/`](harness-worktrees/) | Manages Pi/Superconductor worktree refresh and reset workflows after PR merges. | Generic Agent Skill; also available as a Claude Code plugin. |
 | `herdr-fleet` | [`herdr-fleet/`](herdr-fleet/) | Launches and reconciles user-confirmed, project-scoped Herdr worker fleets from one control pane. | Global-canonical at `~/.agents/skills/herdr-fleet`; harness inventories intentionally symlink to it; defaults to report-only merge policy. |

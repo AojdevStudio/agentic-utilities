@@ -1,0 +1,4 @@
+interface:
+  display_name: "Awesome README"
+  short_description: "Create compelling story-first GitHub READMEs"
+  default_prompt: "Use $awesome-readme to create or improve this GitHub README with a compelling story-first structure."

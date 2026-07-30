@@ -22,6 +22,22 @@ changelog 1.1.0 --auto --dry-run
 changelog --unreleased
 ```
 
+## How releases treat the Unreleased section
+
+Cutting a release **replaces** the Unreleased section with the entry generated
+from your commit range. It does not promote the existing Unreleased notes into
+the release.
+
+The practical consequence: hand-written notes in Unreleased that are not
+regenerated from commits are discarded when you release. Anything about to be
+lost is printed for review first, in `--dry-run` and under `--force` alike, and
+the interactive confirmation says "Replace" rather than "Add" when there is
+curated content at stake.
+
+If you keep a hand-curated Unreleased section, copy what you want to keep into
+the release entry before running the release, or drive the section from commits
+with `changelog --unreleased`.
+
 ## Requirements
 
 Python 3.9 or newer. Note that this is a deliberate change from the `>=3.8` floor

@@ -311,13 +311,23 @@ def test_f10_generic_error_handler_is_reachable(monkeypatch, capsys):
     assert "Unexpected error: boom" in capsys.readouterr().out
 
 
-def test_f10_no_keyboardinterrupt_branch_remains():
-    import inspect
+def test_f10_keyboard_interrupt_is_handled_by_click(repo, monkeypatch):
+    """Behavioral proof that a KeyboardInterrupt branch would be unreachable.
+
+    Click's standalone mode intercepts KeyboardInterrupt itself, reports
+    "Aborted!" and exits 1, so it never reaches an application-level handler.
+    """
     from changelog_tool import cli as cli_module
 
-    # The branch was dead code: Click consumes KeyboardInterrupt itself.
-    # Matched as an except clause so the explanatory comment does not count.
-    assert "except KeyboardInterrupt" not in inspect.getsource(cli_module.main)
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_module, "parse_commits", interrupt)
+
+    result = CliRunner().invoke(cli, ["--unreleased"])
+
+    assert result.exit_code == 1
+    assert "Aborted!" in result.output
 
 
 # --------------------------------------------------------------------------
@@ -341,3 +351,134 @@ def test_f11_partial_number_does_not_suppress_suffix():
     # "#4" must not be considered present in a subject mentioning "#42".
     entry = get_commit_changelog_entry({"subject": "touch up thing (#42)", "pr": "4"})
     assert entry == "touch up thing (#42) [#4]"
+
+
+# --------------------------------------------------------------------------
+# Round 2
+# R2-F1: the release-replaces-Unreleased policy was undisclosed and invisible
+# --------------------------------------------------------------------------
+
+CURATED = (
+    "# Changelog\n\n## [Unreleased]\n\n### Added\n\n"
+    "- hand written note that no commit produces\n"
+)
+
+
+def test_r2f1_dry_run_shows_content_that_will_be_replaced(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(CURATED, encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["1.1.0", "--auto", "--dry-run"])
+    assert result.exit_code == 0, result.output
+
+    # Previously the preview showed only the generated entry, so a user could
+    # not tell their curated note was about to be deleted.
+    assert "will be REPLACED" in result.output
+    assert "hand written note that no commit produces" in result.output
+    # Dry run still must not write.
+    assert (repo / "CHANGELOG.md").read_text(encoding="utf-8") == CURATED
+
+
+def test_r2f1_force_warns_before_discarding_curated_content(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(CURATED, encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["1.1.0", "--auto", "--force"])
+    assert result.exit_code == 0, result.output
+
+    assert "will be REPLACED" in result.output
+    assert "hand written note that no commit produces" in result.output
+    # The policy itself is unchanged: the note is genuinely gone.
+    assert "hand written note" not in (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_r2f1_confirmation_says_replace_when_content_is_at_stake(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(CURATED, encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["1.1.0", "--auto"], input="n\n")
+
+    assert "Replace the Unreleased section" in result.output
+    # Declining must leave the file untouched.
+    assert (repo / "CHANGELOG.md").read_text(encoding="utf-8") == CURATED
+
+
+def test_r2f1_confirmation_says_add_when_nothing_is_at_stake(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n", encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["1.1.0", "--auto"], input="n\n")
+
+    assert "Add this entry to CHANGELOG.md?" in result.output
+    assert "will be REPLACED" not in result.output
+
+
+def test_r2f1_policy_is_disclosed_in_help():
+    result = CliRunner().invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "REPLACES the Unreleased section" in result.output
+
+
+# --------------------------------------------------------------------------
+# R2-F2: a terminal reference-definition footer was swallowed and deleted
+# --------------------------------------------------------------------------
+
+FOOTER_CHANGELOG = (
+    "# Changelog\n\n## [Unreleased]\n\n"
+    "[guide]: https://example.com/guide\n"
+    "[unreleased]: https://github.com/example/demo/compare/v1.0.0...HEAD\n"
+)
+
+
+def test_r2f2_reference_footer_is_not_part_of_the_body():
+    body = utils.read_unreleased_body(FOOTER_CHANGELOG)
+    # Pre-fix the body ran to EOF and swallowed both definitions.
+    assert body == ""
+
+
+def test_r2f2_release_preserves_unrelated_definitions_with_remote(repo_with_remote):
+    repo = repo_with_remote
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(FOOTER_CHANGELOG, encoding="utf-8")
+
+    assert CliRunner().invoke(cli, ["1.1.0", "--auto", "--force"]).exit_code == 0
+    content = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    # The unrelated definition must survive the release.
+    assert "[guide]: https://example.com/guide" in content
+    # And the Unreleased definition is updated, not duplicated.
+    assert content.lower().count("[unreleased]:") == 1
+    assert "v1.0.0...HEAD" not in content
+    assert "[1.1.0]: https://github.com/example/demo/releases/tag/v1.1.0" in content
+
+
+def test_r2f2_release_preserves_definitions_without_repo_metadata(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(FOOTER_CHANGELOG, encoding="utf-8")
+
+    assert CliRunner().invoke(cli, ["1.1.0", "--auto", "--force"]).exit_code == 0
+    content = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    # With no repo metadata nothing regenerates these, so deleting them was
+    # permanent data loss. Both must survive untouched.
+    assert "[guide]: https://example.com/guide" in content
+    assert "[unreleased]: https://github.com/example/demo/compare/v1.0.0...HEAD" in content
+
+
+def test_r2f2_unreleased_regeneration_preserves_footer(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(FOOTER_CHANGELOG, encoding="utf-8")
+
+    assert CliRunner().invoke(cli, ["--unreleased"]).exit_code == 0
+    content = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "[guide]: https://example.com/guide" in content
+    assert "- add endpoint" in content
+
+
+def test_r2f2_body_with_prose_and_footer_splits_correctly():
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- a thing\n\n"
+        "[guide]: https://example.com/guide\n"
+    )
+    assert utils.read_unreleased_body(content) == "### Added\n\n- a thing"

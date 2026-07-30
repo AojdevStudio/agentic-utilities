@@ -32,9 +32,11 @@ from .utils import (
     update_changelog_file,
     get_next_version,
     initialize_changelog_file,
+    read_unreleased_body,
     changelog_path,
     package_json_path,
     find_unreleased_span,
+    require_unreleased_span,
     ensure_unreleased_heading,
 )
 
@@ -80,7 +82,7 @@ def get_commit_changelog_entry(commit: Dict[str, object]) -> str:
     """
     Format a parsed commit for a changelog bullet.
     """
-    subject = commit['subject']
+    subject = str(commit['subject'])
     pr = commit.get('pr')
 
     # Squash-merge subjects already carry "(#42)". Appending " [#42]" produced
@@ -139,7 +141,7 @@ def replace_unreleased_body(body: str) -> None:
     # body_start would shift forward by the existing blank line on each run
     # while the replacement re-adds one, accumulating a blank line per
     # invocation and breaking idempotency.
-    _, body_start, body_end = find_unreleased_span(current_content)
+    _, body_start, body_end = require_unreleased_span(current_content)
 
     replacement = f"\n{body}\n\n" if body else "\n"
     new_content = current_content[:body_start] + replacement + current_content[body_end:]
@@ -255,6 +257,21 @@ def update_changelog(version: Optional[str], auto: bool, manual: bool, dry_run: 
         print(changelog_entry)
         print(f"{Fore.CYAN}{'─' * 60}")
 
+        # Cutting a release REPLACES the Unreleased section rather than
+        # promoting it. That is deliberate, but it was previously invisible:
+        # curated notes could be deleted by --force with no warning at all.
+        # Anything about to be discarded is shown before it happens.
+        existing_unreleased = read_unreleased_body(
+            changelog_path().read_text(encoding="utf-8")
+        ) if changelog_path().exists() else ""
+
+        if existing_unreleased:
+            print(f"{Fore.YELLOW}\n⚠️  The current Unreleased section will be REPLACED by the entry above.")
+            print(f"{Fore.YELLOW}   Any note below that is not regenerated from commits will be lost:")
+            print(f"{Fore.CYAN}{'─' * 60}")
+            print(existing_unreleased)
+            print(f"{Fore.CYAN}{'─' * 60}")
+
         # Confirm or dry-run
         if dry_run:
             print(f"{Fore.YELLOW}\n🔍 Dry run complete. No files were modified.")
@@ -262,11 +279,17 @@ def update_changelog(version: Optional[str], auto: bool, manual: bool, dry_run: 
 
         # Skip confirmation if force flag is set
         if not force:
-            confirm = input(f"\n{Fore.BLUE}Add this entry to CHANGELOG.md? (y/N): ").strip().lower()
+            if existing_unreleased:
+                prompt = "Replace the Unreleased section and add this entry to CHANGELOG.md? (y/N): "
+            else:
+                prompt = "Add this entry to CHANGELOG.md? (y/N): "
+            confirm = input(f"\n{Fore.BLUE}{prompt}").strip().lower()
             if confirm not in ['y', 'yes']:
                 print(f"{Fore.YELLOW}❌ Changelog update cancelled.")
                 return
         else:
+            if existing_unreleased:
+                print(f"{Fore.YELLOW}\n⚠️  Force mode: replacing the Unreleased section shown above without confirmation.")
             print(f"{Fore.GREEN}\n🚀 Force mode enabled - automatically proceeding...")
 
         # Update changelog file
@@ -368,6 +391,11 @@ def get_changes_manually() -> Dict[str, List[str]]:
 def cli(version: Optional[str], auto: bool, manual: bool, dry_run: bool, verbose: bool, force: bool, unreleased: bool):
     """
     Update CHANGELOG.md with new version entries
+
+    Cutting a release REPLACES the Unreleased section with the generated
+    entry; it does not promote the existing Unreleased notes. Hand-written
+    notes there that are not regenerated from commits are discarded. They are
+    printed for review before anything is written, including under --force.
 
     Examples:
       changelog 1.5.0 --auto          # Auto-analyze git commits

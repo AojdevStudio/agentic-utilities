@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import git
 import semver
+from git.exc import GitCommandError
 from colorama import Fore, Style, init
 
 # Initialize colorama for cross-platform color support
@@ -35,6 +36,47 @@ NEXT_H2_PATTERN = r"(?m)^## "
 # may be terminated by a newline OR end-of-file. Markdown reference labels are
 # case-insensitive, so a lowercase "[unreleased]:" is the same definition.
 UNRELEASED_LINK_PATTERN = r"(?mi)^\[unreleased\]:[^\n]*(?:\r?\n|$)"
+
+# A link reference definition: "[label]: target". These collect in a footer
+# block at the bottom of the file.
+REFERENCE_DEFINITION_PATTERN = re.compile(r"^\[[^\]]+\]:")
+
+
+def _trim_trailing_reference_block(content: str, body_start: int, body_end: int) -> int:
+    """
+    Pull a terminal reference-definition footer out of the Unreleased body.
+
+    In a first-release changelog the reference definitions sit directly under
+    "## [Unreleased]" with no following H2, so a naive body span ran to EOF and
+    swallowed them. Releasing then DELETED unrelated definitions such as
+    "[guide]:", and with no repository metadata it deleted the "[unreleased]:"
+    definition too, because nothing regenerated it.
+
+    Returns:
+        The body end offset with any trailing reference-definition block (and
+        the blank lines separating it from the prose) excluded. Unchanged when
+        the body has no such block.
+    """
+    lines = content[body_start:body_end].splitlines(keepends=True)
+
+    index = len(lines)
+    saw_reference = False
+
+    while index > 0:
+        stripped = lines[index - 1].strip()
+        if not stripped:
+            index -= 1
+            continue
+        if REFERENCE_DEFINITION_PATTERN.match(stripped):
+            saw_reference = True
+            index -= 1
+            continue
+        break
+
+    if not saw_reference:
+        return body_end
+
+    return body_start + sum(len(line) for line in lines[:index])
 
 
 def changelog_path() -> Path:
@@ -61,7 +103,7 @@ def find_unreleased_span(content: str) -> Optional[Tuple[int, int, int]]:
     Returns:
         (heading_start, body_start, body_end) offsets, or None if there is no
         Unreleased heading. body_end is the offset of the next level-2 heading,
-        or end-of-file.
+        or end-of-file, with any trailing reference-definition footer excluded.
     """
     match = re.search(UNRELEASED_HEADING_PATTERN, content)
     if not match:
@@ -70,7 +112,20 @@ def find_unreleased_span(content: str) -> Optional[Tuple[int, int, int]]:
     body_start = match.end()
     next_section_match = re.search(NEXT_H2_PATTERN, content[body_start:])
     body_end = body_start + next_section_match.start() if next_section_match else len(content)
+    body_end = _trim_trailing_reference_block(content, body_start, body_end)
     return (match.start(), body_start, body_end)
+
+
+def read_unreleased_body(content: str) -> str:
+    """
+    Return the current Unreleased section body, stripped. Empty when absent.
+    """
+    span = find_unreleased_span(content)
+    if span is None:
+        return ""
+
+    _, body_start, body_end = span
+    return content[body_start:body_end].strip()
 
 
 def ensure_unreleased_heading(content: str) -> str:
@@ -80,6 +135,20 @@ def ensure_unreleased_heading(content: str) -> str:
     if find_unreleased_span(content) is None:
         return content.rstrip() + "\n\n## [Unreleased]\n"
     return content
+
+
+def require_unreleased_span(content: str) -> Tuple[int, int, int]:
+    """
+    Locate the Unreleased section, which the caller has guaranteed exists.
+
+    Callers run ensure_unreleased_heading first, so a miss here is a bug rather
+    than a user-input problem. Raising beats unpacking None with a
+    "cannot unpack non-sequence" traceback.
+    """
+    span = find_unreleased_span(content)
+    if span is None:
+        raise ValueError("CHANGELOG.md has no [Unreleased] section to update.")
+    return span
 
 
 def has_version_heading(content: str, version: str) -> bool:
@@ -184,7 +253,7 @@ def parse_commits() -> List[Dict[str, Any]]:
     # Get the last tag
     try:
         last_tag = str(repo.git.describe("--tags", "--abbrev=0"))
-    except git.exc.GitCommandError:
+    except GitCommandError:
         # No tags found, get all commits
         last_tag = None
 
@@ -199,10 +268,21 @@ def parse_commits() -> List[Dict[str, Any]]:
 
     parsed_commits = []
     for commit in commits:
+        # GitPython types commit.message as str OR bytes, and it really can be
+        # bytes for a message that is not valid UTF-8. Splitting bytes on a str
+        # separator raises, so it is normalized to str once here.
+        raw_message = commit.message
+        message = (
+            raw_message.decode("utf-8", errors="replace")
+            if isinstance(raw_message, bytes)
+            else raw_message
+        )
+        message_lines = message.split("\n") if message else [""]
+
         parsed_commit = parse_commit_message({
             "hash": str(commit.hexsha),
-            "subject": commit.message.split('\n')[0] if commit.message else "",
-            "body": '\n'.join(commit.message.split('\n')[1:]) if commit.message and len(commit.message.split('\n')) > 1 else "",
+            "subject": message_lines[0],
+            "body": "\n".join(message_lines[1:]),
             "author": str(commit.author.name)
         })
         if parsed_commit and parsed_commit["type"] != "ignore":
@@ -211,7 +291,7 @@ def parse_commits() -> List[Dict[str, Any]]:
     return parsed_commits
 
 
-def parse_commit_message(commit: Dict[str, str]) -> Optional[Dict[str, Any]]:
+def parse_commit_message(commit: Dict[str, str]) -> Dict[str, Any]:
     """
     Parse individual commit message using conventional commit format
     
@@ -381,7 +461,7 @@ def update_changelog_file(changelog_entry: str, version: str) -> None:
         )
 
     current_content = ensure_unreleased_heading(current_content)
-    heading_start, body_start, body_end = find_unreleased_span(current_content)
+    heading_start, body_start, body_end = require_unreleased_span(current_content)
 
     # Consume the ENTIRE Unreleased span, not just its heading. Inserting after
     # the heading alone left the previous Unreleased body sitting underneath the

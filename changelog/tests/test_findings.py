@@ -6,6 +6,7 @@ suite fails against the pre-fix implementation and passes after it.
 
 import git
 import pytest
+from git.exc import GitCommandError
 from click.testing import CliRunner
 
 from conftest import commit, initialize_repo, run_git
@@ -482,3 +483,183 @@ def test_r2f2_body_with_prose_and_footer_splits_correctly():
         "[guide]: https://example.com/guide\n"
     )
     assert utils.read_unreleased_body(content) == "### Added\n\n- a thing"
+
+
+# --------------------------------------------------------------------------
+# Round 3
+# R3-F1: multiline (title-on-next-line) reference definitions were treated as
+#        body and deleted on release
+# --------------------------------------------------------------------------
+
+MULTILINE_FOOTER = (
+    "# Changelog\n\n## [Unreleased]\n\n"
+    "[guide]: https://example.com/guide\n"
+    '    "The Guide"\n'
+    "[unreleased]: https://github.com/example/demo/compare/v1.0.0...HEAD\n"
+)
+
+
+def test_r3f1_multiline_definition_is_not_body():
+    # Pre-fix the indented title line was not a reference definition, so the
+    # backwards walk stopped there and the whole footer counted as body.
+    assert utils.read_unreleased_body(MULTILINE_FOOTER) == ""
+
+
+def test_r3f1_multiline_definition_survives_release(repo):
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(MULTILINE_FOOTER, encoding="utf-8")
+
+    assert CliRunner().invoke(cli, ["1.1.0", "--auto", "--force"]).exit_code == 0
+    content = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "[guide]: https://example.com/guide" in content
+    assert '"The Guide"' in content
+    assert "[unreleased]: https://github.com/example/demo/compare/v1.0.0...HEAD" in content
+
+
+def test_r3f1_multiline_definition_terminated_by_eof():
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "[guide]: https://example.com/guide\n"
+        '    "The Guide"'
+    )
+    assert utils.read_unreleased_body(content) == ""
+
+
+@pytest.mark.parametrize("title_line", ['    "The Guide"', "    'The Guide'", "    (The Guide)"])
+def test_r3f1_all_title_delimiters_are_recognized(title_line):
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "[guide]: https://example.com/guide\n" + title_line + "\n"
+    )
+    assert utils.read_unreleased_body(content) == ""
+
+
+def test_r3f1_adjacent_multiline_references_all_preserved():
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "[a]: https://example.com/a\n"
+        '    "A"\n'
+        "[b]: https://example.com/b\n"
+        '    "B"\n'
+        "[c]: https://example.com/c\n"
+    )
+    assert utils.read_unreleased_body(content) == ""
+
+
+def test_r3f1_prose_before_multiline_footer_is_still_body():
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- a thing\n\n"
+        "[guide]: https://example.com/guide\n"
+        '    "The Guide"\n'
+    )
+    assert utils.read_unreleased_body(content) == "### Added\n\n- a thing"
+
+
+def test_r3f1_inline_title_does_not_swallow_the_next_line():
+    # The definition already has its title, so a following quoted line is
+    # ordinary content and must remain body.
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        '[guide]: https://example.com/guide "The Guide"\n'
+        '    "a quoted line that is not a title"\n'
+    )
+    assert '"a quoted line that is not a title"' in utils.read_unreleased_body(content)
+
+
+def test_r3f1_indented_four_spaces_is_a_code_block_not_a_definition():
+    # 4+ spaces is a code block under CommonMark, so this stays body.
+    content = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "    [guide]: https://example.com/guide\n"
+    )
+    assert "[guide]" in utils.read_unreleased_body(content)
+
+
+# --------------------------------------------------------------------------
+# R3-F2: an [unreleased]: definition indented 1-3 spaces was not recognized
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("indent", ["", " ", "  ", "   "])
+def test_r3f2_indented_unreleased_definition_updated_in_place(repo_with_remote, indent):
+    repo = repo_with_remote
+    commit(repo, "feat: add endpoint")
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n"
+        f"{indent}[unreleased]: https://github.com/example/demo/compare/v1.0.0...HEAD\n",
+        encoding="utf-8",
+    )
+
+    assert CliRunner().invoke(cli, ["1.1.0", "--auto", "--force"]).exit_code == 0
+    content = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    # Pre-fix an indented definition was invisible, so the stale one survived
+    # AND a second definition was appended.
+    assert content.lower().count("[unreleased]:") == 1
+    assert "v1.0.0...HEAD" not in content
+    assert "[1.1.0]: https://github.com/example/demo/releases/tag/v1.1.0" in content
+
+
+# --------------------------------------------------------------------------
+# R3-F3: commit.message may be bytes (GitPython types it str | bytes)
+# --------------------------------------------------------------------------
+
+class _FakeAuthor:
+    name = "Test Author"
+
+
+class _FakeCommit:
+    def __init__(self, message):
+        self.message = message
+        self.hexsha = "0123456789abcdef"
+        self.author = _FakeAuthor()
+
+
+class _FakeGitCommandInterface:
+    def describe(self, *args, **kwargs):
+        raise GitCommandError("describe", 128)
+
+
+class _FakeHead:
+    @staticmethod
+    def is_valid():
+        return True
+
+
+class _FakeRepo:
+    def __init__(self, commits):
+        self._commits = commits
+        self.head = _FakeHead()
+        self.git = _FakeGitCommandInterface()
+
+    def iter_commits(self, *args, **kwargs):
+        return iter(self._commits)
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_subject", "expected_body"),
+    [
+        ("feat: add endpoint\n\nbody text", "add endpoint", "\nbody text"),
+        (b"feat: add endpoint\n\nbody text", "add endpoint", "\nbody text"),
+        # Invalid UTF-8 must not crash; it is replaced, not raised.
+        (b"feat: caf\xe9 support", "caf� support", ""),
+    ],
+)
+def test_r3f3_commit_message_may_be_bytes(monkeypatch, message, expected_subject, expected_body):
+    monkeypatch.setattr(
+        utils.git, "Repo", lambda *args, **kwargs: _FakeRepo([_FakeCommit(message)])
+    )
+
+    commits = utils.parse_commits()
+
+    # Pre-fix a bytes message raised TypeError on bytes.split('\n').
+    assert len(commits) == 1
+    assert commits[0]["subject"] == expected_subject
+    assert commits[0]["body"] == expected_body
+
+
+def test_r3f3_empty_commit_message_is_ignored(monkeypatch):
+    monkeypatch.setattr(
+        utils.git, "Repo", lambda *args, **kwargs: _FakeRepo([_FakeCommit("")])
+    )
+    assert utils.parse_commits() == []

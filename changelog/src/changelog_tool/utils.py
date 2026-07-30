@@ -35,11 +35,64 @@ NEXT_H2_PATTERN = r"(?m)^## "
 # Reference definitions are matched line-anchored and case-insensitively, and
 # may be terminated by a newline OR end-of-file. Markdown reference labels are
 # case-insensitive, so a lowercase "[unreleased]:" is the same definition.
-UNRELEASED_LINK_PATTERN = r"(?mi)^\[unreleased\]:[^\n]*(?:\r?\n|$)"
+# CommonMark also allows up to 3 leading spaces; without that allowance an
+# indented definition went unrecognized and a second one was appended beside it.
+UNRELEASED_LINK_PATTERN = r"(?mi)^ {0,3}\[unreleased\]:[^\n]*(?:\r?\n|$)"
 
-# A link reference definition: "[label]: target". These collect in a footer
-# block at the bottom of the file.
-REFERENCE_DEFINITION_PATTERN = re.compile(r"^\[[^\]]+\]:")
+# A link reference definition: "[label]: destination" with an optional title.
+# CommonMark permits up to 3 leading spaces of indentation, so 4+ spaces (a code
+# block) is deliberately excluded.
+REFERENCE_DEFINITION_PATTERN = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S+")
+
+# A title may close the definition on its own line: '"t"', "'t'" or "(t)".
+TITLE = r"""(?:"[^"]*"|'[^']*'|\([^)]*\))"""
+
+# The definition already carries its title, so a following quoted line is
+# separate content rather than a continuation of this definition.
+REFERENCE_WITH_TITLE_PATTERN = re.compile(
+    rf"^ {{0,3}}\[[^\]]+\]:\s*\S+\s+{TITLE}\s*$"
+)
+
+# CommonMark allows the title to sit on the NEXT line, indented. Such a
+# definition spans two lines, and treating only the first as part of the footer
+# left the title line behind as "body" to be deleted.
+REFERENCE_TITLE_CONTINUATION_PATTERN = re.compile(rf"^\s+{TITLE}\s*$")
+
+
+def _reference_definition_lines(lines: List[str]) -> set:
+    """
+    Index every line belonging to a complete reference definition.
+
+    Scans forward because a definition may span two lines: walking backwards
+    line-by-line cannot tell a title continuation from ordinary prose.
+
+    Returns:
+        The set of indices into `lines` that are part of some definition.
+    """
+    belongs = set()
+    index = 0
+
+    while index < len(lines):
+        if not REFERENCE_DEFINITION_PATTERN.match(lines[index]):
+            index += 1
+            continue
+
+        belongs.add(index)
+
+        has_inline_title = bool(REFERENCE_WITH_TITLE_PATTERN.match(lines[index].rstrip("\r\n")))
+        next_index = index + 1
+        if (
+            not has_inline_title
+            and next_index < len(lines)
+            and REFERENCE_TITLE_CONTINUATION_PATTERN.match(lines[next_index].rstrip("\r\n"))
+        ):
+            belongs.add(next_index)
+            index = next_index + 1
+            continue
+
+        index += 1
+
+    return belongs
 
 
 def _trim_trailing_reference_block(content: str, body_start: int, body_end: int) -> int:
@@ -58,16 +111,17 @@ def _trim_trailing_reference_block(content: str, body_start: int, body_end: int)
         the body has no such block.
     """
     lines = content[body_start:body_end].splitlines(keepends=True)
+    reference_lines = _reference_definition_lines(lines)
 
     index = len(lines)
     saw_reference = False
 
     while index > 0:
-        stripped = lines[index - 1].strip()
-        if not stripped:
+        candidate = index - 1
+        if not lines[candidate].strip():
             index -= 1
             continue
-        if REFERENCE_DEFINITION_PATTERN.match(stripped):
+        if candidate in reference_lines:
             saw_reference = True
             index -= 1
             continue

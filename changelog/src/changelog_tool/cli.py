@@ -32,14 +32,16 @@ from .utils import (
     update_changelog_file,
     get_next_version,
     initialize_changelog_file,
+    changelog_path,
+    package_json_path,
+    find_unreleased_span,
+    ensure_unreleased_heading,
 )
 
 # Initialize colorama for cross-platform color support
 init(autoreset=True)
 
 # Configuration
-CHANGELOG_PATH = Path.cwd() / "CHANGELOG.md"
-PACKAGE_JSON_PATH = Path.cwd() / "package.json"
 CHANGELOG_CATEGORY_ORDER = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
 
 
@@ -78,8 +80,16 @@ def get_commit_changelog_entry(commit: Dict[str, object]) -> str:
     """
     Format a parsed commit for a changelog bullet.
     """
-    pr_info = f" [#{commit['pr']}]" if commit.get('pr') else ""
-    return f"{commit['subject']}{pr_info}"
+    subject = commit['subject']
+    pr = commit.get('pr')
+
+    # Squash-merge subjects already carry "(#42)". Appending " [#42]" produced
+    # "... (#42) [#42]". The number is matched specifically so "#4" does not
+    # suppress the suffix for "#42".
+    if not pr or re.search(rf"#{re.escape(str(pr))}\b", subject):
+        return subject
+
+    return f"{subject} [#{pr}]"
 
 
 def get_changes_from_commits(commits: List[Dict[str, object]]) -> Dict[str, List[str]]:
@@ -116,28 +126,24 @@ def replace_unreleased_body(body: str) -> None:
     """
     Replace only the body of the Unreleased section in CHANGELOG.md.
     """
-    if not CHANGELOG_PATH.exists():
-        initialize_changelog_file(CHANGELOG_PATH)
+    path = changelog_path()
 
-    current_content = CHANGELOG_PATH.read_text(encoding="utf-8")
-    # Match the header line only (through its own newline). Do NOT consume the
-    # blank line(s) that follow it with `\s*`, or `match.end()` shifts forward
-    # by the existing blank line on each run while the replacement re-adds one,
-    # accumulating a blank line per invocation and breaking idempotency.
-    unreleased_pattern = r"## \[Unreleased\][^\n]*\n"
-    match = re.search(unreleased_pattern, current_content)
+    if not path.exists():
+        initialize_changelog_file(path)
 
-    if not match:
-        current_content = current_content.rstrip() + "\n\n## [Unreleased]\n"
-        match = re.search(unreleased_pattern, current_content)
+    current_content = path.read_text(encoding="utf-8")
+    current_content = ensure_unreleased_heading(current_content)
 
-    body_start = match.end()
-    next_section_match = re.search(r"(?m)^## \[", current_content[body_start:])
-    body_end = body_start + next_section_match.start() if next_section_match else len(current_content)
+    # The span helper matches the header line only (through its own newline).
+    # It does NOT consume the blank line(s) that follow it with `\s*`, or
+    # body_start would shift forward by the existing blank line on each run
+    # while the replacement re-adds one, accumulating a blank line per
+    # invocation and breaking idempotency.
+    _, body_start, body_end = find_unreleased_span(current_content)
 
     replacement = f"\n{body}\n\n" if body else "\n"
     new_content = current_content[:body_start] + replacement + current_content[body_end:]
-    CHANGELOG_PATH.write_text(new_content, encoding="utf-8")
+    path.write_text(new_content, encoding="utf-8")
 
 
 def update_unreleased_changelog(verbose: bool, dry_run: bool = False) -> None:
@@ -147,7 +153,7 @@ def update_unreleased_changelog(verbose: bool, dry_run: bool = False) -> None:
     try:
         print(f"{Fore.BLUE}🔄 Changelog Updater\n")
 
-        if not CHANGELOG_PATH.exists():
+        if not changelog_path().exists():
             print(f"{Fore.YELLOW}⚠️  CHANGELOG.md not found. It will be created.")
 
         print(f"{Fore.BLUE}🔍 Regenerating Unreleased changes from git commits...\n")
@@ -185,7 +191,7 @@ def update_unreleased_changelog(verbose: bool, dry_run: bool = False) -> None:
         replace_unreleased_body(body)
 
         print(f"{Fore.GREEN}✅ Successfully updated CHANGELOG.md Unreleased section")
-        print(f"{Fore.BLUE}📁 File location: {CHANGELOG_PATH}")
+        print(f"{Fore.BLUE}📁 File location: {changelog_path()}")
 
     except Exception as error:
         print(f"{Fore.RED}❌ Error updating unreleased changelog: {error}")
@@ -203,7 +209,7 @@ def update_changelog(version: Optional[str], auto: bool, manual: bool, dry_run: 
     try:
         print(f"{Fore.BLUE}🔄 Changelog Updater\n")
 
-        if not CHANGELOG_PATH.exists():
+        if not changelog_path().exists():
             if dry_run:
                 print(f"{Fore.YELLOW}⚠️  CHANGELOG.md not found. Dry run will preview the first generated entry.")
             else:
@@ -211,8 +217,8 @@ def update_changelog(version: Optional[str], auto: bool, manual: bool, dry_run: 
 
         # Determine version
         if not version:
-            if PACKAGE_JSON_PATH.exists():
-                package_json = json.loads(PACKAGE_JSON_PATH.read_text())
+            if package_json_path().exists():
+                package_json = json.loads(package_json_path().read_text())
                 current_version = package_json.get("version", "0.1.0")
             else:
                 # Default version if no package.json exists
@@ -267,7 +273,7 @@ def update_changelog(version: Optional[str], auto: bool, manual: bool, dry_run: 
         update_changelog_file(changelog_entry, version)
 
         print(f"{Fore.GREEN}✅ Successfully updated CHANGELOG.md for version {version}")
-        print(f"{Fore.BLUE}📁 File location: {CHANGELOG_PATH}")
+        print(f"{Fore.BLUE}📁 File location: {changelog_path()}")
 
         # Suggest next steps
         print(f"{Fore.BLUE}\n💡 Next steps:")
@@ -384,14 +390,13 @@ def main() -> None:
     """
     Console script entry point.
 
-    Wraps the click command so the interrupt and unexpected-error guards apply
-    to the installed `changelog` executable, not only to `python -m` execution.
+    There is deliberately no KeyboardInterrupt branch here: Click's standalone
+    mode consumes KeyboardInterrupt itself and prints "Aborted!", so such a
+    branch is unreachable. The generic handler below IS reachable, because Click
+    does not catch arbitrary exceptions raised inside a command.
     """
     try:
         cli()
-    except KeyboardInterrupt:
-        print(f"\n{Fore.YELLOW}Operation cancelled by user.")
-        sys.exit(1)
     except Exception as e:
         print(f"{Fore.RED}Unexpected error: {e}")
         sys.exit(1)

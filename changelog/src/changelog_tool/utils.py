@@ -20,6 +20,74 @@ from colorama import Fore, Style, init
 # Initialize colorama for cross-platform color support
 init(autoreset=True)
 
+# The Unreleased heading is matched line-anchored and may be terminated by a
+# newline OR end-of-file. A file ending exactly at "## [Unreleased]" still has a
+# heading; requiring a trailing newline made it look absent and appended a
+# duplicate.
+UNRELEASED_HEADING_PATTERN = r"(?mi)^## \[Unreleased\][^\n]*(?:\r?\n|$)"
+
+# The Unreleased body ends at ANY following level-2 heading, not only a
+# bracketed one. Anchoring on "^## \[" swallowed a trailing "## Links" section
+# (or any unbracketed H2) into the body and deleted it on rewrite.
+NEXT_H2_PATTERN = r"(?m)^## "
+
+# Reference definitions are matched line-anchored and case-insensitively, and
+# may be terminated by a newline OR end-of-file. Markdown reference labels are
+# case-insensitive, so a lowercase "[unreleased]:" is the same definition.
+UNRELEASED_LINK_PATTERN = r"(?mi)^\[unreleased\]:[^\n]*(?:\r?\n|$)"
+
+
+def changelog_path() -> Path:
+    """
+    Resolve CHANGELOG.md against the current working directory.
+
+    Deliberately a function rather than an import-time constant so the path
+    follows chdir instead of freezing at import.
+    """
+    return Path.cwd() / "CHANGELOG.md"
+
+
+def package_json_path() -> Path:
+    """
+    Resolve package.json against the current working directory.
+    """
+    return Path.cwd() / "package.json"
+
+
+def find_unreleased_span(content: str) -> Optional[Tuple[int, int, int]]:
+    """
+    Locate the Unreleased section.
+
+    Returns:
+        (heading_start, body_start, body_end) offsets, or None if there is no
+        Unreleased heading. body_end is the offset of the next level-2 heading,
+        or end-of-file.
+    """
+    match = re.search(UNRELEASED_HEADING_PATTERN, content)
+    if not match:
+        return None
+
+    body_start = match.end()
+    next_section_match = re.search(NEXT_H2_PATTERN, content[body_start:])
+    body_end = body_start + next_section_match.start() if next_section_match else len(content)
+    return (match.start(), body_start, body_end)
+
+
+def ensure_unreleased_heading(content: str) -> str:
+    """
+    Return content guaranteed to contain an Unreleased heading.
+    """
+    if find_unreleased_span(content) is None:
+        return content.rstrip() + "\n\n## [Unreleased]\n"
+    return content
+
+
+def has_version_heading(content: str, version: str) -> bool:
+    """
+    Report whether an entry for this exact version already exists.
+    """
+    return re.search(rf"(?m)^## \[{re.escape(version)}\]", content) is not None
+
 
 def validate_version(version: str) -> bool:
     """
@@ -78,27 +146,21 @@ def get_next_version(current_version: str, auto_mode: bool = False, force_mode: 
         else:
             raise ValueError("Invalid choice")
     
-    # Auto-determine version bump based on commit types
-    try:
-        commits = parse_commits()
-        has_breaking = any(
-            "BREAKING" in commit["subject"] or ("body" in commit and commit["body"] and "BREAKING CHANGE" in commit["body"])
-            for commit in commits
-        )
-        has_features = any(
-            commit["type"] in ["feat", "add"] for commit in commits
-        )
-        
-        current_ver = semver.VersionInfo.parse(current_version)
-        if has_breaking:
-            return str(current_ver.bump_major())
-        elif has_features:
-            return str(current_ver.bump_minor())
-        else:
-            return str(current_ver.bump_patch())
-    except Exception as error:
-        print(f"{Fore.YELLOW}Warning: Could not auto-determine version, defaulting to patch")
-        return str(semver.VersionInfo.parse(current_version).bump_patch())
+    # Auto-determine version bump based on commit types.
+    # Git failures are NOT swallowed here. Falling back to a patch bump on a
+    # broken repository silently produces a wrong version instead of failing.
+    commits = parse_commits()
+
+    has_breaking = any(commit.get("breaking") for commit in commits)
+    has_features = any(commit.get("type") in ["feat", "add"] for commit in commits)
+
+    current_ver = semver.VersionInfo.parse(current_version)
+    if has_breaking:
+        return str(current_ver.bump_major())
+    elif has_features:
+        return str(current_ver.bump_minor())
+    else:
+        return str(current_ver.bump_patch())
 
 
 def parse_commits() -> List[Dict[str, Any]]:
@@ -108,40 +170,45 @@ def parse_commits() -> List[Dict[str, Any]]:
     Returns:
         Array of parsed commit objects
     """
-    try:
-        repo = git.Repo(".")
-        
-        # Get the last tag
-        try:
-            last_tag = str(repo.git.describe("--tags", "--abbrev=0"))
-        except git.exc.GitCommandError:
-            # No tags found, get all commits
-            last_tag = None
-        
-        # Get commits since last tag
-        if last_tag:
-            commits = list(repo.iter_commits(f"{last_tag}..HEAD"))
-        else:
-            commits = list(repo.iter_commits())
-        
-        if not commits:
-            return []
-        
-        parsed_commits = []
-        for commit in commits:
-            parsed_commit = parse_commit_message({
-                "hash": str(commit.hexsha),
-                "subject": commit.message.split('\n')[0] if commit.message else "",
-                "body": '\n'.join(commit.message.split('\n')[1:]) if commit.message and len(commit.message.split('\n')) > 1 else "",
-                "author": str(commit.author.name)
-            })
-            if parsed_commit and parsed_commit["type"] != "ignore":
-                parsed_commits.append(parsed_commit)
-        
-        return parsed_commits
-    except Exception as error:
-        print(f"{Fore.RED}Error parsing git commits: {error}")
+    # Git failures propagate to the CLI boundary, which reports them and exits
+    # nonzero. Collapsing them to [] made "not a git repository" indistinguish-
+    # able from "no new commits", so the tool silently no-opped and exited 0.
+    # search_parent_directories lets the tool run from a subdirectory.
+    repo = git.Repo(".", search_parent_directories=True)
+
+    # An unborn HEAD (a repository with no commits yet) is a genuinely empty
+    # range, not a failure.
+    if not repo.head.is_valid():
         return []
+
+    # Get the last tag
+    try:
+        last_tag = str(repo.git.describe("--tags", "--abbrev=0"))
+    except git.exc.GitCommandError:
+        # No tags found, get all commits
+        last_tag = None
+
+    # Get commits since last tag
+    if last_tag:
+        commits = list(repo.iter_commits(f"{last_tag}..HEAD"))
+    else:
+        commits = list(repo.iter_commits())
+
+    if not commits:
+        return []
+
+    parsed_commits = []
+    for commit in commits:
+        parsed_commit = parse_commit_message({
+            "hash": str(commit.hexsha),
+            "subject": commit.message.split('\n')[0] if commit.message else "",
+            "body": '\n'.join(commit.message.split('\n')[1:]) if commit.message and len(commit.message.split('\n')) > 1 else "",
+            "author": str(commit.author.name)
+        })
+        if parsed_commit and parsed_commit["type"] != "ignore":
+            parsed_commits.append(parsed_commit)
+
+    return parsed_commits
 
 
 def parse_commit_message(commit: Dict[str, str]) -> Optional[Dict[str, Any]]:
@@ -155,34 +222,42 @@ def parse_commit_message(commit: Dict[str, str]) -> Optional[Dict[str, Any]]:
         Parsed commit with type, scope, subject
     """
     subject = commit.get("subject", "")
-    
+    body = commit.get("body", "")
+
     # Handle undefined or empty subjects
     if not subject:
         return {"type": "ignore", **commit}
-    
+
     # Handle merge commits
     if subject.startswith("Merge "):
         return {"type": "ignore", **commit}
-    
+
+    # A "BREAKING CHANGE" footer marks a breaking change regardless of the
+    # conventional "!" marker, so both signals are checked for every commit.
+    has_breaking_footer = "BREAKING CHANGE" in subject or "BREAKING CHANGE" in (body or "")
+
     # Parse conventional commit format: type(scope): subject
     # Tolerate an optional leading gitmoji/emoji prefix ("✨ feat: x") and a "!" breaking marker
     # so emoji-prefixed commits yield a clean description bullet instead of "✨ feat: x".
-    conventional_pattern = r"^(?:[^\w\s]+\s*)?(\w+)(\([^)]+\))?!?: (.+)$"
+    # The "!" is CAPTURED, not just tolerated: it is the conventional-commits
+    # breaking marker, and discarding it downgraded "fix!:" to a patch bump.
+    conventional_pattern = r"^(?:[^\w\s]+\s*)?(\w+)(\([^)]+\))?(!)?: (.+)$"
     match = re.match(conventional_pattern, subject)
-    
+
     if match:
-        type_name, scope, description = match.groups()
+        type_name, scope, breaking_marker, description = match.groups()
         result = {
             "hash": commit["hash"][:8] if commit["hash"] else "",
             "type": type_name.lower(),
             "scope": scope[1:-1] if scope else None,
             "subject": description,
-            "body": commit.get("body", ""),
+            "body": body,
             "author": commit.get("author", ""),
-            "pr": extract_pr_number(subject, commit.get("body", ""))
+            "pr": extract_pr_number(subject, body),
+            "breaking": bool(breaking_marker) or has_breaking_footer,
         }
         return result
-    
+
     # Handle non-conventional commits
     commit_type = infer_commit_type(subject)
     return {
@@ -190,9 +265,10 @@ def parse_commit_message(commit: Dict[str, str]) -> Optional[Dict[str, Any]]:
         "type": commit_type,
         "scope": None,
         "subject": subject,
-        "body": commit.get("body", ""),
+        "body": body,
         "author": commit.get("author", ""),
-        "pr": extract_pr_number(subject, commit.get("body", ""))
+        "pr": extract_pr_number(subject, body),
+        "breaking": has_breaking_footer,
     }
 
 
@@ -289,32 +365,46 @@ def update_changelog_file(changelog_entry: str, version: str) -> None:
         changelog_entry: Formatted changelog entry
         version: Version number
     """
-    changelog_path = Path.cwd() / "CHANGELOG.md"
-    
-    if not changelog_path.exists():
-        initialize_changelog_file(changelog_path)
-    
-    current_content = changelog_path.read_text(encoding="utf-8")
-    
-    # Find the [Unreleased] section and add after it
-    unreleased_pattern = r"## \[Unreleased\]\s*\n"
-    match = re.search(unreleased_pattern, current_content)
-    
-    if not match:
-        current_content = current_content.rstrip() + "\n\n## [Unreleased]\n"
-        match = re.search(unreleased_pattern, current_content)
-    
-    # Split content at the unreleased section
-    before_unreleased = current_content[:match.end()]
-    after_unreleased = current_content[match.end():]
-    
-    # Insert new entry after unreleased section
-    new_content = before_unreleased + "\n" + changelog_entry + "\n" + after_unreleased
-    
+    path = changelog_path()
+
+    if not path.exists():
+        initialize_changelog_file(path)
+
+    current_content = path.read_text(encoding="utf-8")
+
+    # Releasing the same version twice previously appended a second identical
+    # heading and a second set of reference definitions. Refuse instead.
+    if has_version_heading(current_content, version):
+        raise ValueError(
+            f"CHANGELOG.md already contains an entry for version {version}. "
+            "Refusing to add a duplicate entry."
+        )
+
+    current_content = ensure_unreleased_heading(current_content)
+    heading_start, body_start, body_end = find_unreleased_span(current_content)
+
+    # Consume the ENTIRE Unreleased span, not just its heading. Inserting after
+    # the heading alone left the previous Unreleased body sitting underneath the
+    # new release heading, so `--unreleased` followed by a release emitted every
+    # item twice. The released items are carried by changelog_entry, so the
+    # Unreleased section is re-emitted empty.
+    unreleased_heading = current_content[heading_start:body_start]
+    if not unreleased_heading.endswith("\n"):
+        unreleased_heading += "\n"
+
+    new_content = (
+        current_content[:heading_start]
+        + unreleased_heading
+        + "\n"
+        + changelog_entry
+        + "\n"
+        + current_content[body_end:]
+    )
+
     # Update version comparison links at the bottom
     updated_content = update_version_links(new_content, version)
-    
-    changelog_path.write_text(updated_content, encoding="utf-8")
+
+    path.write_text(updated_content, encoding="utf-8")
 
 
 def initialize_changelog_file(changelog_path: Path) -> None:
@@ -345,53 +435,47 @@ def update_version_links(content: str, version: str) -> str:
     Returns:
         Updated content with version links
     """
-    try:
-        repo_url = get_repository_url()
-        
-        # Create new unreleased link
-        new_unreleased_link = f"[Unreleased]: {repo_url}/compare/v{version}...HEAD"
-        
-        # Try to find existing links and update them
-        if "[Unreleased]:" in content:
-            # Update existing unreleased link
-            updated_content = re.sub(
-                r"\[Unreleased\]: .+",
-                new_unreleased_link,
-                content
-            )
-            
-            # Add the new version link
-            version_link = f"[{version}]: {repo_url}/releases/tag/v{version}"
-            
-            # Insert after unreleased link
-            updated_content = re.sub(
-                r"(\[Unreleased\]: .+\n)",
-                f"\\1{version_link}\n",
-                updated_content
-            )
-            return updated_content
-        else:
-            # Add links section if it doesn't exist
-            return (content + 
-                   "\n\n## Links\n" + 
-                   new_unreleased_link + "\n" +
-                   f"[{version}]: {repo_url}/releases/tag/v{version}\n")
-    
-    except Exception as error:
-        print(f"{Fore.YELLOW}Warning: Could not update version comparison links: {error}")
+    repo_url = get_repository_url()
+
+    # Without real repository metadata the previous code wrote a fabricated
+    # "https://github.com/org/repo" placeholder permanently into the changelog.
+    # Skipping is honest; a fake link is worse than no link.
+    if not repo_url:
+        print(
+            f"{Fore.YELLOW}Warning: Could not determine the repository URL. "
+            "Skipping changelog comparison links."
+        )
         return content
 
+    new_unreleased_link = f"[Unreleased]: {repo_url}/compare/v{version}...HEAD"
+    version_link = f"[{version}]: {repo_url}/releases/tag/v{version}"
 
-def get_repository_url() -> str:
+    # Markdown reference labels are case-insensitive, so a lowercase
+    # "[unreleased]:" is the SAME definition. Matching "[Unreleased]:" literally
+    # left it stale and appended a duplicate links section alongside it.
+    match = re.search(UNRELEASED_LINK_PATTERN, content)
+
+    if match:
+        replacement = f"{new_unreleased_link}\n{version_link}\n"
+        return content[:match.start()] + replacement + content[match.end():]
+
+    return content.rstrip() + "\n\n" + new_unreleased_link + "\n" + version_link + "\n"
+
+
+def get_repository_url() -> Optional[str]:
     """
     Resolve the repository URL from package.json or git remote metadata.
-    
+
     Returns:
-        Normalized repository URL suitable for changelog comparison links
+        Normalized repository URL, or None when it cannot be determined. The
+        caller is expected to skip link generation rather than invent one.
     """
-    package_json_path = Path.cwd() / "package.json"
-    if package_json_path.exists():
-        package_json = json.loads(package_json_path.read_text())
+    path = package_json_path()
+    if path.exists():
+        try:
+            package_json = json.loads(path.read_text())
+        except (ValueError, OSError):
+            package_json = {}
         repo_url = package_json.get("repository", {})
         if isinstance(repo_url, dict):
             repo_url = repo_url.get("url")
@@ -406,7 +490,7 @@ def get_repository_url() -> str:
     except Exception:
         pass
 
-    return "https://github.com/org/repo"
+    return None
 
 
 def normalize_repository_url(repo_url: str) -> str:

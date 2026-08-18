@@ -1,0 +1,112 @@
+{{!--
+  Template: node-pr-gate.yml.hbs
+  Purpose: typecheck + lint + test + build smoke for Node/bun/pnpm/npm projects
+  Vars:
+    package_manager  — bun | pnpm | yarn | npm
+    runtime_version  — e.g. "20" for Node, "1.1.x" for bun
+    typecheck_cmd    — e.g. "bun tsc --noEmit" or "pnpm typecheck"
+    lint_cmd         — e.g. "bun run lint"
+    test_cmd         — e.g. "bun test"
+    build_cmd        — e.g. "bun run build"
+--}}
+name: PR Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-gate:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+    runs-on: ${{ fromJSON(vars.SELF_HOSTED_LINUX || '["ubuntu-latest"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      {{#eq package_manager "bun"}}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "{{runtime_version}}"
+      - run: bun install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "yarn"}}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "npm"}}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: npm
+      - run: npm ci
+      {{/eq}}
+
+      - name: Typecheck
+        run: {{typecheck_cmd}}
+
+      - name: Lint
+        run: {{lint_cmd}}
+
+      - name: Test
+        run: {{test_cmd}}
+
+      - name: Build
+        run: {{build_cmd}}
+
+  pr-gate-forks:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      {{#eq package_manager "bun"}}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "{{runtime_version}}"
+      - run: bun install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "yarn"}}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "npm"}}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: npm
+      - run: npm ci
+      {{/eq}}
+      - run: {{typecheck_cmd}}
+      - run: {{lint_cmd}}
+      - run: {{test_cmd}}
+      - run: {{build_cmd}}

@@ -250,9 +250,9 @@ reviews:
 - On `pull_request`, spawn Pi, Claude, or Codex with persona prompt
 - Posts comment via `gh pr comment` only when explicitly approved and credentials are available
 
-Path A is simpler if CodeRabbit is acceptable. Path B is better if Ossie wants persona-specific reviewers (reliability persona, security persona, etc.) or to avoid CodeRabbit cost.
+Path A is simpler if CodeRabbit is acceptable. Path B is better if the user wants persona-specific reviewers (reliability persona, security persona, etc.) or to avoid CodeRabbit cost.
 
-Default: Path A unless audit found Ossie already runs CodeRabbit elsewhere and is dissatisfied.
+Default: Path A unless audit found the user already runs CodeRabbit elsewhere and is dissatisfied.
 
 Verify: validate config syntax and file placement locally. Treat CodeRabbit GitHub App installation as a hard gate: verify it is installed for the repo/org, or print a clear `App not installed — config is dormant` warning and leave PR review automation as partial. Only open a draft PR with an intentional issue when the user explicitly authorizes external GitHub-side verification; otherwise document the exact manual verification command/steps.
 ```

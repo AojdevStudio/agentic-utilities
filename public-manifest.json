@@ -1,0 +1,153 @@
+{
+  "$comment": "Drives scripts/sync-public.mjs. The private skill store is canonical for mirror skills; this repo is generated from it. Patterns and replacements that NAME private things live in the gitignored localOverlay, never here: the list itself is metadata about a private ecosystem. See docs/public-sync.md.",
+  "storeRoot": "~/.agents/skills",
+  "storeRootEnv": "AGENT_SKILLS_STORE",
+  "publicSkillsDir": "skills",
+  "textExtensions": [
+    ".md",
+    ".mjs",
+    ".js",
+    ".ts",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".hbs",
+    ".py",
+    ".rb",
+    ".sh",
+    ".toml",
+    ".txt",
+    ".cfg",
+    ".ini",
+    ".env",
+    ".example"
+  ],
+  "transforms": {
+    "$comment": "Applied in order to every text file: frontmatter keys dropped, then the skill name rewritten, then literal replacements.",
+    "dropFrontmatterKeys": [
+      "metadata.machines",
+      "metadata.requires"
+    ],
+    "replace": [
+      {
+        "find": "~/.claude",
+        "replaceWith": "$AGENT_HOME"
+      },
+      {
+        "find": "Ossie",
+        "replaceWith": "the user"
+      }
+    ]
+  },
+  "leakPatterns": [
+    {
+      "id": "macos-home-path",
+      "description": "Contributor home directory path",
+      "regex": "/Users/(?!(?:you|me|user|username|name)/)[a-z][a-z0-9._-]*/"
+    },
+    {
+      "id": "rfc1918-ipv4",
+      "description": "Private LAN address. All four octets are required; a three-part `10.0.2` is a semver, not an address.",
+      "regex": "\\b(?:10(?:\\.\\d{1,3}){3}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d{1,3}){2}|192\\.168(?:\\.\\d{1,3}){2})\\b"
+    }
+  ],
+  "skills": {
+    "adversarial-review": {
+      "mode": "mirror",
+      "publicOwned": [
+        "agents/**"
+      ]
+    },
+    "deep-dive": {
+      "mode": "mirror",
+      "publicOwned": [
+        "agents/**"
+      ]
+    },
+    "find-docs": {
+      "mode": "mirror",
+      "publicOwned": [
+        "agents/**"
+      ]
+    },
+    "diataxis-docs-site": {
+      "mode": "mirror",
+      "$comment": "Was a store symlink into this repo until 2026-08-18; store is now canonical."
+    },
+    "github-wiki": {
+      "mode": "mirror",
+      "$comment": "Was a store symlink into this repo until 2026-08-18; store is now canonical."
+    },
+    "gitworkflow": {
+      "mode": "mirror",
+      "source": "git-workflow",
+      "publicOwned": [
+        "agents/**",
+        "AGENT.md",
+        "templates/issue-labeler.yml"
+      ],
+      "exclude": [
+        "workflows/SetIdentity.md",
+        "tools/**"
+      ],
+      "$comment": "SetIdentity hardcodes real names and email addresses, including a third party's. tools/changelog is a local copy of this repo's own root changelog/ package, so published text points at the package instead.",
+      "dropLines": [
+        "\\|\\s*\\*\\*SetIdentity\\*\\*\\s*\\|"
+      ],
+      "replace": [
+        {
+          "find": "Wrapper if not on PATH: `$AGENT_HOME/skills/git-workflow/tools/changelog/changelog` (bundled source in `tools/changelog/`, needs `uv`). Canonical home of the installed CLI: public",
+          "replaceWith": "Install the CLI from"
+        },
+        {
+          "find": "# or $AGENT_HOME/skills/GitWorkflow/tools/changelog/changelog",
+          "replaceWith": "# install with: uv tool install --from git+https://github.com/AojdevStudio/agentic-utilities#subdirectory=changelog changelog"
+        }
+      ]
+    },
+    "harness-audit": {
+      "mode": "mirror",
+      "exclude": [
+        "references/sanity-check.md"
+      ],
+      "$comment": "sanity-check.md cites two private-vault pages as its source of truth, so it is useless outside that vault.",
+      "publicOwned": [
+        "agents/**",
+        "references/evidence-protocol.md",
+        "references/smoke-ticket-eval.md",
+        "references/stack-go.md",
+        "references/symphony-readiness.md",
+        "references/workflow-template.md"
+      ]
+    },
+    "herdr-fleet": {
+      "mode": "forked",
+      "reason": "Public version ships 18 files (protocols.md, launch-fleet.md, tested scripts/) that its SKILL.md documents. The private counterpart is a lean rewrite composing native herdr commands directly and references none of them, so syncing it orphans the tooling."
+    },
+    "pr-review-queue": {
+      "mode": "forked",
+      "reason": "Public version's SKILL.md carries a documented untrusted-data boundary and an explicit-assignment requirement that skills/pr-review-queue/skill-content.test.mjs enforces. The private counterpart dropped both and does not document the shipped scripts/ helpers; syncing it fails 5 content assertions."
+    },
+    "art": {
+      "mode": "forked",
+      "reason": "Private counterpart is a superset coupled to a private agent framework (extra Tools, 100+ private-path references). Reconciling it is a rewrite, not a transform."
+    },
+    "awesome-readme": {
+      "mode": "forked",
+      "reason": "Private counterpart was restructured into the nested TitleCase Workflows/References layout; public keeps the flat kebab-case shape."
+    },
+    "bambu-slicer": {
+      "mode": "public-owned",
+      "reason": "Authored here. No private counterpart."
+    },
+    "scaffold-notes": {
+      "mode": "public-owned",
+      "reason": "Maintenance helper for this repo only."
+    },
+    "harness-worktrees": {
+      "mode": "public-owned",
+      "reason": "Private counterpart was archived and superseded by a differently-shaped skill."
+    }
+  },
+  "localOverlay": "public-manifest.local.json"
+}

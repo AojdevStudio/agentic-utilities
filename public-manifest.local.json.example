@@ -1,0 +1,27 @@
+{
+  "$comment": "Copy to public-manifest.local.json (gitignored) and fill in your own terms. Merged into public-manifest.json by scripts/sync-public.mjs: leakPatterns are appended, transforms.replace runs after the tracked rules.",
+
+  "$why": "The tracked manifest holds only structural patterns, the shapes that are private regardless of who maintains this repo (home paths, RFC1918 addresses). Anything that NAMES your machines, repos, domains, or internal frameworks belongs here instead. An enumeration of those names is itself metadata about your private ecosystem, so publishing the list would leak the thing the list exists to protect. Same reasoning as .gitleaks.local.toml.",
+
+  "leakPatterns": [
+    {
+      "id": "private-email",
+      "description": "Your personal or business email domains",
+      "regex": "[A-Za-z0-9._%+-]+@(?:your-domain)\\.[A-Za-z]{2,}"
+    },
+    {
+      "id": "private-machine-names",
+      "description": "Your machine and host names",
+      "regex": "\\b(?:your-laptop|your-server)\\b"
+    },
+    {
+      "id": "private-repo-names",
+      "description": "Private repos a public skill must not cite",
+      "regex": "\\b(?:your-private-repo|your-vault)\\b"
+    }
+  ],
+
+  "transforms": {
+    "replace": [{ "find": "your-private-repo", "replaceWith": "a private repo" }]
+  }
+}

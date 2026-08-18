@@ -1,104 +1,75 @@
 ---
 name: adversarial-review
-description: Deep implementation review that hunts for real bugs. Use when Ossie asks for adversarial review, implementation audit, ship-readiness review, stress test this, review this against the spec, or find problems with this code. This skill is for implemented code, configs, scripts, and pipelines.
+description: Deep implementation review that hunts for real bugs by sending a heavyweight external reviewer (the codex frontier model or Opus) actual file contents, not summaries. Covers implementations only (code, configs, scripts, pipelines). USE WHEN adversarial review, review this implementation, audit my code, stress test this, find problems with this, ship-readiness review, is this ready to ship, check this against the plan. NOT FOR plans and designs before implementation exists (use RedTeam for adversarial plan critique, or grilling for a collaborative interview).
+metadata:
+  author: ossie
+  category: engineering
+  lanes: [claude, codex, pi]
 ---
 
 # Adversarial Review
 
-Use Pi's `adversarial_review` tool to run a second-pass, read-only implementation audit with a separate reviewer model inside Pi.
+Sends a deeply structured adversarial prompt to a heavyweight reviewer (the codex frontier model or Opus 4.7) to catch real bugs before they hit production. The reviewer reads actual file contents, not summaries, and returns a trinary verdict with file:line citations and a prioritized fix list.
 
-This is for **implementations**.
-
-- Use `the-fool` for challenging plans before code exists.
-- Use `grill-me` when the user wants questioning and design pressure-testing.
-- Use normal inline review only for light checks.
-- Use this skill when the user wants the toughest audit before shipping.
+Distinct from RedTeam (which adversarially challenges plans and ideas with parallel expert attackers) and grilling (which interviews the user about designs). This skill reviews working or near-complete code against its own specification.
 
 ## Workflow
 
-### 1. Gather only what is missing
+### Step 1 — Gather inputs
 
-Figure out:
+Use `AskUserQuestion` with these four questions in a single prompt:
 
-1. **Target directory**
-   - Default to the current working directory when the user is clearly referring to the current repo.
-   - Ask only if the target is unclear.
-2. **Plan or spec file**
-   - Use it if the user gave one.
-   - If none exists, review for internal consistency and production-readiness.
-3. **Reviewer model**
-   - Prefer a reviewer model different from the current one when possible.
-   - Let the tool pick the best available default if the user does not care.
-4. **Review areas**
-   - If the user gives focused areas, pass them through.
-   - Otherwise use the default 8 areas from `references/prompt-template.md`.
+1. **Target directory** — What directory should the reviewer work in? (e.g., `~/Projects/arbol/v3`)
+2. **Plan or spec file** — Path to the spec, plan, or design doc to review against. If none, the reviewer will assess internal consistency instead.
+3. **Reviewer** — Which model? Options:
+   - the codex frontier model (recommended — deepest code reasoning, runs locally)
+   - `opus 4.7` (alternative — best for architecture-level concerns)
+4. **Review areas** — Provide 4–10 numbered areas to focus on (e.g., "1. Cron scheduling, 2. File path assumptions, 3. Error handling"). If unspecified, use the 8 default areas from the prompt template.
 
-### 2. Run the Pi review tool first
+### Step 2 — Build the prompt
 
-Call `adversarial_review` with:
+Load `references/prompt-template.md` and fill in:
+- `{{TARGET_DIR}}` — from input 1
+- `{{PLAN_FILE}}` — from input 2 (or "no plan file — review for internal consistency")
+- `{{REVIEW_AREAS}}` — from input 4 (or the 8 defaults in the template)
 
-- `targetDir`
-- optional `planFile`
-- optional `reviewerModel`
-- optional `reviewAreas`
+### Step 3 — Invoke the reviewer
 
-The tool normally enforces the right shape:
-
-- separate reviewer model inside Pi
-- read-only tools only
-- no file edits
-- required file:line citations for non-PASS findings
-
-### 2b. Claude Code fallback / explicit Claude request
-
-If the user specifically asks to "ask Claude", "ask Claude Code", "use Opus", or if the Pi `adversarial_review` tool returns no grounded report, use Claude Code directly instead of treating the failed tool call as a valid review.
-
-Build the filled prompt from `references/prompt-template.md`, then run Claude Code headlessly from the target directory with read-only tools:
-
+**For the codex frontier model (default):** the model comes from `~/.codex/config.toml` (the single authority; never pinned here; see `ask-codex`).
 ```bash
-claude --print --model opus --effort high \
-  --add-dir "{{TARGET_DIR}}" \
-  --add-dir "$(dirname "{{PLAN_FILE}}")" \
-  --tools "Read,Grep,Glob,Bash" \
-  --disallowedTools "Edit,Write,MultiEdit,NotebookEdit" \
-  "{{FILLED_PROMPT}}"
+codex exec --skip-git-repo-check \
+  --config model_reasoning_effort="high" \
+  --sandbox read-only \
+  -C {{TARGET_DIR}} \
+  "{{FILLED_PROMPT}}" 2>/dev/null
 ```
 
-When intentionally delegating to the Claude-side adversarial-review skill from `~/.agents/skills/adversarial-review`, use its headless form:
+**For Opus 4.7:**
+Spawn a subagent with model `opus` and pass the filled prompt directly.
 
-```bash
-claude --print --model opus --effort high \
-  --add-dir "{{TARGET_DIR}}" \
-  --add-dir "$(dirname "{{PLAN_FILE}}")" \
-  --tools "Read,Grep,Glob,Bash" \
-  --disallowedTools "Edit,Write,MultiEdit,NotebookEdit" \
-  "Run /adversarial-review headlessly with: target={{TARGET_DIR}}, plan={{PLAN_FILE_OR_NONE}}, reviewer=opus 4.7, areas=[{{REVIEW_AREAS}}]"
-```
+### Step 4 — Parse and present output
 
-Notes:
+Extract from the reviewer's response:
+- **Overall verdict**: ship / fix-before-ship / significant-rework
+- **Per-area verdicts**: PASS / NEEDS-FIX / BROKEN for each numbered area
+- **Prioritized fix list**: P0 (blocks launch) → P1 (reliability) → P2 (polish)
 
-- Use `--dangerously-skip-permissions` only inside disposable/sandboxed worktrees when the user explicitly wants that mode; prefer tool allow/deny lists first.
-- If `{{PLAN_FILE}}` is omitted, omit the second `--add-dir` and pass `plan=none`.
-- The Claude result is valid only if it contains file:line citations for non-PASS findings. If Claude cannot read files or returns an environment/tooling failure, report that as a failed review, not as implementation findings.
+Present as a clean summary with the fix list ordered by priority.
 
-### 3. Present the result cleanly
+### Step 5 — Offer P0 handoff
 
-Always present:
+If there are any P0 items, ask: "Should I hand these P0 items to an Engineer agent for immediate fixes?"
+If yes, spawn an Engineer subagent with the P0 list and the target directory.
 
-- **Overall verdict** — ship / fix-before-ship / significant-rework
-- **Per-area verdicts** — PASS / NEEDS-FIX / BROKEN
-- **Prioritized fixes** — P0, then P1, then P2
+## Reference
 
-Do not flatten or soften the review. Keep the citations.
-
-### 4. If P0s exist, switch to execution mode
-
-If the review surfaces P0 items, ask whether to fix them immediately.
-If yes, move straight into implementation work on those items.
+| Topic | File |
+|-------|------|
+| Full adversarial prompt template | `references/prompt-template.md` |
 
 ## Constraints
 
-- Never use write/edit/bash for this review pass unless the user explicitly changes the task from review to implementation.
-- Never summarize non-PASS findings without at least one file:line citation per finding.
-- Keep the review adversarial and truth-seeking, not encouraging.
-- This skill audits implementations, not ideas.
+- Always use `--sandbox read-only` — this skill reads, never writes
+- Always suppress stderr with `2>/dev/null` unless the user asks for thinking tokens
+- Never summarize findings without showing at least one file:line citation per finding
+- After the review, offer `codex resume` if using the codex frontier model

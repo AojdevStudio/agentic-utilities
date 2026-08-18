@@ -38,6 +38,10 @@ opensrc/
 CHANGES.md
 **/CHANGES.md
 
+# Private-term overlay for the public skill sync - never commit.
+# See public-manifest.local.json.example.
+public-manifest.local.json
+
 # Personal terms list for gitleaks — never commit. See .gitleaks.local.toml.example.
 .gitleaks.local.toml
 

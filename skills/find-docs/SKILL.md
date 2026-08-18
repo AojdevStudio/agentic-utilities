@@ -1,26 +1,19 @@
 ---
 name: find-docs
-description: "Retrieves authoritative, up-to-date technical documentation, API references, configuration details, and code examples for any developer technology. Use this skill whenever answering technical questions or writing code that interacts with external technologies. This includes libraries, frameworks, programming languages, SDKs, APIs, CLI tools, cloud services, infrastructure tools, and developer platforms. Common scenarios: looking up API endpoints, classes, functions, or method parameters, checking configuration options or CLI commands, answering how do I technical questions, generating code that uses a specific library or service, debugging issues related to frameworks, SDKs, or APIs, retrieving setup instructions, examples, or migration guides, verifying version-specific behavior or breaking changes."
+description: Fetch current, version-accurate documentation, API references, and code examples for any developer library, framework, SDK, CLI tool, or cloud service via the ctx7 CLI, instead of relying on training data that may be stale. USE WHEN the user asks about a specific library/framework/SDK/CLI tool/cloud service (even well-known ones like React, Next.js, Prisma, Django), API syntax, configuration options, version migration, library-specific debugging, or setup instructions. Prefer over web search for library documentation. NOT FOR an open question with no named library (use research).
+metadata:
+  category: engineering
+  lanes: [claude, codex, pi]
 ---
-
-## Prefer this skill over training memory when correctness, recency, or an exact
-
-  parameter or endpoint name matters.
 
 # Documentation Lookup
 
-Retrieve current documentation and code examples for any library using the Context7 CLI.
+Retrieve current documentation and code examples for any library using the globally-installed `ctx7` CLI (never `npx` — the global install stays current and avoids per-call fetch overhead).
 
 Make sure the CLI is up to date before running commands:
 
 ```bash
 npm install -g ctx7@latest
-```
-
-Or run directly without installing:
-
-```bash
-npx ctx7@latest <command>
 ```
 
 ## Workflow
@@ -38,6 +31,8 @@ ctx7 docs <libraryId> <query>
 You MUST call `ctx7 library` first to obtain a valid library ID UNLESS the user explicitly provides a library ID in the format `/org/project` or `/org/project/version`.
 
 IMPORTANT: Do not run these commands more than 3 times per question. If you cannot find what you need after 3 attempts, use the best result you have.
+
+Run Context7 CLI requests outside Codex's default sandbox. If a Context7 CLI command fails with DNS or network errors such as ENOTFOUND, host resolution failures, or fetch failed, rerun it outside the sandbox instead of retrying inside the sandbox.
 
 ## Step 1: Resolve a Library
 
@@ -67,11 +62,11 @@ Each result includes:
 
 1. Analyze the query to understand what library/package the user is looking for
 2. Select the most relevant match based on:
-  - Name similarity to the query (exact matches prioritized)
-  - Description relevance to the query's intent
-  - Documentation coverage (prioritize libraries with higher Code Snippet counts)
-  - Source reputation (consider libraries with High or Medium reputation more authoritative)
-  - Benchmark score (higher is better, 100 is the maximum)
+   - Name similarity to the query (exact matches prioritized)
+   - Description relevance to the query's intent
+   - Documentation coverage (prioritize libraries with higher Code Snippet counts)
+   - Source reputation (consider libraries with High or Medium reputation more authoritative)
+   - Benchmark score (higher is better, 100 is the maximum)
 3. If multiple good matches exist, acknowledge this but proceed with the most relevant one
 4. If no good matches exist, clearly state this and suggest query refinements
 5. For ambiguous queries, request clarification before proceeding with a best-guess match
@@ -104,14 +99,12 @@ ctx7 docs /prisma/prisma "How to define one-to-many relations with cascade delet
 
 The query directly affects the quality of results. Be specific and include relevant details. Do not include any sensitive or confidential information such as API keys, passwords, credentials, personal data, or proprietary code in your query.
 
-
-| Quality | Example                                                    |
-| ------- | ---------------------------------------------------------- |
-| Good    | `"How to set up authentication with JWT in Express.js"`    |
-| Good    | `"React useEffect cleanup function with async operations"` |
-| Bad     | `"auth"`                                                   |
-| Bad     | `"hooks"`                                                  |
-
+| Quality | Example |
+|---------|---------|
+| Good | `"How to set up authentication with JWT in Express.js"` |
+| Good | `"React useEffect cleanup function with async operations"` |
+| Bad | `"auth"` |
+| Bad | `"hooks"` |
 
 Use the user's full question as the query when possible, vague one-word queries return generic results.
 
@@ -132,7 +125,6 @@ ctx7 login
 ## Error Handling
 
 If a command fails with a quota error ("Monthly quota reached" or "quota exceeded"):
-
 1. Inform the user their Context7 quota is exhausted
 2. Suggest they authenticate for higher limits: `ctx7 login`
 3. If they cannot or choose not to authenticate, answer from training knowledge and clearly note it may be outdated
@@ -145,4 +137,4 @@ Do not silently fall back to training data — always tell the user why Context7
 - Always run `ctx7 library` first — `ctx7 docs react "hooks"` will fail without a valid ID
 - Use descriptive queries, not single words — `"React useEffect cleanup function"` not `"hooks"`
 - Do not include sensitive information (API keys, passwords, credentials) in queries
-
+- Sandboxed environments: `ENOTFOUND` / `fetch failed` inside a sandbox is a sandbox failure, not a CLI failure — run outside the sandbox rather than retrying inside it

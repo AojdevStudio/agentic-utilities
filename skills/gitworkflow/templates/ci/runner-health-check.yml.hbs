@@ -1,0 +1,75 @@
+{{!--
+  Template: runner-health-check.yml.hbs
+  Purpose: Scheduled probe of self-hosted runner availability.
+           Flips org-level Variables SELF_HOSTED_LINUX_AVAILABLE and SELF_HOSTED_MACOS_AVAILABLE
+           so main-branch jobs can fall back to GitHub-hosted when runners are offline.
+  Vars:
+    org — GitHub org name (e.g. "your-org")
+    cron_schedule — default "*/5 * * * *" (every 5 min)
+  Required: A GitHub App token or PAT with org:variables write scope, stored as RUNNER_HEALTH_TOKEN.
+            The default GITHUB_TOKEN cannot write org Variables.
+--}}
+name: Runner Health Check
+
+on:
+  schedule:
+    - cron: "{{cron_schedule}}"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query org runners
+        id: runners
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_HEALTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          # An "online" runner has status=online AND is not busy with a stuck job.
+          gh api orgs/{{org}}/actions/runners --paginate \
+            --jq '.runners[] | {name, status, busy, labels: [.labels[].name]}' \
+            > runners.jsonl
+
+          LINUX_ONLINE=$(jq -s 'map(select(.status=="online" and (.labels | contains(["homelab-ci"])))) | length' runners.jsonl)
+          MACOS_ONLINE=$(jq -s 'map(select(.status=="online" and (.labels | contains(["homelab-macos"])))) | length' runners.jsonl)
+
+          echo "linux_online=$LINUX_ONLINE" >> "$GITHUB_OUTPUT"
+          echo "macos_online=$MACOS_ONLINE" >> "$GITHUB_OUTPUT"
+          echo "Linux online: $LINUX_ONLINE | macOS online: $MACOS_ONLINE"
+
+      - name: Update SELF_HOSTED_LINUX_AVAILABLE
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_HEALTH_TOKEN }}
+        run: |
+          if [ "${{ steps.runners.outputs.linux_online }}" -gt 0 ]; then
+            gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_LINUX_AVAILABLE \
+              -f name=SELF_HOSTED_LINUX_AVAILABLE -f value=true \
+              || gh api -X POST orgs/{{org}}/actions/variables \
+                   -f name=SELF_HOSTED_LINUX_AVAILABLE -f value=true -f visibility=all
+          else
+            gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_LINUX_AVAILABLE \
+              -f name=SELF_HOSTED_LINUX_AVAILABLE -f value=false \
+              || gh api -X POST orgs/{{org}}/actions/variables \
+                   -f name=SELF_HOSTED_LINUX_AVAILABLE -f value=false -f visibility=all
+          fi
+
+      - name: Update SELF_HOSTED_MACOS_AVAILABLE
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_HEALTH_TOKEN }}
+        run: |
+          if [ "${{ steps.runners.outputs.macos_online }}" -gt 0 ]; then
+            gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_MACOS_AVAILABLE \
+              -f name=SELF_HOSTED_MACOS_AVAILABLE -f value=true \
+              || gh api -X POST orgs/{{org}}/actions/variables \
+                   -f name=SELF_HOSTED_MACOS_AVAILABLE -f value=true -f visibility=all
+          else
+            gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_MACOS_AVAILABLE \
+              -f name=SELF_HOSTED_MACOS_AVAILABLE -f value=false \
+              || gh api -X POST orgs/{{org}}/actions/variables \
+                   -f name=SELF_HOSTED_MACOS_AVAILABLE -f value=false -f visibility=all
+          fi

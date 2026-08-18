@@ -1,6 +1,9 @@
 ---
 name: github-wiki
 description: Build and maintain a canonical, source-backed GitHub Wiki. Use when a project needs a new Wiki, a complete Wiki refresh, rendered-page verification, or an event-driven process that keeps Wiki content aligned with code, issues, and releases.
+metadata:
+  category: docs
+  lanes: [claude, codex]
 ---
 
 # GitHub Wiki

@@ -154,6 +154,29 @@ For edits, stdin is deliberately explicit so a note-only edit can never block or
 hush edit --key TLS_PRIVATE_KEY --stdin < replacement-key.pem
 ```
 
+## Agent-native retrieval
+
+Coding agents are `hush`'s second user, and they get one contract: **read any one secret, or have secrets injected into a child process — no path through `hush` emits the vault.**
+
+```bash
+# Discover what exists: id, key, project, note — never values
+hush list --json
+
+# Read one secret: a single scoped `bws secret get`, not a vault-wide fetch
+hush get --key DB_PASSWORD
+
+# Run a command with secrets in its env — values never touch argv, stdout, or disk
+hush exec --key CF_API_TOKEN --key "Cloudflare Admin=CF_ADMIN" -- ./deploy.sh
+
+# Rebuild the local metadata index by hand (get and list keep it fresh themselves)
+hush sync
+```
+
+- **Metadata index.** `get` and `exec` resolve key → id from a local index (`~/.cache/hush/index.json`, or under `$XDG_CACHE_HOME`) holding id/key/project/note — never values — then fetch exactly one secret. A stale id resyncs and retries once. `list` always queries live and refreshes the index as a side effect, so discovery is never answered from cache.
+- **Injection over printing.** `exec` is the multi-secret path: values enter the child's environment and die with it. Injected vars override inherited ones by design. Two keys targeting the same env name refuse to run; `KEY=ENVNAME` remaps keys that are not valid env var names.
+- **No bulk export.** No command prints more than one value, in any output mode. `list --json` is discovery, not a dump — there is deliberately no way to script `hush` into exporting the vault.
+- **Audit trail.** Every verb appends a names-only line (`2026-08-18T23:46:52Z exec CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess.
+
 ## How it works
 
 ```mermaid
@@ -177,6 +200,8 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 - **Sanitized failures:** failed `bws` operations report the operation and exit status, never the secret-bearing argv.
 - **Conditional clipboard clear:** after 30 seconds, `hush` clears the clipboard only if it still contains the value it copied. Your newer clipboard content is left alone.
 - **Delete guard:** the TUI confirms deletion; scripts require `--yes`.
+- **Scoped reads:** `get` and `exec` fetch single secrets by id; only `list`/`sync` refreshes see the full metadata set, and nothing persists values.
+- **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.
 
 ### Known upstream limit: argv exposure
 

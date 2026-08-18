@@ -6,6 +6,7 @@ Keep this as the human-readable record of what lives in the package.
 | --- | --- | --- | --- | --- |
 | `agentic-utilities` | Claude Code Marketplace | `.claude-plugin/marketplace.json` | active | Marketplace manifest exposing Claude Code plugins from this repo. |
 | `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `npx skills add . --list`. |
+| `bws-tui` (`hush`) | Rust CLI Crate | `bws-tui/` | active | Interactive TUI and agent-native CLI wrapper around the Bitwarden Secrets Manager `bws` CLI; published on crates.io as `bws-tui`. |
 | `html-docs` | Codex Plugin | `codex/plugins/html-docs/.codex-plugin/plugin.json` | experimental | Converts Markdown plans, reports, PR writeups, research notes, and general docs into standalone adjacent HTML artifacts. |
 | `adversarial-review` | Extension | `extensions/adversarial-review.ts` | active | Runs adversarial implementation review workflows from Pi as extension tools/commands. |
 | `anti-hedging` | Extension | `extensions/anti-hedging.ts` | active | Injects concise anti-hedging response guidance for sharper agent answers. |

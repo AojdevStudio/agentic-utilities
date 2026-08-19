@@ -1,0 +1,100 @@
+{{!--
+  Template: tauri-macos-build.yml.hbs
+  Purpose: Tauri macOS build on the Mac Mini self-hosted runner
+  Vars:
+    package_manager — bun | pnpm | yarn | npm
+    runtime_version — e.g. "1.1.x" for bun
+    build_cmd       — default "bun tauri build"
+    tauri_targets   — comma-separated, e.g. "aarch64-apple-darwin"
+    signing_required — boolean — when true, requires APPLE_CERTIFICATE + APPLE_CERTIFICATE_PASSWORD secrets
+--}}
+name: Tauri macOS Build
+
+on:
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "src/**"
+      - "package.json"
+      - "{{package_manager}}.lock*"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ${{ fromJSON(vars.SELF_HOSTED_MACOS || '["macos-latest"]') }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      {{#eq package_manager "bun"}}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "{{runtime_version}}"
+      - run: bun install --frozen-lockfile
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "{{runtime_version}}"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      {{/eq}}
+
+      - name: Add Rust target
+        run: rustup target add {{tauri_targets}}
+
+      {{#if signing_required}}
+      - name: Import Apple signing cert
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm /tmp/cert.p12
+      {{/if}}
+
+      - name: Build
+        env:
+          {{#if signing_required}}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          {{/if}}
+        run: {{build_cmd}}
+
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-macos-${{ github.sha }}
+          path: |
+            src-tauri/target/{{tauri_targets}}/release/bundle/dmg/*.dmg
+            src-tauri/target/{{tauri_targets}}/release/bundle/macos/*.app
+          if-no-files-found: warn
+          retention-days: 14
+
+      {{#if signing_required}}
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain build.keychain || true
+      {{/if}}

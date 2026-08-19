@@ -1,0 +1,125 @@
+{{!--
+  Template: release-notes.yml.hbs
+  Purpose: Changelog-only GitHub Release for libraries/services that ship NO binaries.
+           Layer 2 of the release flow — the Release workflow (Layer 1) bumps the version,
+           commits CHANGELOG.md (Keep-a-Changelog), tags vX.Y.Z and pushes the tag; this
+           tag push triggers this workflow, which extracts the matching CHANGELOG section
+           into the GitHub Release body. No build matrix, no uploaded files.
+  Vars:
+    tag_pattern         — tag glob that triggers a release — default "v*"
+    changelog_path      — path to the changelog file — default "CHANGELOG.md"
+    draft               — boolean — create the Release as a draft — default false
+    use_self_hosted_macos — boolean (opt-in) — run on self-hosted macOS via vars.SELF_HOSTED_MACOS
+                            instead of ubuntu-latest. Default OFF — release jobs stay on
+                            GitHub-hosted ephemeral runners because they touch production secrets.
+--}}
+name: Release Notes
+
+on:
+  push:
+    tags:
+      - "{{tag_pattern}}"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re-)publish a Release for (e.g. v1.2.0). Must already exist."
+        required: false
+        type: string
+
+# contents: write is required to create/update the GitHub Release object.
+permissions:
+  contents: write
+
+# Never cancel a publish mid-flight — a half-created Release is worse than a queued one.
+concurrency:
+  group: release-notes-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-notes:
+    {{#if use_self_hosted_macos}}
+    runs-on: ${{ fromJSON(vars.SELF_HOSTED_MACOS || '["macos-latest"]') }}
+    {{else}}
+    runs-on: ubuntu-latest
+    {{/if}}
+    timeout-minutes: 10
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          # Bind the (trusted) tag/ref to an env var rather than inlining the
+          # ${{ }} expression directly into the shell command.
+          REF_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch may pass an explicit tag; otherwise use the pushed ref name.
+          TAG="$REF_NAME"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag resolved — provide an input tag or push a tag." >&2
+            exit 1
+          fi
+          # Strip a leading "v" to match the Keep-a-Changelog "## [1.2.0]" header.
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      - uses: actions/checkout@v4
+        with:
+          # Check out the tag itself so {{changelog_path}} matches the released version.
+          # (Default shallow depth is fine — we read the working-tree file, not git log.)
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Extract changelog section
+        id: notes
+        env:
+          # Same reason as the Resolve tag step: never inline a ${{ }} expression
+          # into a shell script. Tag names allow $, backtick, (, ), ; and &, and
+          # this job holds contents: write.
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          CHANGELOG="{{changelog_path}}"
+
+          if [ ! -f "$CHANGELOG" ]; then
+            echo "No $CHANGELOG found — falling back to generated release notes."
+            : > notes.md
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pull the lines between this version's "## [VERSION]" header and the next
+          # "## " header (or end of file). Matches "## [1.2.0] - 2026-06-02" style headers.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' "$CHANGELOG" > section.md
+
+          # Trim leading/trailing blank lines.
+          sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}' section.md \
+            | sed -e '/./,$!d' > notes.md
+
+          if [ -s notes.md ]; then
+            echo "Extracted notes for version $VERSION:"
+            cat notes.md
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No '## [$VERSION]' section in $CHANGELOG — falling back to generated release notes."
+            : > notes.md
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: notes.md
+          # Changelog-only release — no binaries are attached.
+          draft: {{#if draft}}true{{else}}false{{/if}}
+          # v1.2.0-beta.1 (any pre-release suffix) is auto-flagged as a prerelease.
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          # Only auto-generate when we found NO curated section — otherwise softprops
+          # APPENDS the auto-notes to our body instead of using them as a fallback.
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}

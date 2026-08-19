@@ -1,204 +1,42 @@
 # Release Workflow
 
-Manage releases with semantic versioning and changelog generation.
+Semantic-versioned releases with changelog generation. Two postures, XOR — this section is the single source for the release-model facts.
 
-## Variables
+## Posture (single source of truth)
 
-```
-VERSION: $ARGUMENTS (e.g., 1.2.0)
-RELEASE_TYPE: {{major|minor|patch}} - auto-detected from commits
-```
+**Default: auto-release on merge to `main`** via `release-auto.yml` (scaffolded by CISetup). Every merge computes the bump from commits, skips cleanly when only trivial types changed, updates `CHANGELOG.md`, tags, and **self-publishes the GitHub Release in the same run**.
 
-## Workflow
+- **Why self-publish:** a tag pushed by the default `GITHUB_TOKEN` does NOT retrigger tag-triggered workflows (GitHub's anti-recursion rule) — so `release-auto.yml` can never hand off to a separate `release.yml`.
+- **XOR:** `release-auto.yml` and the tag-triggered `release.yml`/`release-notes.yml` are mutually exclusive. Installing both double-publishes the moment a human or PAT pushes a tag. One release model per repo; CISetup enforces the choice.
 
-### 1. Determine Version Bump
+**Fallback: manual cuts** (deliberate ship moments, release-branch QA) — the flow below, with a tag-triggered Layer-2 workflow (`release.yml` builds binaries with the Release body from the matching `CHANGELOG.md` section; `release-notes.yml` is changelog-only for libs/services).
 
-Analyze commits since last release to suggest version bump:
+## Version bump rules (house policy — identical logic in `release-auto.yml`)
 
-```bash
-# Get commits since last tag
-git log $(git describe --tags --abbrev=0)..HEAD --oneline
-```
+Subjects match emoji-prefixed (`✨ feat: …`) and plain (`feat:`) forms alike:
 
-**Version Bump Rules:**
+| Signal since last tag | Bump |
+|-----------------------|------|
+| `BREAKING CHANGE` in body, or `!` before the colon | MAJOR — except current major `0` → MINOR (0.x convention) |
+| `feat` | MINOR |
+| `fix` / `perf` | PATCH |
+| only docs/style/refactor/test/chore/ci/build | **no release** — skip cleanly, no tag |
+| no tags yet + releasable commits | initial version (default `v0.1.0`) |
 
-| Commit Type | Version Bump | Example |
-|-------------|--------------|---------|
-| `BREAKING CHANGE:` in footer | MAJOR | v1.0.0 → v2.0.0 |
-| `feat:` commits | MINOR | v1.0.0 → v1.1.0 |
-| `fix:`, `perf:`, `docs:` | PATCH | v1.0.0 → v1.0.1 |
+## Manual flow
 
-```bash
-# Check for breaking changes
-git log $(git describe --tags --abbrev=0)..HEAD | grep -i "BREAKING CHANGE"
-
-# Check for features
-git log $(git describe --tags --abbrev=0)..HEAD --grep="^✨ feat"
-
-# Check for fixes
-git log $(git describe --tags --abbrev=0)..HEAD --grep="^🐛 fix"
-```
-
----
-
-### 2. Create Release Branch
-
-```bash
-# Create release branch from develop
-git checkout develop
-git pull origin develop
-git checkout -b release/vVERSION
-```
-
----
-
-### 3. Update Version Files
-
-Update version in project files:
-
-**Node.js:**
-```bash
-npm version VERSION --no-git-tag-version
-# or
-pnpm version VERSION --no-git-tag-version
-```
-
-**Python:**
-```bash
-# Update __version__ in __init__.py or pyproject.toml
-```
-
-**Rust:**
-```bash
-# Update version in Cargo.toml
-```
-
-Commit version bump:
-```bash
-git commit -am "🔖 release: bump version to VERSION"
-```
-
----
-
-### 4. Generate Changelog (MANDATORY — Uses `changelog` CLI)
-
-**⚠️ This step is GATED. You MUST use the `changelog` CLI tool. Do NOT manually construct changelogs.**
-
-Generate changelog from conventional commits using the automated tool:
-
-```bash
-# Preview what will be generated (dry-run first)
-changelog VERSION --auto --dry-run
-
-# Generate and update CHANGELOG.md (non-interactive for automation)
-changelog VERSION --auto --force
-```
-
-The `changelog` CLI tool (`~/.local/bin/changelog`) automatically:
-- Analyzes all commits since the last git tag
-- Groups by type: Added, Fixed, Changed, Deprecated, Removed, Security
-- Detects breaking changes for MAJOR version bumps
-- Extracts PR numbers from commit messages
-- Creates backup of existing CHANGELOG.md
-- Updates version comparison links at the bottom
-- Follows Keep a Changelog format
-
-**If changelog tool is not available**, fall back to manual generation:
-
-```bash
-# List all features since last release
-git log $(git describe --tags --abbrev=0)..HEAD --grep="^✨ feat" --oneline
-
-# List all fixes
-git log $(git describe --tags --abbrev=0)..HEAD --grep="^🐛 fix" --oneline
-
-# List breaking changes
-git log $(git describe --tags --abbrev=0)..HEAD --grep="BREAKING CHANGE" --oneline
-```
-
-Commit changelog:
-```bash
-git add CHANGELOG.md
-git commit -m "📝 docs: update changelog for vVERSION"
-```
-
----
-
-### 5. Push Release Branch
-
-```bash
-git push -u origin release/vVERSION
-```
-
----
-
-### 6. Finalize Release
-
-After testing and approval:
-
-```bash
-# Merge to main
-git checkout main
-git pull origin main
-git merge --no-ff release/vVERSION
-
-# Tag the release
-git tag -a vVERSION -m "Release vVERSION"
-
-# Push main with tags
-git push origin main --tags
-
-# Merge back to develop
-git checkout develop
-git pull origin develop
-git merge --no-ff release/vVERSION
-git push origin develop
-
-# Clean up
-git branch -d release/vVERSION
-git push origin --delete release/vVERSION
-```
-
----
-
-## Semantic Versioning Guide
-
-Format: `vMAJOR.MINOR.PATCH` (e.g., v1.2.3)
-
-**MAJOR** (v1.0.0 → v2.0.0):
-- Breaking API changes
-- Incompatible changes to public interfaces
-- Removal of deprecated features
-- Major architectural changes
-
-**MINOR** (v1.0.0 → v1.1.0):
-- New features (backwards compatible)
-- New functionality added
-- Deprecations (but not removals)
-
-**PATCH** (v1.0.0 → v1.0.1):
-- Bug fixes
-- Security patches
-- Performance improvements
-- Documentation updates
-
----
+1. **Determine the bump** from commits since the last tag per the table; confirm with the user when the signal is ambiguous.
+2. **Release branch** `release/vX.Y.Z` from the integration branch; bump version files; commit `🔖 release: bump version to X.Y.Z`.
+3. **Changelog (GATED — tool-contract):** `changelog VERSION --auto --dry-run` to preview, then `changelog VERSION --auto --force`. Never hand-construct the changelog while the tool exists — it groups by Keep-a-Changelog sections, detects breaking changes, extracts PR numbers, backs up, and maintains the comparison links. Commit as `📝 docs: update changelog for vVERSION`. (Tool unavailable → assemble the section manually from the commit log, same section grouping.)
+4. **Push the release branch** for testing/approval.
+5. **Finalize** per the Branch workflow's release-finish: merge to default, annotated tag, push with tags, conditional develop back-merge, delete the branch.
+6. **Verify Layer 2 fired:** `gh run list --workflow=<release workflow> --limit 1` and `gh release view <tag>` — a tag without a Release object means the repo has no Layer-2 workflow; run CISetup and pick one release model.
 
 ## Report
 
 ```
 ## Release Created
-
-**Version:** vVERSION
-**Type:** RELEASE_TYPE bump
-**Tag:** vVERSION
-**Branch:** release/vVERSION
-
-**Changelog:**
-[summary of changes]
-
-**Next Steps:**
-1. Test release branch
-2. Get approval
-3. Run: Finish release workflow
+**Version:** vX.Y.Z (<bump> bump)  **Tag:** vX.Y.Z
+**Changelog:** <section summary>
+**Release:** <gh release view URL, or which posture published it>
 ```

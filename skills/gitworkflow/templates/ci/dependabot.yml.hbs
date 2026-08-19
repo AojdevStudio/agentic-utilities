@@ -1,0 +1,148 @@
+{{!--
+  Template: dependabot.yml.hbs
+  Purpose: .github/dependabot.yml (config version 2) governing Dependabot
+           VERSION-update PRs for the detected stack. Each package ecosystem is
+           emitted as its own update block gated behind a Handlebars flag, so the
+           CISetup scaffolder PRUNES the file down to the ecosystems it actually
+           detected in the repo. The github-actions ecosystem is ALWAYS emitted —
+           Actions pinning drift is a supply-chain risk in every repo, JS or not.
+
+           Scope note: this file controls dependency *version* updates only.
+           Dependabot SECURITY updates (the vulnerability-driven PRs that pair
+           with the dependency-audit degradation in DependencyAudit.md) are a
+           REPOSITORY-LEVEL toggle — enable them under
+           Settings → Code security → Dependabot → "Dependabot security updates"
+           (or org-wide). They do not live in this config and need no block here.
+
+           Companion: dependabot-auto-merge.yml.hbs auto-merges the PRs this file
+           opens once CI is green (patch by default; minor opt-in).
+
+  Vars:
+    ecosystems        — array the scaffolder iterates to emit only detected blocks.
+                        Each entry: { type, directory }. `type` is the
+                        package-ecosystem id (npm | pip | cargo | gomod | docker).
+                        github-actions is emitted unconditionally (not in this list).
+                        Prefer this {{#each ecosystems}} path; the per-ecosystem
+                        {{#if has_*}} blocks below are an equivalent, equally-prunable
+                        alternative the scaffolder may use instead — never both.
+    has_npm           — boolean — emit the npm (Node/bun/pnpm/yarn) block.
+    has_pip           — boolean — emit the pip (Python / uv-managed) block.
+    has_cargo         — boolean — emit the cargo (Rust) block.
+    has_gomod         — boolean — emit the gomod (Go modules) block.
+    has_docker        — boolean — emit the docker (Dockerfile base images) block.
+    npm_directory     — manifest dir for the npm block          — default "/"
+    pip_directory     — manifest dir for the pip block          — default "/"
+    cargo_directory   — manifest dir for the cargo block        — default "/"
+    gomod_directory   — manifest dir for the gomod block        — default "/"
+    docker_directory  — Dockerfile dir for the docker block     — default "/"
+    schedule_interval — version-update cadence — default "weekly"
+    open_pr_limit     — max concurrent version-update PRs per ecosystem — default 5
+--}}
+version: 2
+updates:
+{{#each ecosystems}}
+  # ── {{this.type}} version updates ────────────────────────────────────────────
+  - package-ecosystem: "{{this.type}}"
+    directory: "{{this.directory}}"
+    schedule:
+      interval: "{{../schedule_interval}}"
+    open-pull-requests-limit: {{../open_pr_limit}}
+    # Emoji-conventional prefix so Dependabot PRs match the repo's commit voice
+    # AND the auto-release semver scan classifies them as a `chore` (no release).
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    # Collapse the weekly noise: one PR per ecosystem for all minor+patch bumps.
+    groups:
+      {{this.type}}-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/each}}
+{{#if has_npm}}
+  # ── npm / Node (bun · pnpm · yarn · npm) version updates ─────────────────────
+  - package-ecosystem: "npm"
+    directory: "{{#if npm_directory}}{{npm_directory}}{{else}}/{{/if}}"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/if}}
+{{#if has_pip}}
+  # ── pip / Python (uv-managed) version updates ───────────────────────────────
+  - package-ecosystem: "pip"
+    directory: "{{#if pip_directory}}{{pip_directory}}{{else}}/{{/if}}"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      pip-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/if}}
+{{#if has_cargo}}
+  # ── cargo / Rust version updates ────────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "{{#if cargo_directory}}{{cargo_directory}}{{else}}/{{/if}}"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/if}}
+{{#if has_gomod}}
+  # ── gomod / Go modules version updates ──────────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "{{#if gomod_directory}}{{gomod_directory}}{{else}}/{{/if}}"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      gomod-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/if}}
+{{#if has_docker}}
+  # ── docker / Dockerfile base-image version updates ──────────────────────────
+  - package-ecosystem: "docker"
+    directory: "{{#if docker_directory}}{{docker_directory}}{{else}}/{{/if}}"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      docker-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+{{/if}}
+  # ── github-actions version updates (ALWAYS emitted — every repo has workflows) ─
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "{{#if schedule_interval}}{{schedule_interval}}{{else}}weekly{{/if}}"
+    open-pull-requests-limit: {{#if open_pr_limit}}{{open_pr_limit}}{{else}}5{{/if}}
+    commit-message:
+      prefix: "⬆️ chore(deps)"
+    groups:
+      github-actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"

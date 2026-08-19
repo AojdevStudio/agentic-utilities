@@ -1,0 +1,320 @@
+{{!--
+  Template: release-auto.yml.hbs
+  Purpose: Auto-publish a GitHub Release on every push/merge to the default branch.
+           This is the DEFAULT release posture: no human tag step. On each merge it
+           scans the conventional commits since the last tag, computes the next semver,
+           writes the CHANGELOG.md section for that version, creates and pushes vX.Y.Z,
+           then SELF-PUBLISHES the GitHub Release in the SAME run.
+
+           NO-DOUBLE-PUBLISH (critical): a tag pushed by the default GITHUB_TOKEN does
+           NOT retrigger tag-triggered workflows, so this workflow can never rely on a
+           separate release.yml / release-notes.yml catching its tag. It therefore
+           publishes the Release itself. That makes release-auto.yml MUTUALLY EXCLUSIVE
+           (XOR) with the tag-triggered release.yml / release-notes.yml: install ONE path
+           or the OTHER, never both, or every merge double-publishes. CISetup enforces
+           this XOR at scaffold time.
+
+           Semver bump rules (computed in bash below, in order of precedence):
+             - BREAKING ("BREAKING CHANGE" in a commit body, OR "!" before the ":" in a
+               subject like "feat!:" / "feat(scope)!:")  => major;
+               BUT when the current major is 0, breaking => minor (0.x convention).
+             - any feat                                  => minor
+             - any fix or perf                           => patch
+             - only docs/style/refactor/test/chore/ci/build (or no recognized type)
+                                                         => NO release (skip, exit 0, no tag)
+           Both emoji-prefixed ("✨ feat(x): …", "🐛 fix: …", "⚡ perf: …") and plain
+           ("feat:", "fix!:") conventional subjects are detected. With no tags yet and at
+           least one releasable commit, the first release uses {{initial_version}}.
+  Vars:
+    default_branch  : branch whose pushes trigger an auto-release (default "main")
+    changelog_path  : path to the Keep-a-Changelog file to update (default "CHANGELOG.md")
+    initial_version : version for the FIRST release when no tags exist (default "v0.1.0")
+    draft           : boolean, publish the Release as a draft (default false)
+--}}
+name: Release (auto)
+
+on:
+  push:
+    branches:
+      - "{{default_branch}}"
+  workflow_dispatch:
+
+# contents: write is required to push the tag, commit the changelog, and create the Release.
+permissions:
+  contents: write
+
+# Never cancel a publish mid-flight: a half-created tag/Release is worse than a queued run.
+concurrency:
+  group: release-auto-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-auto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + all tags are required for `git describe` (last tag) and the
+          # `git log <range>` body scan. A shallow clone would mis-detect the bump.
+          fetch-depth: 0
+
+      - name: Compute next version from conventional commits
+        id: bump
+        env:
+          # The initial version is a scaffold-time constant; bind it so the shell never
+          # interpolates Handlebars output mid-command.
+          INITIAL_VERSION: "{{initial_version}}"
+        run: |
+          set -euo pipefail
+
+          # --- Range: everything since the last vX.Y.Z tag, or the whole history. -------
+          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+            echo "Last tag: $LAST_TAG (scanning $RANGE)"
+          else
+            RANGE=""
+            echo "No tags yet (scanning full history)"
+          fi
+
+          # --- Collect subjects and full messages over the range. -----------------------
+          # %s = subject only (one line per commit); %B = full message incl. body, with a
+          # NUL separator so multi-line bodies stay grouped for the BREAKING scan.
+          if [ -n "$RANGE" ]; then
+            SUBJECTS="$(git log "$RANGE" --no-merges --format='%s')"
+            BODIES="$(git log "$RANGE" --no-merges --format='%B%x00')"
+          else
+            SUBJECTS="$(git log --no-merges --format='%s')"
+            BODIES="$(git log --no-merges --format='%B%x00')"
+          fi
+
+          if [ -z "$SUBJECTS" ]; then
+            echo "No non-merge commits in range. Nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # --- Classify the whole commit set. Highest precedence wins. ------------------
+          HAS_BREAKING=false
+          HAS_FEAT=false
+          HAS_PATCH=false   # fix or perf
+
+          # A real Conventional-Commits breaking footer forces major. Match only a line that
+          # STARTS with "BREAKING CHANGE:" / "BREAKING-CHANGE:" (the spec footer) — an unanchored
+          # substring would let prose like "NONBREAKING CHANGE" or "no breaking changes" trip a
+          # false major release.
+          if printf '%s' "$BODIES" | grep -qE '^BREAKING[ -]CHANGE:'; then
+            HAS_BREAKING=true
+          fi
+
+          # Walk each subject. Strip a leading emoji + spaces (anything before the first
+          # ASCII letter), then match "<type>(scope)?!?:". The "!" before ":" => breaking.
+          while IFS= read -r SUBJECT; do
+            [ -n "$SUBJECT" ] || continue
+            # Remove a leading run of non-letter, non-"(" characters (emoji, spaces) so
+            # "✨ feat(x): …" and "feat(x): …" parse identically.
+            CLEAN="$(printf '%s' "$SUBJECT" | sed -E 's/^[^A-Za-z(]*//')"
+            # type = leading run of letters; capture an optional "!" before the colon.
+            # Case-insensitive so a stray "Feat!:"/"Fix!:" is still detected as breaking.
+            if printf '%s' "$CLEAN" | grep -qiE '^(feat|fix|perf|docs|style|refactor|test|chore|ci|build|revert)(\([^)]*\))?!:'; then
+              HAS_BREAKING=true
+            fi
+            # Capture the type in any case, then lower-case it so "Feat:" does not silently
+            # fall through to "no release".
+            TYPE="$(printf '%s' "$CLEAN" | sed -nE 's/^([A-Za-z]+)(\([^)]*\))?!?:.*/\1/p' | tr '[:upper:]' '[:lower:]')"
+            case "$TYPE" in
+              feat) HAS_FEAT=true ;;
+              fix|perf) HAS_PATCH=true ;;
+              *) : ;;  # docs/style/refactor/test/chore/ci/build/revert/unknown (not releasable on their own)
+            esac
+            # Process substitution (not a pipe) keeps this loop in the current shell so the
+            # HAS_* flags set above survive. It also keeps every line indented inside the
+            # YAML block scalar, unlike a column-0 heredoc body which would break parsing.
+          done < <(printf '%s\n' "$SUBJECTS")
+
+          # --- Decide the bump level. ---------------------------------------------------
+          if [ "$HAS_BREAKING" = true ]; then
+            LEVEL="major"
+          elif [ "$HAS_FEAT" = true ]; then
+            LEVEL="minor"
+          elif [ "$HAS_PATCH" = true ]; then
+            LEVEL="patch"
+          else
+            echo "Only non-releasable commits (docs/style/refactor/test/chore/ci/build). Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Detected bump level: $LEVEL (breaking=$HAS_BREAKING feat=$HAS_FEAT patch=$HAS_PATCH)"
+
+          # --- Compute the new version. -------------------------------------------------
+          if [ -z "$LAST_TAG" ]; then
+            # First-ever release: use the configured initial version verbatim, no bump.
+            NEW_TAG="$INITIAL_VERSION"
+            echo "First release. Using initial version $NEW_TAG"
+          else
+            # Parse vMAJOR.MINOR.PATCH (tolerate a missing leading "v").
+            CURRENT="${LAST_TAG#v}"
+            MAJOR="$(printf '%s' "$CURRENT" | cut -d. -f1)"
+            MINOR="$(printf '%s' "$CURRENT" | cut -d. -f2)"
+            PATCH="$(printf '%s' "$CURRENT" | cut -d. -f3)"
+            # 0.x convention: a breaking change pre-1.0 bumps minor, not major.
+            if [ "$LEVEL" = "major" ] && [ "$MAJOR" = "0" ]; then
+              echo "0.x convention: breaking change bumps MINOR, not MAJOR."
+              LEVEL="minor"
+            fi
+            case "$LEVEL" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          NEW_VERSION="${NEW_TAG#v}"
+          echo "Next version: $NEW_TAG"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          # Preserve the range so the changelog step reuses the exact same commit set.
+          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+
+      - name: Build CHANGELOG section + release body
+        id: notes
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          CHANGELOG_PATH: "{{changelog_path}}"
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+          RANGE: ${{ steps.bump.outputs.range }}
+        run: |
+          set -euo pipefail
+
+          DATE="$(date -u +%Y-%m-%d)"
+
+          # Gather the released commit subjects for this version's body. We slice the raw
+          # conventional subjects directly so the workflow has NO hard dependency on the
+          # bundled changelog tool being present in CI. If the bundled wrapper happens to
+          # be available it can be run locally before merge; here we stay self-contained.
+          if [ -n "$RANGE" ]; then
+            SUBJECTS="$(git log "$RANGE" --no-merges --format='%s')"
+          else
+            SUBJECTS="$(git log --no-merges --format='%s')"
+          fi
+
+          # Emit a Keep-a-Changelog body. Group by section using the conventional type,
+          # stripping any leading emoji so headings stay clean.
+          {
+            ADDED=""; FIXED=""; CHANGED=""
+            while IFS= read -r SUBJECT; do
+              [ -n "$SUBJECT" ] || continue
+              CLEAN="$(printf '%s' "$SUBJECT" | sed -E 's/^[^A-Za-z(]*//')"
+              TYPE="$(printf '%s' "$CLEAN" | sed -nE 's/^([A-Za-z]+)(\([^)]*\))?!?:.*/\1/p' | tr '[:upper:]' '[:lower:]')"
+              case "$TYPE" in
+                feat) ADDED="${ADDED}- ${CLEAN}"$'\n' ;;
+                fix|perf) FIXED="${FIXED}- ${CLEAN}"$'\n' ;;
+                *) CHANGED="${CHANGED}- ${CLEAN}"$'\n' ;;
+              esac
+              # Process substitution keeps this loop in the current shell so ADDED/FIXED/
+              # CHANGED survive, and keeps every line inside the YAML block scalar.
+            done < <(printf '%s\n' "$SUBJECTS")
+            if [ -n "$ADDED" ]; then printf '### Added\n%s\n' "$ADDED"; fi
+            if [ -n "$FIXED" ]; then printf '### Fixed\n%s\n' "$FIXED"; fi
+            if [ -n "$CHANGED" ]; then printf '### Changed\n%s\n' "$CHANGED"; fi
+          } > section_body.md
+
+          # Trim trailing blank lines from the body.
+          sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}' section_body.md > notes.md
+
+          if [ -s notes.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            # No subjects survived (should not happen post-skip-check): let GitHub
+            # generate notes as a fallback rather than publishing an empty body.
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # --- Insert the new "## [VERSION] - DATE" section into the changelog. ----------
+          # The section lands at the top of the entries: after a leading "# Changelog"
+          # title (and any prose before the first "## " release header) if present,
+          # otherwise at the very top of the file. We never rewrite existing sections.
+          HEADER="## [${NEW_VERSION}] - ${DATE}"
+          if [ -f "$CHANGELOG_PATH" ]; then
+            awk -v header="$HEADER" '
+              BEGIN { inserted = 0 }
+              # Insert just before the first existing release section.
+              !inserted && /^## \[/ {
+                print header
+                print ""
+                while ((getline line < "notes.md") > 0) print line
+                print ""
+                inserted = 1
+              }
+              { print }
+              END {
+                # No existing "## [" section: append after whatever prose exists.
+                if (!inserted) {
+                  print ""
+                  print header
+                  print ""
+                  while ((getline line < "notes.md") > 0) print line
+                }
+              }
+            ' "$CHANGELOG_PATH" > changelog.new
+          else
+            # Bootstrap a fresh Keep-a-Changelog file.
+            {
+              printf '# Changelog\n\n'
+              printf '%s\n\n' "$HEADER"
+              cat notes.md
+              printf '\n'
+            } > changelog.new
+          fi
+          mv changelog.new "$CHANGELOG_PATH"
+          echo "Wrote $HEADER to $CHANGELOG_PATH"
+
+      - name: Commit changelog, tag, and push
+        id: publish_git
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          CHANGELOG_PATH: "{{changelog_path}}"
+          NEW_TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # Identify as the Actions bot for the changelog commit + annotated tag.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "$CHANGELOG_PATH"
+          # Use the emoji-conventional release commit style used elsewhere in this skill.
+          git commit -m "🔖 release: ${NEW_TAG}"
+
+          # Annotated tag on the changelog commit, then push commit + tag together.
+          git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "refs/tags/${NEW_TAG}"
+          echo "Pushed commit + tag $NEW_TAG"
+
+      - name: Publish GitHub Release
+        if: steps.bump.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: ${{ steps.bump.outputs.tag }}
+          body_path: notes.md
+          # Self-published in THIS run: the tag push above will not retrigger any
+          # tag-triggered workflow (default GITHUB_TOKEN), so nothing else publishes it.
+          draft: {{#if draft}}true{{else}}false{{/if}}
+          # vX.Y.Z-rc.1 (any pre-release suffix) is auto-flagged as a prerelease.
+          prerelease: ${{ contains(steps.bump.outputs.tag, '-') }}
+          # Only auto-generate notes when we produced NO curated body. Otherwise
+          # softprops APPENDS the auto-notes to our body instead of replacing it.
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: No-op (no releasable changes)
+        if: steps.bump.outputs.skip == 'true'
+        # Block scalar so the colon in the message is not parsed as a YAML mapping.
+        run: |
+          echo "No releasable commits since the last tag: no version bump, no tag, no Release."

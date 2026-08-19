@@ -1,0 +1,30 @@
+{{!--
+  Template: gitleaks.yml.hbs
+  Purpose: Secret scan via gitleaks on every PR + push
+  Vars:
+    gitleaks_config_path — default ".gitleaks.toml" if present, else omit
+--}}
+name: Secret Scan
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    runs-on: ${{ fromJSON(vars.SELF_HOSTED_LINUX || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          {{#if gitleaks_config_path}}
+          GITLEAKS_CONFIG: {{gitleaks_config_path}}
+          {{/if}}

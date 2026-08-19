@@ -1,0 +1,70 @@
+{{!--
+  Template: dependabot-auto-merge.yml.hbs
+  Purpose: Enable GitHub auto-merge for Dependabot PRs after branch-protection
+           CI is green. Patch updates auto-merge by default; minor updates are
+           opt-in; major updates always wait for a human.
+  Vars:
+    auto_merge_minor — boolean (opt-in) — also allow semver-minor updates.
+                       Default false — only semver-patch updates are eligible.
+--}}
+name: Dependabot Auto-Merge
+
+on:
+  # Dependabot version PRs are created from dependabot/* branches in this repo.
+  # pull_request is enough for the declared GITHUB_TOKEN permissions and avoids
+  # the broader trust boundary of pull_request_target.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+# contents: write lets GitHub complete the squash merge; pull-requests: write
+# lets gh enable auto-merge on the PR. No broader scopes are needed.
+permissions:
+  contents: write
+  pull-requests: write
+
+# One auto-merge intent per PR is enough; cancel stale runs when Dependabot
+# pushes a newer revision to the same dependency-update branch.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dependabot-auto-merge:
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for eligible updates
+        {{#if auto_merge_minor}}
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        {{else}}
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch'
+        {{/if}}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          set -euo pipefail
+          echo "Enabling auto-merge for Dependabot $UPDATE_TYPE update on PR #$PR_NUMBER"
+          # --auto registers exactly one merge intent; GitHub finalizes the squash
+          # only after required status checks and branch protection are green.
+          gh pr merge --auto --squash "$PR_NUMBER"
+
+      - name: Leave non-eligible updates for human review
+        {{#if auto_merge_minor}}
+        if: steps.meta.outputs.update-type != 'version-update:semver-patch' && steps.meta.outputs.update-type != 'version-update:semver-minor'
+        {{else}}
+        if: steps.meta.outputs.update-type != 'version-update:semver-patch'
+        {{/if}}
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          set -euo pipefail
+          echo "Dependabot update type '$UPDATE_TYPE' is not eligible for auto-merge; leaving the PR open."

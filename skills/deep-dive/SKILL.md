@@ -1,14 +1,11 @@
 ---
+disable-model-invocation: true
 name: deep-dive
-description: >
-  Structured deep-dive analysis and investigation for any technical, operational, or strategic topic.
-  Use this skill whenever the user wants a thorough, opinionated breakdown of how to manage, implement,
-  audit, or fix something — not just a quick answer. Trigger phrases include: "deep dive into...",
-  "break this down for me", "audit my approach to...", "give me a thorough breakdown of...",
-  "how should I manage X", "create a policy for...", "expert rundown on...", "investigate X",
-  "what's the best practice for X", or any request that implies the user wants structured,
-  actionable, comprehensive guidance rather than a surface-level response.
-  Do NOT trigger for simple factual questions, quick how-tos, or code-only requests.
+description: Structured, opinionated deep-dive analysis and investigation for any technical, operational, or strategic topic, delivering one clear recommendation instead of a menu of options. USE WHEN deep dive into, break this down for me, audit my approach to, thorough breakdown of, how should I manage X, create a policy for, expert rundown on, investigate X, best practice for X. NOT FOR simple factual questions, quick how-tos, or code-only requests.
+metadata:
+  category: research
+  lanes: [claude, codex, pi]
+  author: ossie
 ---
 
 # Deep Dive Skill

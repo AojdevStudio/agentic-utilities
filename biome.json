@@ -24,6 +24,8 @@
       "rules/**",
       "scripts/**",
       "skills/**",
+      "!skills/*/assets",
+      "!skills/*/templates",
       "!skills/art/Tools",
       "!skills/art/Lib",
       "themes/**",

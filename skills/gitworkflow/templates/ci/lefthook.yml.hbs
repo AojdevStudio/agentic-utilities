@@ -1,0 +1,153 @@
+{{!--
+  Template: lefthook.yml.hbs
+  Purpose: Local Lefthook config for auto-fix-then-block-on-unfixable commit hooks.
+           Fixers repair and re-stage files; pure checks block only when code or
+           dependency state still cannot be made safe automatically.
+  Vars:
+    package_manager — bun | pnpm | yarn | npm — default bun
+    test_cmd — pre-push test command — e.g. "bun test"
+    lint_cmd — lint FIXER command — e.g. "bun run lint" (default derives from package_manager)
+    format_cmd — format FIXER command — e.g. "bun run format" (default derives from package_manager)
+    typecheck_cmd — blocking typecheck command — e.g. "bun run typecheck" (default derives from package_manager)
+    include_rust — boolean — emit cargo fmt (fixer) + cargo clippy (block) — default false
+    include_python — boolean — emit ruff/black fixer + blocking check via uv — default false
+--}}
+# GitWorkflow writes this file, then runs `lefthook install` once so git hooks are registered.
+# If the lefthook binary is absent, install it with `brew install lefthook` or `bun add -D lefthook`.
+
+pre-commit:
+  # Auto-fix first, then block only on issues a fixer cannot repair.
+  parallel: true
+  commands:
+    js-lint:
+      # Glob guards keep JS tooling from running in repos with no matching staged JS files.
+      glob: "*.{ts,tsx,js,jsx}"
+      {{#if lint_cmd}}
+      run: {{lint_cmd}} {staged_files}
+      {{else}}
+      {{#if package_manager}}
+      {{#eq package_manager "bun"}}
+      run: bun run lint {staged_files}
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      run: pnpm run lint {staged_files}
+      {{/eq}}
+      {{#eq package_manager "yarn"}}
+      run: yarn lint {staged_files}
+      {{/eq}}
+      {{#eq package_manager "npm"}}
+      run: npm run lint -- {staged_files}
+      {{/eq}}
+      {{else}}
+      run: bun run lint {staged_files}
+      {{/if}}
+      {{/if}}
+      # This is a fixer: re-stage repaired files and let the commit continue.
+      stage_fixed: true
+
+    js-format:
+      glob: "*.{ts,tsx,js,jsx}"
+      {{#if format_cmd}}
+      run: {{format_cmd}} {staged_files}
+      {{else}}
+      {{#if package_manager}}
+      {{#eq package_manager "bun"}}
+      run: bun run format {staged_files}
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      run: pnpm run format {staged_files}
+      {{/eq}}
+      {{#eq package_manager "yarn"}}
+      run: yarn format {staged_files}
+      {{/eq}}
+      {{#eq package_manager "npm"}}
+      run: npm run format -- {staged_files}
+      {{/eq}}
+      {{else}}
+      run: bun run format {staged_files}
+      {{/if}}
+      {{/if}}
+      # This is a fixer: formatting edits are automatically added back to the commit.
+      stage_fixed: true
+
+    js-typecheck:
+      glob: "*.{ts,tsx,js,jsx}"
+      {{#if typecheck_cmd}}
+      run: {{typecheck_cmd}}
+      {{else}}
+      {{#if package_manager}}
+      {{#eq package_manager "bun"}}
+      run: bun run typecheck
+      {{/eq}}
+      {{#eq package_manager "pnpm"}}
+      run: pnpm run typecheck
+      {{/eq}}
+      {{#eq package_manager "yarn"}}
+      run: yarn typecheck
+      {{/eq}}
+      {{#eq package_manager "npm"}}
+      run: npm run typecheck
+      {{/eq}}
+      {{else}}
+      run: bun run typecheck
+      {{/if}}
+      {{/if}}
+      # This is a pure check: fail the commit if types are still broken.
+
+    js-lockfile-drift:
+      glob: "{package.json,bun.lock,bun.lockb,pnpm-lock.yaml,yarn.lock,package-lock.json}"
+      # Frozen installs detect manifest/lockfile drift without writing fixes.
+      run: |
+        set -euo pipefail
+        {{#if package_manager}}
+        {{#eq package_manager "bun"}}
+        bun install --frozen-lockfile --ignore-scripts
+        {{/eq}}
+        {{#eq package_manager "pnpm"}}
+        pnpm install --frozen-lockfile --ignore-scripts
+        {{/eq}}
+        {{#eq package_manager "yarn"}}
+        yarn install --frozen-lockfile --ignore-scripts
+        {{/eq}}
+        {{#eq package_manager "npm"}}
+        npm ci --ignore-scripts
+        {{/eq}}
+        {{else}}
+        bun install --frozen-lockfile --ignore-scripts
+        {{/if}}
+        git diff --exit-code -- bun.lock bun.lockb pnpm-lock.yaml yarn.lock package-lock.json
+      # This is a pure check: update dependency state intentionally, then re-run the hook.
+
+    {{#if include_rust}}
+    rust-format:
+      glob: "*.rs"
+      run: cargo fmt --all
+      # This is a fixer: cargo fmt changes are re-staged automatically.
+      stage_fixed: true
+
+    rust-clippy:
+      glob: "*.rs"
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      # This is a pure check: clippy findings require code changes before commit.
+
+    {{/if}}
+    {{#if include_python}}
+    python-format:
+      glob: "*.py"
+      run: uv run ruff check --fix {staged_files} && uv run black {staged_files}
+      # This is a fixer: Python lint and format edits are re-staged automatically.
+      stage_fixed: true
+
+    python-check:
+      glob: "*.py"
+      run: uv run ruff check {staged_files} && uv run black --check {staged_files}
+      # This is a pure check: unresolved Python issues block the commit.
+
+    {{/if}}
+pre-push:
+  commands:
+    tests:
+      # Run the full suite before pushing. Test runners take their own scope, so we do
+      # NOT append {push_files} — a file list would break most runners (bun test, cargo
+      # test, vitest run) and a passing partial run is a false green.
+      run: {{test_cmd}}

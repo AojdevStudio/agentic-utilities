@@ -1,5 +1,9 @@
+mod audit;
 mod bws;
 mod commands;
+mod exec;
+mod index;
+mod retrieve;
 mod tui;
 
 use anyhow::Result;

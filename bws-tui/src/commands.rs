@@ -1,4 +1,4 @@
-use crate::{bws, stdin_value};
+use crate::{audit, bws, exec, retrieve, stdin_value};
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
@@ -18,10 +18,13 @@ pub(crate) enum Cmd {
         #[arg(long)]
         note: Option<String>,
     },
-    /// List secrets (id, key, project — never values).
+    /// List secrets (id, key, project, note — never values).
     List {
         #[arg(long)]
         project: Option<String>,
+        /// Emit JSON: [{id, key, project, note}] — the discovery surface for agents.
+        #[arg(long)]
+        json: bool,
     },
     /// Print a secret's value to stdout.
     Get {
@@ -30,6 +33,19 @@ pub(crate) enum Cmd {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Run a command with secrets injected as env vars (values never printed).
+    Exec {
+        /// Secret to inject: KEY, or KEY=ENVNAME to remap. Repeatable.
+        #[arg(long = "key", required = true)]
+        keys: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        /// Command to run, after `--`.
+        #[arg(last = true, required = true)]
+        cmd: Vec<String>,
+    },
+    /// Rebuild the local metadata index (id/key/project/note — never values).
+    Sync,
     /// Edit a secret's key, value, and/or note.
     Edit {
         #[arg(long)]
@@ -81,6 +97,7 @@ fn add(
     let value = value
         .or(stdin_value()?)
         .context("no --value given and nothing piped on stdin")?;
+    audit::record("add", &[&key])?;
     let created = bws::create_secret(
         &key,
         &SecretString::from(value),
@@ -88,29 +105,6 @@ fn add(
         note.as_deref(),
     )?;
     println!("created {} ({})", created.key, created.id);
-    Ok(())
-}
-
-fn list(project: Option<String>) -> Result<()> {
-    let project_id = scoped_project_id(&project)?;
-    let projects = bws::list_projects()?;
-    for secret in bws::list_secrets(project_id.as_deref())? {
-        let name = secret
-            .project_id
-            .as_deref()
-            .and_then(|id| projects.iter().find(|project| project.id == id))
-            .map(|project| project.name.as_str())
-            .unwrap_or("no project");
-        println!("{}\t{}\t{}", secret.id, secret.key, name);
-    }
-    Ok(())
-}
-
-fn get(key: String, project: Option<String>) -> Result<()> {
-    let project_id = scoped_project_id(&project)?;
-    let secrets = bws::list_secrets(project_id.as_deref())?;
-    let secret = bws::find_by_key(&secrets, &key, project_id.as_deref())?;
-    println!("{}", secret.value);
     Ok(())
 }
 
@@ -131,6 +125,7 @@ fn edit(options: EditOptions) -> Result<()> {
     let project_id = scoped_project_id(&options.project)?;
     let secrets = bws::list_secrets(project_id.as_deref())?;
     let secret = bws::find_by_key(&secrets, &options.key, project_id.as_deref())?;
+    audit::record("edit", &[&options.key])?;
     let updated = bws::edit_secret(
         &secret.id,
         options.new_key.as_deref(),
@@ -157,6 +152,7 @@ fn delete(key: String, project: Option<String>, yes: bool) -> Result<()> {
     let project_id = scoped_project_id(&project)?;
     let secrets = bws::list_secrets(project_id.as_deref())?;
     let secret = bws::find_by_key(&secrets, &key, project_id.as_deref())?;
+    audit::record("delete", &[&key])?;
     bws::delete_secret(&secret.id)?;
     println!("deleted {}", secret.key);
     Ok(())
@@ -170,8 +166,10 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             value,
             note,
         } => add(key, project, value, note),
-        Cmd::List { project } => list(project),
-        Cmd::Get { key, project } => get(key, project),
+        Cmd::List { project, json } => retrieve::list(project.as_deref(), json),
+        Cmd::Get { key, project } => retrieve::get(&key, project.as_deref()),
+        Cmd::Exec { keys, project, cmd } => exec::run(&keys, project.as_deref(), &cmd),
+        Cmd::Sync => retrieve::sync(),
         Cmd::Edit {
             key,
             project,

@@ -51,6 +51,11 @@ pub fn list_secrets(project_id: Option<&str>) -> Result<Vec<Secret>> {
     Ok(serde_json::from_str(&run(&args)?)?)
 }
 
+/// True single-secret fetch: only this value crosses the wire.
+pub fn get_secret(id: &str) -> Result<Secret> {
+    Ok(serde_json::from_str(&run(&["secret", "get", id])?)?)
+}
+
 pub fn create_secret(
     key: &str,
     value: &SecretString,

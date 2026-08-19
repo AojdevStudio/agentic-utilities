@@ -10,6 +10,7 @@
 
 ### Added
 
+- agent-native hush: exec env injection, scoped get, list --json, audit log (#54) [#54]
 - secrets, without the ceremony (#40) [#40]
 - global, guided, and worktree-safe (#41) [#41]
 - add pr-review-queue fleet reviewer skill (#35) [#35]

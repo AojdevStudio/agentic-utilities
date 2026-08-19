@@ -72,10 +72,14 @@ jobs:
 
       - name: Extract changelog section
         id: notes
+        env:
+          # Same reason as the Resolve tag step: never inline a ${{ }} expression
+          # into a shell script. Tag names allow $, backtick, (, ), ; and &, and
+          # this job holds contents: write.
+          VERSION: ${{ steps.tag.outputs.version }}
         run: |
           set -euo pipefail
           CHANGELOG="{{changelog_path}}"
-          VERSION="${{ steps.tag.outputs.version }}"
 
           if [ ! -f "$CHANGELOG" ]; then
             echo "No $CHANGELOG found — falling back to generated release notes."

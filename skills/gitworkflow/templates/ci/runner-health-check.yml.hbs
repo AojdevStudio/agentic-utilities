@@ -45,8 +45,12 @@ jobs:
       - name: Update SELF_HOSTED_LINUX_AVAILABLE
         env:
           GH_TOKEN: ${{ secrets.RUNNER_HEALTH_TOKEN }}
+          # Bind step outputs through env rather than inlining ${{ }} into the
+          # script. These are jq counts today, but this job writes org variables,
+          # so keep the boundary explicit.
+          ONLINE: ${{ steps.runners.outputs.linux_online }}
         run: |
-          if [ "${{ steps.runners.outputs.linux_online }}" -gt 0 ]; then
+          if [ "$ONLINE" -gt 0 ]; then
             gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_LINUX_AVAILABLE \
               -f name=SELF_HOSTED_LINUX_AVAILABLE -f value=true \
               || gh api -X POST orgs/{{org}}/actions/variables \
@@ -61,8 +65,12 @@ jobs:
       - name: Update SELF_HOSTED_MACOS_AVAILABLE
         env:
           GH_TOKEN: ${{ secrets.RUNNER_HEALTH_TOKEN }}
+          # Bind step outputs through env rather than inlining ${{ }} into the
+          # script. These are jq counts today, but this job writes org variables,
+          # so keep the boundary explicit.
+          ONLINE: ${{ steps.runners.outputs.macos_online }}
         run: |
-          if [ "${{ steps.runners.outputs.macos_online }}" -gt 0 ]; then
+          if [ "$ONLINE" -gt 0 ]; then
             gh api -X PATCH orgs/{{org}}/actions/variables/SELF_HOSTED_MACOS_AVAILABLE \
               -f name=SELF_HOSTED_MACOS_AVAILABLE -f value=true \
               || gh api -X POST orgs/{{org}}/actions/variables \

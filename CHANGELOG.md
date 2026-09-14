@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- hush: TUI now reports a clear "no TTY" error with subcommand guidance instead of crossterm's cryptic "Device not configured" failure (#57)
+
 ### Added
 
 - agent-native hush: exec env injection, scoped get, list --json, audit log (#54) [#54]

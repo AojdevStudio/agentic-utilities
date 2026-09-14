@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::terminal::is_interactive;
 use anyhow::anyhow;
 
 #[test]
@@ -64,4 +65,12 @@ fn terminal_cleanup_reports_every_failure() {
     assert!(error.contains("event failed"));
     assert!(error.contains("raw failed"));
     assert!(error.contains("screen failed"));
+}
+
+#[test]
+fn tui_gate_accepts_a_tty_on_either_side() {
+    assert!(is_interactive(true, false));
+    assert!(is_interactive(false, true));
+    assert!(is_interactive(true, true));
+    assert!(!is_interactive(false, false));
 }

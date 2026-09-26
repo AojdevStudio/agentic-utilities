@@ -59,7 +59,7 @@ export STARS_CHECKOUT_ROOTS="$HOME/Projects"
 stars sync
 ```
 
-For a previous installation, point `STARS_DATA_DIR` to its existing state directory first, verify `stars status --json`, then move that directory to the new default if desired. Preserve `ledger.json` and `review.md` together and keep `STARS_DATA_DIR` set until the move is complete.
+For a previous installation, point `STARS_DATA_DIR` to its existing state directory first and verify `stars status --json`. Preserve `ledger.json` and `review.md` together if you move them to the new default. Run `stars sync` after migration. It tightens that state directory to `0700` and both state files to `0600`, including copies that previously had permissive modes. It does not change parent-directory permissions. Keep `STARS_DATA_DIR` set until the move is complete.
 
 ## Troubleshooting
 

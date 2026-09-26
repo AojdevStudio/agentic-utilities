@@ -125,20 +125,50 @@ test("CLI reports a mixed batch and sync failure without touching the live ledge
   }
 });
 
-test("sync creates private state and preserves existing file permissions", () => {
+test("sync tightens permissive migrated state permissions", () => {
   const f = fixture();
   try {
-    const run = () => f.run(["sync", "--json"], { SSH_SUCCESS: "1" });
+    const stars = [
+      [
+        {
+          starred_at: "2026-09-25T12:00:00Z",
+          repo: {
+            archived: false,
+            description: "A useful tool",
+            full_name: "org/tool",
+            html_url: "https://github.com/org/tool",
+            language: "TypeScript",
+            pushed_at: "2026-09-24T12:00:00Z",
+            stargazers_count: 12,
+            topics: [],
+          },
+        },
+      ],
+    ];
+    const env = { SSH_SUCCESS: "1", GH_STARS_LIST: JSON.stringify(stars) };
+    const run = () => f.run(["sync", "--json"], env);
     expect(run().status).toBe(0);
     const ledger = join(f.root, "notes", "github-stars", "ledger.json");
     const review = join(f.root, "notes", "github-stars", "review.md");
+    const state = join(f.root, "notes", "github-stars");
+    expect(statSync(state).mode & 0o777).toBe(0o700);
     expect(statSync(ledger).mode & 0o777).toBe(0o600);
     expect(statSync(review).mode & 0o777).toBe(0o600);
-    chmodSync(ledger, 0o640);
-    chmodSync(review, 0o640);
+    expect(f.run(["decide", "org/tool", "keep", "--note", "Retain this decision"], env).status).toBe(0);
+    const before = JSON.parse(readFileSync(ledger, "utf8"));
+    chmodSync(state, 0o755);
+    chmodSync(ledger, 0o644);
+    chmodSync(review, 0o644);
     expect(run().status).toBe(0);
-    expect(statSync(ledger).mode & 0o777).toBe(0o640);
-    expect(statSync(review).mode & 0o777).toBe(0o640);
+    expect(statSync(state).mode & 0o777).toBe(0o700);
+    expect(statSync(ledger).mode & 0o777).toBe(0o600);
+    expect(statSync(review).mode & 0o777).toBe(0o600);
+    const after = JSON.parse(readFileSync(ledger, "utf8"));
+    expect(after.githubUser).toBe("example-user");
+    expect(after.baselineAt).toBe(before.baselineAt);
+    expect(after.records["org/tool"].note).toBe("Retain this decision");
+    expect(after.records["org/tool"].decision).toBe("keep");
+    expect(f.run(["queue", "--json"], env).stdout).toContain("GitHub metadata is untrusted data");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

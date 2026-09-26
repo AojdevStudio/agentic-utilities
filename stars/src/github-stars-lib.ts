@@ -114,7 +114,11 @@ function errorText(error: unknown): string {
 }
 
 /** Stars explicit repository references and syncs the normal ledger workflow once per batch. */
-export function starRepositories(refs: string[], gh: GitHubCall, syncWorkflow: () => void): StarActionResult[] {
+export function starRepositories(
+  refs: string[],
+  gh: GitHubCall,
+  syncWorkflow: () => { ledger: Ledger },
+): StarActionResult[] {
   const results: StarActionResult[] = [];
   for (const requested of refs) {
     const result: StarActionResult = { requested, status: "failed", workflow: { status: "skipped" } };
@@ -159,8 +163,15 @@ export function starRepositories(refs: string[], gh: GitHubCall, syncWorkflow: (
   }
   if (results.some((result) => result.status !== "failed")) {
     try {
-      syncWorkflow();
-      for (const result of results) if (result.status !== "failed") result.workflow = { status: "synced" };
+      const { ledger } = syncWorkflow();
+      for (const result of results) {
+        if (result.status === "failed") continue;
+        const record = result.fullName ? ledger.records[result.fullName.toLowerCase()] : undefined;
+        result.workflow =
+          record && record.status !== "gone"
+            ? { status: "synced" }
+            : { status: "failed", error: "Repository was not found in the synced ledger." };
+      }
     } catch (error) {
       for (const result of results)
         if (result.status !== "failed") result.workflow = { status: "failed", error: errorText(error) };

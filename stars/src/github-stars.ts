@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
@@ -87,8 +87,18 @@ function loadLedger(): Ledger | null {
 
 function saveLedger(ledger: Ledger): void {
   mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(LEDGER_PATH, `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
-  writeFileSync(REVIEW_PATH, renderMarkdown(ledger, activeProjects()), "utf8");
+  const write = (path: string, content: string) => {
+    const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, content, "utf8");
+      renameSync(temporary, path);
+    } catch (error) {
+      rmSync(temporary, { force: true });
+      throw error;
+    }
+  };
+  write(LEDGER_PATH, `${JSON.stringify(ledger, null, 2)}\n`);
+  write(REVIEW_PATH, renderMarkdown(ledger, activeProjects()));
 }
 
 function walkCheckouts(dir: string, depth: number, found: Map<string, string[]>): void {

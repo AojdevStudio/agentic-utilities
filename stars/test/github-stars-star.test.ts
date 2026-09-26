@@ -1,5 +1,28 @@
 import { expect, test } from "bun:test";
-import { type GitHubCall, parseStarRef, starRepositories } from "../src/github-stars-lib.ts";
+import { type GitHubCall, mergeStars, parseStarRef, starRepositories } from "../src/github-stars-lib.ts";
+
+function synced(name: string) {
+  const { ledger } = mergeStars(
+    null,
+    "example-user",
+    [
+      {
+        starred_at: "2026-09-25T12:00:00Z",
+        repo: {
+          archived: false,
+          description: "Tool",
+          full_name: name,
+          html_url: `https://github.com/${name}`,
+          language: "TypeScript",
+          pushed_at: "2026-09-24T12:00:00Z",
+          stargazers_count: 1,
+        },
+      },
+    ],
+    new Map(),
+  );
+  return { ledger };
+}
 
 test("star references require an exact GitHub repository URL or owner/repo", () => {
   expect(parseStarRef("https://github.com/Owner/Repo")).toBe("Owner/Repo");
@@ -25,7 +48,7 @@ test("resolves canonical identity, stars once, and syncs the existing workflow",
       return { status: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" };
     return { status: 0, stdout: "", stderr: "" };
   };
-  const results = starRepositories(["old/name"], gh, () => "synced");
+  const results = starRepositories(["old/name"], gh, () => synced("new/name"));
   expect(results).toEqual([
     {
       requested: "old/name",
@@ -50,7 +73,7 @@ test("already starred repository is reported without another PUT", () => {
       };
     return { status: 0, stdout: "", stderr: "" };
   };
-  const results = starRepositories(["https://github.com/org/repo"], gh, () => "synced");
+  const results = starRepositories(["https://github.com/org/repo"], gh, () => synced("org/repo"));
   expect(results[0]?.status).toBe("already-starred");
   expect(calls.some((call) => call.includes(" PUT "))).toBe(false);
 });

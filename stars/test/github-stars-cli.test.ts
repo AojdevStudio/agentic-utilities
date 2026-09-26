@@ -116,6 +116,20 @@ test("CLI reports a mixed batch and sync failure without touching the live ledge
   }
 });
 
+test("successful star reports workflow failure when GitHub omits it from the immediate sync", () => {
+  const f = fixture();
+  try {
+    const result = f.run(["star", "good/one", "--json"], { SSH_SUCCESS: "1" });
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout).results[0]).toMatchObject({
+      status: "starred",
+      workflow: { status: "failed", error: "Repository was not found in the synced ledger." },
+    });
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 test("account mismatch fails before any star write", () => {
   const f = fixture();
   try {

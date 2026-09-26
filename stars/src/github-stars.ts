@@ -1,7 +1,17 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
@@ -89,8 +99,10 @@ function saveLedger(ledger: Ledger): void {
   mkdirSync(DATA_DIR, { recursive: true });
   const write = (path: string, content: string) => {
     const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
     try {
-      writeFileSync(temporary, content, "utf8");
+      writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
+      chmodSync(temporary, mode);
       renameSync(temporary, path);
     } catch (error) {
       rmSync(temporary, { force: true });

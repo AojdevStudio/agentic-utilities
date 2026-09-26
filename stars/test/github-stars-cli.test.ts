@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -111,6 +120,25 @@ test("CLI reports a mixed batch and sync failure without touching the live ledge
     });
     expect(body.results[1]?.workflow.status).toBe("skipped");
     expect(readFileSync(f.log, "utf8")).toContain("api user/starred/good/one -X PUT --silent");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("sync creates private state and preserves existing file permissions", () => {
+  const f = fixture();
+  try {
+    const run = () => f.run(["sync", "--json"], { SSH_SUCCESS: "1" });
+    expect(run().status).toBe(0);
+    const ledger = join(f.root, "notes", "github-stars", "ledger.json");
+    const review = join(f.root, "notes", "github-stars", "review.md");
+    expect(statSync(ledger).mode & 0o777).toBe(0o600);
+    expect(statSync(review).mode & 0o777).toBe(0o600);
+    chmodSync(ledger, 0o640);
+    chmodSync(review, 0o640);
+    expect(run().status).toBe(0);
+    expect(statSync(ledger).mode & 0o777).toBe(0o640);
+    expect(statSync(review).mode & 0o777).toBe(0o640);
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

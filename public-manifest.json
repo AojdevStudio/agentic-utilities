@@ -140,6 +140,9 @@
       "mode": "public-owned",
       "reason": "Authored here. No private counterpart."
     },
+    "stars": {
+      "mode": "mirror"
+    },
     "scaffold-notes": {
       "mode": "public-owned",
       "reason": "Maintenance helper for this repo only."

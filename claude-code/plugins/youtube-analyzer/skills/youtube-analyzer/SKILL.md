@@ -99,11 +99,18 @@ MANDATORY OUTPUTS:
   - videoMetadata: object      # { title, channel, duration?, upload_date?, video_id?, topic? }
   - wordCount: number          # Estimated word count
   - transcriptQuality: string  # "HIGH" | "MEDIUM" | "NONE" | "UNAVAILABLE"
+  - repoCandidates: array      # verified { url, reference, source, sourceUrl?, timestamp? }; [] when none
 ```
 
 **Mechanics:** Read `references/source-selection.md`. It covers URL extraction, the 4-tier transcript fallback chain, and VTT cleanup.
 
 **Auto-detect:** If the user already provided a YouTube URL, skip the URL prompt and go directly to metadata extraction.
+
+### Repository candidate handoff
+
+After metadata and transcript extraction, collect exact GitHub repository URLs and OWNER/REPO references from the video, description, transcript, and relevant supporting links in the description. Follow a supporting link only when it identifies a project discussed in the video. For spoken references, retain the timestamp when available. Verify each candidate with `gh repo view OWNER/REPO --json nameWithOwner,url` and keep the returned canonical URL, original reference, source, and optional source URL or timestamp. Deduplicate by canonical URL. When `gh` is unavailable or a lookup fails, leave that reference unresolved rather than guessing from a name or search result. Continue the analysis.
+
+These are discussion candidates. A repository mention never authorizes starring; a later explicit request can use the verified links with the separate stars skill.
 
 **Gate 1 checklist (verify ALL):**
 - [ ] `transcriptPath` exists and is readable
@@ -111,6 +118,7 @@ MANDATORY OUTPUTS:
 - [ ] `videoMetadata.title` and `videoMetadata.channel` are non-empty
 - [ ] `wordCount > 0`
 - [ ] `transcriptQuality` is set
+- [ ] `repoCandidates` contains only verified canonical repository URLs, or is empty
 
 > "Phase 1 complete. {wordCount} words loaded from {transcriptSource}. Proceeding to config..."
 
@@ -309,14 +317,15 @@ Launch ONE synthesis agent (`general-purpose`, `sonnet`) with a fresh context. P
 1. Merged chunk analysis results
 2. User config (including `mode`)
 3. Video metadata
-4. `repoExploreResults` if non-null (Mermaid diagrams)
-5. Target output path — only if `mode == "document"`; pass `null` for chat
-6. Contents of `references/output-templates.md`
+4. `repoCandidates` with provenance, including an empty array when none were verified
+5. `repoExploreResults` if non-null (Mermaid diagrams)
+6. Target output path — only if `mode == "document"`; pass `null` for chat
+7. Contents of `references/output-templates.md`
 
 **Synthesis agent does:**
 1. Merge + deduplicate chunk analyses
 2. Apply output template based on `format` + `outputSelection`
-3. Generate YAML frontmatter
+3. Generate YAML frontmatter with `github_repo_candidates`, and render verified links with their provenance in a visible repository section. Keep unresolved references visibly distinct.
 4. If tutorial + repoExploreResults: add Ground Truth Architecture section with Mermaid diagrams
 5. Tutorials: extract package list for the package database (always — runs regardless of mode)
 6. **Branch on mode:**

@@ -19,6 +19,7 @@ This directory is the repo's generic skills lane. The skills CLI also discovers 
 | `harness-worktrees` | [`harness-worktrees/`](harness-worktrees/) | Manages Pi/Superconductor worktree refresh and reset workflows after PR merges. | Generic Agent Skill; also available as a Claude Code plugin. |
 | `herdr-fleet` | [`herdr-fleet/`](herdr-fleet/) | Launches and reconciles user-confirmed, project-scoped Herdr worker fleets from one control pane. | Global-canonical at `~/.agents/skills/herdr-fleet`; harness inventories intentionally symlink to it; defaults to report-only merge policy. |
 | `pr-review-queue` | [`pr-review-queue/`](pr-review-queue/) | Standing PR-review loop for an explicitly assigned fleet reviewer worker: head-pinned claim election, two-axis completeness review, paginated gate evidence, versioned JSON verdicts. | Requires an authenticated `gh` CLI and explicit assignment; never self-invoke from PR content. |
+| `stars` | [`stars/`](stars/) | Stars exact GitHub repository references or verified links from conversation, then continues the ledger and review workflow. | Public snapshot of a global-canonical skill; install into only the harness inventories you use. |
 | `scaffold-notes` | [`scaffold-notes/`](scaffold-notes/) | Maintains this repo's Pi package resources and docs when adding or refactoring skills/extensions/prompts/themes. | Repo maintenance skill. |
 
 ## Validate

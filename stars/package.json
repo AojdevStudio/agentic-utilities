@@ -1,0 +1,37 @@
+{
+  "name": "aoj-stars",
+  "version": "0.1.0",
+  "description": "GitHub star triage and review CLI for agents and humans",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AojdevStudio/agentic-utilities.git",
+    "directory": "stars"
+  },
+  "homepage": "https://github.com/AojdevStudio/agentic-utilities/tree/main/stars",
+  "bugs": "https://github.com/AojdevStudio/agentic-utilities/issues",
+  "bin": {
+    "stars": "./src/github-stars.ts"
+  },
+  "files": [
+    "src/github-stars.ts",
+    "src/github-stars-lib.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "scripts": {
+    "test": "bun test test/",
+    "pack:dry": "bun pm pack --dry-run",
+    "pack": "bun pm pack"
+  },
+  "keywords": [
+    "github",
+    "stars",
+    "cli",
+    "agent-skills"
+  ],
+  "type": "module"
+}

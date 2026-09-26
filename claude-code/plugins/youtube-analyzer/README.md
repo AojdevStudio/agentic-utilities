@@ -32,6 +32,7 @@ flowchart LR
 | **Format-aware** | Detects whether the video is a tutorial, course, finance video, interview, lecture, or general — and dispatches the matching analysis workflow. |
 | **Multi-agent on long videos** | Token-aware partitioning splits 100K-token videos across parallel agents, then synthesizes the chunks into one document. |
 | **GitHub repo cross-reference** | For tutorials, optionally clones the linked repo and produces Mermaid diagrams of structure, dependencies, and patterns — so you can see what the video taught vs. what the actual code does. |
+| **Repository handoff** | Preserves verified GitHub repository links from the video, description, transcript, and supporting links with their sources, so a later explicit request can star the right repositories through the separate stars skill. |
 | **Package version drift** | Tracks every package mentioned in tutorial videos in a local database, then queries npm / PyPI to flag versions that have moved on since the video shipped. |
 | **Two delivery modes** | `--document` writes a permanent markdown file to your configured output dir; `--chat` returns the analysis inline so you can talk through it without saving. |
 

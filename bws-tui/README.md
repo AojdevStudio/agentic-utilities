@@ -53,7 +53,7 @@ The official `bws` CLI already has the authentication and API access. What it do
 - **Type to find.** Fuzzy filtering is always live; arrows always move.
 - **Enter means actions, never exit.** Copy, Reveal, Edit, Delete, or Cancel appear as plain English.
 - **Values stay out of lists and logs.** Reveal is deliberate; copy is explicit.
-- **Clipboard copies expire.** The value clears after 30 seconds if it is still unchanged and `hush` remains open.
+- **Native clipboard copies expire.** The value clears after 30 seconds if it is still unchanged and `hush` remains open. Headless terminal copies use OSC 52 and must be cleared manually.
 - **Projects never drift.** The menu comes from `bws project list` every time.
 - **No config file.** `bws` keeps its token/profile configuration; `hush` adds none.
 
@@ -101,7 +101,7 @@ cargo install --locked bws-tui
 hush
 ```
 
-Tested on macOS. The crate uses `arboard` for cross-platform clipboard access, but other platforms are not yet part of the release verification matrix.
+On macOS and Linux desktops, `hush` uses the native clipboard through `arboard`. On headless Linux, it sends an OSC 52 clipboard write through the terminal. OSC 52 cannot confirm delivery or read back the clipboard, so `hush` does not automatically clear terminal copies. Clear them manually. Terminal copies are limited to 128 KiB of value text. Under tmux, enable `set-clipboard on` and ensure the outer terminal supports clipboard writes.
 
 ## The interface
 
@@ -198,7 +198,7 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 - **Masked entry:** TUI value input is never rendered as plaintext while typing.
 - **No values in lists:** search rows contain only key and project name.
 - **Sanitized failures:** failed `bws` operations report the operation and exit status, never the secret-bearing argv.
-- **Conditional clipboard clear:** after 30 seconds, `hush` clears the clipboard only if it still contains the value it copied. Your newer clipboard content is left alone.
+- **Conditional native clipboard clear:** after 30 seconds, `hush` clears a native clipboard only if it still contains the value it copied. Your newer clipboard content is left alone. OSC 52 copies are not auto-cleared because the terminal cannot report whether the clipboard changed.
 - **Delete guard:** the TUI confirms deletion; scripts require `--yes`.
 - **Scoped reads:** `get` and `exec` fetch single secrets by id; only `list`/`sync` refreshes see the full metadata set, and nothing persists values.
 - **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.

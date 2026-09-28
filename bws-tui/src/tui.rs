@@ -1,5 +1,6 @@
 mod actions;
 mod chrome;
+mod clipboard;
 mod events;
 mod forms;
 mod render;
@@ -7,9 +8,9 @@ mod secrets;
 mod terminal;
 
 use crate::bws::{self, Project, Secret};
-use anyhow::{Context, Result};
-use arboard::Clipboard;
-use secrecy::{ExposeSecret, SecretString};
+use anyhow::Result;
+use clipboard::*;
+use secrecy::SecretString;
 use std::time::{Duration, Instant};
 
 const ACCENT: ratatui::style::Color = ratatui::style::Color::Cyan;
@@ -206,34 +207,6 @@ fn fuzzy_match(hay: &str, needle: &str) -> bool {
         }
     }
     cur.is_none()
-}
-
-fn clipboard_holds_copied_value(current: &str, copied: &SecretString) -> bool {
-    current == copied.expose_secret()
-}
-
-fn clear_clipboard_value(copied: &SecretString) -> Result<bool> {
-    let mut clipboard = Clipboard::new().context("macOS clipboard is unavailable")?;
-    let current = clipboard
-        .get_text()
-        .context("failed to read the clipboard")?;
-    if !clipboard_holds_copied_value(&current, copied) {
-        return Ok(false);
-    }
-    clipboard
-        .set_text(String::new())
-        .context("failed to clear the clipboard")?;
-    Ok(true)
-}
-
-fn copy_with_autoclear(app: &mut App, value: String) -> Result<()> {
-    let mut clipboard = Clipboard::new().context("macOS clipboard is unavailable")?;
-    clipboard
-        .set_text(value.clone())
-        .context("failed to copy the secret value")?;
-    app.clipboard_value = Some(SecretString::from(value));
-    app.clipboard_clear_at = Some(Instant::now() + Duration::from_secs(30));
-    Ok(())
 }
 
 pub fn run() -> Result<()> {

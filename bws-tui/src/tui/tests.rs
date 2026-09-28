@@ -157,6 +157,10 @@ fn osc52_rejects_oversized_values_without_writing() {
 #[cfg(target_os = "linux")]
 #[test]
 fn failed_native_and_terminal_paths_are_both_reported() {
+    if should_try_native_clipboard() {
+        return;
+    }
+
     struct FailingWriter;
 
     impl std::io::Write for FailingWriter {

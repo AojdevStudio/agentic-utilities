@@ -1,6 +1,7 @@
 use super::*;
 use std::io::Write;
 
+/// Copies the selected value and reports the delivery method without revealing it.
 pub(super) fn copy_action(app: &mut App, output: &mut impl Write) {
     if let Some(s) = app.selected_secret() {
         let key = s.key.clone();
@@ -28,6 +29,7 @@ pub(super) fn edit_action(app: &mut App) {
     }
 }
 
+/// Dispatches the selected secret action using the TUI's terminal output.
 pub(super) fn run_action(app: &mut App, output: &mut impl Write) {
     match app.action_idx {
         0 => copy_action(app, output),

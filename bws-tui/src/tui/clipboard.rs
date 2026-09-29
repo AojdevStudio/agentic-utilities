@@ -10,10 +10,12 @@ use std::{
 };
 use zeroize::Zeroizing;
 
+/// Reports whether the clipboard still holds the value hush copied.
 pub(super) fn clipboard_holds_copied_value(current: &str, copied: &SecretString) -> bool {
     current == copied.expose_secret()
 }
 
+/// Clears a native copy only when it has not been replaced.
 pub(super) fn clear_clipboard_value(copied: &SecretString) -> Result<bool> {
     let mut clipboard = Clipboard::new().context("native clipboard is unavailable")?;
     let current = clipboard
@@ -36,10 +38,12 @@ pub(super) enum CopyMethod {
 
 const MAX_OSC52_VALUE_BYTES: usize = 128 * 1024;
 
+/// Detects a configured X11 or Wayland display.
 pub(super) fn has_display_server(display: Option<&OsStr>, wayland: Option<&OsStr>) -> bool {
     display.is_some_and(|value| !value.is_empty()) || wayland.is_some_and(|value| !value.is_empty())
 }
 
+/// Skips arboard on headless Linux while keeping the native path elsewhere.
 pub(super) fn should_try_native_clipboard() -> bool {
     !cfg!(target_os = "linux")
         || has_display_server(
@@ -48,6 +52,7 @@ pub(super) fn should_try_native_clipboard() -> bool {
         )
 }
 
+/// Sends a bounded OSC 52 clipboard write through the active terminal output.
 pub(super) fn write_osc52(value: &str, output: &mut impl Write) -> Result<()> {
     anyhow::ensure!(
         value.len() <= MAX_OSC52_VALUE_BYTES,
@@ -63,6 +68,8 @@ pub(super) fn write_osc52(value: &str, output: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
+/// Uses the native clipboard first and falls back to OSC 52 when unavailable.
+/// Only native copies schedule a conditional clear.
 pub(super) fn copy_value(
     app: &mut App,
     value: String,

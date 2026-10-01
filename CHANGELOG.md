@@ -47,6 +47,7 @@
 
 ### Fixed
 
+- hush: TUI now reports a clear "no TTY" error with subcommand guidance instead of crossterm's cryptic "Device not configured" failure (#57)
 - remediate merged-#35 CodeRabbit findings (#36) [#35]
 - post-merge remediation for #33 (validator hardening, packaging hygiene, ask-codex metadata) (#34) [#33]
 - complete issue #10 port hardening (#33) [#10]

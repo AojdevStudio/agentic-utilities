@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::terminal::is_interactive;
 use anyhow::anyhow;
 
 #[test]
@@ -50,6 +51,15 @@ fn edit_fields_cycle_without_invalid_numeric_states() {
     assert_eq!(EditField::Value.next(), EditField::Note);
     assert_eq!(EditField::Note.next(), EditField::Key);
     assert_eq!(EditField::Key.previous(), EditField::Note);
+}
+
+#[test]
+/// Cover both one-sided terminal sessions and the fully headless rejection.
+fn tui_gate_accepts_a_tty_on_either_side() {
+    assert!(is_interactive(true, false));
+    assert!(is_interactive(false, true));
+    assert!(is_interactive(true, true));
+    assert!(!is_interactive(false, false));
 }
 
 #[test]

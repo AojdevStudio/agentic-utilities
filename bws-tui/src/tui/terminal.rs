@@ -1,11 +1,11 @@
 use super::{events, App};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 #[derive(Default)]
 struct TerminalGuard {
@@ -49,7 +49,16 @@ impl Drop for TerminalGuard {
     }
 }
 
+/// Reject headless sessions before changing terminal state, then run the TUI
+/// and report event-loop failures together with terminal restoration failures.
 pub(super) fn run(app: &mut App) -> Result<()> {
+    if !is_interactive(io::stdin().is_terminal(), io::stdout().is_terminal()) {
+        bail!(
+            "hush's interactive TUI needs a terminal session (no TTY found). \
+             Run `hush` from an interactive terminal, or use the script-friendly \
+             subcommands: `hush list`, `hush get --key <KEY>`, `hush exec --key <KEY> -- <cmd>`"
+        );
+    }
     let mut guard = TerminalGuard::default();
     guard.enable_raw()?;
     let mut output = io::stdout();
@@ -60,6 +69,14 @@ pub(super) fn run(app: &mut App) -> Result<()> {
     finish_terminal(event, raw, screen)
 }
 
+/// The TUI needs either side attached to a terminal; crossterm opens /dev/tty
+/// directly for input when stdin is piped, so stdout alone is enough.
+pub(super) fn is_interactive(stdin_tty: bool, stdout_tty: bool) -> bool {
+    stdin_tty || stdout_tty
+}
+
+/// Preserve every event-loop and restoration error rather than masking one
+/// failure with a later cleanup failure.
 pub(super) fn finish_terminal(
     event: Result<()>,
     raw: Result<()>,

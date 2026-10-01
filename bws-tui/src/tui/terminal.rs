@@ -49,6 +49,8 @@ impl Drop for TerminalGuard {
     }
 }
 
+/// Reject headless sessions before changing terminal state, then run the TUI
+/// and report event-loop failures together with terminal restoration failures.
 pub(super) fn run(app: &mut App) -> Result<()> {
     if !is_interactive(io::stdin().is_terminal(), io::stdout().is_terminal()) {
         bail!(
@@ -73,6 +75,8 @@ pub(super) fn is_interactive(stdin_tty: bool, stdout_tty: bool) -> bool {
     stdin_tty || stdout_tty
 }
 
+/// Preserve every event-loop and restoration error rather than masking one
+/// failure with a later cleanup failure.
 pub(super) fn finish_terminal(
     event: Result<()>,
     raw: Result<()>,

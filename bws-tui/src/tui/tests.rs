@@ -54,6 +54,7 @@ fn edit_fields_cycle_without_invalid_numeric_states() {
 }
 
 #[test]
+/// Cover both one-sided terminal sessions and the fully headless rejection.
 fn tui_gate_accepts_a_tty_on_either_side() {
     assert!(is_interactive(true, false));
     assert!(is_interactive(false, true));

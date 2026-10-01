@@ -80,6 +80,8 @@ Use the bundled `assets/aoj-starlight/` starter for every site. The fixed standa
 - Starlight navigation, search, SEO, code highlighting, and accessibility defaults;
 - a production build and GitHub Pages deployment workflow.
 
+Use Node.js 22.19.0 or newer to satisfy the starter's locked dependencies.
+
 Create the site with `scripts/create_site.py`; do not recreate the starter by hand. Supply the project name, description, repository URL, canonical site URL, base path, and default branch. The script refuses to overwrite an existing site or workflow.
 
 Keep the framework and AOJ design tokens fixed. Customize only the project title, description, repository link, content, and deployment URL. If GitHub Pages is unavailable, change only the hosting adapter; keep the Starlight starter and visual system unchanged. Add plugins only for confirmed needs that Starlight does not cover.

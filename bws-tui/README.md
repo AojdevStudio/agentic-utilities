@@ -101,7 +101,7 @@ cargo install --locked bws-tui
 hush
 ```
 
-On macOS and Linux desktops, `hush` uses the native clipboard through `arboard`. On headless Linux, it sends an OSC 52 clipboard write through the terminal. OSC 52 cannot confirm delivery or read back the clipboard, so `hush` does not automatically clear terminal copies. Clear them manually. Terminal copies are limited to 128 KiB of value text. Under tmux, enable `set-clipboard on` and ensure the outer terminal supports clipboard writes.
+On macOS and Linux desktops, `hush` uses the native clipboard through `arboard`. On headless Linux, it sends an OSC 52 clipboard write through the terminal. This fallback requires stdout to be a terminal; redirected output is rejected before writing value bytes. Native clipboard copies can still work with redirected stdout. OSC 52 cannot confirm delivery or read back the clipboard, so `hush` does not automatically clear terminal copies. Clear them manually. Terminal copies are limited to 128 KiB of value text. Under tmux, enable `set-clipboard on` and ensure the outer terminal supports clipboard writes.
 
 ## The interface
 

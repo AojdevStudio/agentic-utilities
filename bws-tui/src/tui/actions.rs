@@ -1,12 +1,18 @@
 use super::*;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 /// Copies the selected value and reports the delivery method without revealing it.
 pub(super) fn copy_action(app: &mut App, output: &mut impl Write) {
     if let Some(s) = app.selected_secret() {
         let key = s.key.clone();
         let value = s.value.clone();
-        match copy_value(app, value, output, should_try_native_clipboard()) {
+        match copy_value(
+            app,
+            value,
+            output,
+            should_try_native_clipboard(),
+            std::io::stdout().is_terminal(),
+        ) {
             Ok(CopyMethod::Native) => {
                 app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)"))
             }

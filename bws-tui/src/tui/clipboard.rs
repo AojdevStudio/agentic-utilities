@@ -69,12 +69,13 @@ pub(super) fn write_osc52(value: &str, output: &mut impl Write) -> Result<()> {
 }
 
 /// Uses the native clipboard first and falls back to OSC 52 when unavailable.
-/// Only native copies schedule a conditional clear.
+/// OSC 52 requires terminal output; only native copies schedule a conditional clear.
 pub(super) fn copy_value(
     app: &mut App,
     value: String,
     output: &mut impl Write,
     try_native: bool,
+    terminal_output: bool,
 ) -> Result<CopyMethod> {
     let native_error = if try_native {
         match Clipboard::new()
@@ -95,6 +96,10 @@ pub(super) fn copy_value(
         anyhow::anyhow!("native clipboard unavailable: no display server")
     };
 
+    anyhow::ensure!(
+        terminal_output,
+        "{native_error:#}; terminal clipboard OSC 52 unavailable: stdout is not a terminal"
+    );
     write_osc52(&value, output).map_err(|error| {
         anyhow::anyhow!("{native_error:#}; terminal clipboard OSC 52 failed: {error:#}")
     })?;

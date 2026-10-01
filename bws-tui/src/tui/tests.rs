@@ -12,6 +12,7 @@ fn headless_copy_succeeds_without_a_display_server() {
         "dummy-clipboard-value".to_string(),
         &mut output,
         false,
+        true,
     );
     assert_eq!(result.unwrap(), CopyMethod::Terminal);
     assert_eq!(output, b"\x1b]52;c;ZHVtbXktY2xpcGJvYXJkLXZhbHVl\x07");
@@ -137,6 +138,7 @@ fn terminal_copy_failure_names_both_clipboards() {
         "dummy-clipboard-value".to_string(),
         &mut FailingWriter,
         false,
+        true,
     )
     .unwrap_err();
     let message = format!("{error:#}");
@@ -179,6 +181,7 @@ fn failed_native_and_terminal_paths_are_both_reported() {
         "dummy-clipboard-value".to_string(),
         &mut FailingWriter,
         true,
+        true,
     )
     .unwrap_err();
     let message = format!("{error:#}");
@@ -200,6 +203,7 @@ fn terminal_fallback_preserves_an_earlier_native_clear() {
         "dummy-clipboard-value".to_string(),
         &mut output,
         false,
+        true,
     )
     .unwrap();
 
@@ -209,4 +213,24 @@ fn terminal_fallback_preserves_an_earlier_native_clear() {
         "prior-copy",
         app.clipboard_value.as_ref().unwrap()
     ));
+}
+
+#[test]
+/// Redirected output must never receive recoverable secret bytes through OSC 52.
+fn terminal_fallback_rejects_redirected_output_without_writing() {
+    let mut app = App::new(vec![]);
+    let mut output = Vec::new();
+    let error = copy_value(
+        &mut app,
+        "dummy-clipboard-value".to_string(),
+        &mut output,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("stdout is not a terminal"));
+    assert!(!error.to_string().contains("dummy-clipboard-value"));
+    assert!(output.is_empty());
+    assert!(app.clipboard_value.is_none());
+    assert!(app.clipboard_clear_at.is_none());
 }

@@ -1,11 +1,24 @@
 use super::*;
+use std::io::{IsTerminal, Write};
 
-pub(super) fn copy_action(app: &mut App) {
+/// Copies the selected value and reports the delivery method without revealing it.
+pub(super) fn copy_action(app: &mut App, output: &mut impl Write) {
     if let Some(s) = app.selected_secret() {
         let key = s.key.clone();
         let value = s.value.clone();
-        match copy_with_autoclear(app, value) {
-            Ok(()) => app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)")),
+        match copy_value(
+            app,
+            value,
+            output,
+            should_try_native_clipboard(),
+            std::io::stdout().is_terminal(),
+        ) {
+            Ok(CopyMethod::Native) => {
+                app.set_ok(format!("✓ copied “{key}” — clears in 30s (keep app open)"))
+            }
+            Ok(CopyMethod::Terminal) => app.set_ok(format!(
+                "sent “{key}” to terminal clipboard (OSC 52); clear manually"
+            )),
             Err(error) => app.set_err(&error),
         }
     }
@@ -22,9 +35,10 @@ pub(super) fn edit_action(app: &mut App) {
     }
 }
 
-pub(super) fn run_action(app: &mut App) {
+/// Dispatches the selected secret action using the TUI's terminal output.
+pub(super) fn run_action(app: &mut App, output: &mut impl Write) {
     match app.action_idx {
-        0 => copy_action(app),
+        0 => copy_action(app, output),
         1 => app.revealed = true,
         2 => edit_action(app),
         3 => app.mode = Mode::ConfirmDelete,

@@ -134,8 +134,8 @@ pub(super) fn event_loop(
                         app.action_idx = (app.action_idx + 1).min(ACTIONS.len() - 1);
                     }
                 }
-                KeyCode::Enter => run_action(app),
-                KeyCode::Char('c') => copy_action(app),
+                KeyCode::Enter => run_action(app, term.backend_mut()),
+                KeyCode::Char('c') => copy_action(app, term.backend_mut()),
                 KeyCode::Char('r') => app.revealed = !app.revealed,
                 KeyCode::Char('e') => edit_action(app),
                 KeyCode::Char('d') => app.mode = Mode::ConfirmDelete,

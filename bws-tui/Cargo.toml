@@ -24,3 +24,4 @@ anyhow = "1"
 humantime = "2"
 clap = { version = "4", features = ["derive"] }
 arboard = "3"
+base64 = "0.22"

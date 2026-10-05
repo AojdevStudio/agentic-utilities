@@ -17,6 +17,32 @@ STARTER = SKILL_ROOT / "assets" / "aoj-starlight"
 
 
 class CreateSiteTests(unittest.TestCase):
+    def test_generated_site_covers_locked_undici_node_minimum(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(CREATE_SITE),
+                    "--repo-root", temp_dir,
+                    "--project-name", "Engine contract",
+                    "--description", "Example documentation",
+                    "--repository-url", "https://github.com/example/project",
+                    "--site-url", "https://example.github.io/project",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            site = Path(temp_dir) / "docs-site"
+            manifest = json.loads((site / "package.json").read_text(encoding="utf-8"))
+            lockfile = json.loads((site / "package-lock.json").read_text(encoding="utf-8"))
+            declared = manifest["engines"]["node"]
+            required = lockfile["packages"]["node_modules/undici"]["engines"]["node"]
+            self.assertEqual(declared, lockfile["packages"][""]["engines"]["node"])
+            declared_minimum = tuple(map(int, declared.removeprefix(">=").split(".")))
+            required_minimum = tuple(map(int, required.removeprefix(">=").split(".")))
+            self.assertGreaterEqual(declared_minimum, required_minimum)
+
     def test_yaml_safe_project_name_and_generated_gitignore(self) -> None:
         project_name = "Example: Project"
         expected_descriptions = {

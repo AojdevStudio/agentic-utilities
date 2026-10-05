@@ -32,9 +32,17 @@ key_topics:
   - topic2
 packages_tracked: {count}  # tutorials only
 github_repo: "{url}"  # tutorials only, if provided
+github_repo_candidates:  # verified repositories; [] when none
+  - url: "https://github.com/OWNER/REPO"
+    reference: "{as stated}"
+    source: "{video|description|transcript|supporting link}"
+    sourceUrl: "{source URL if available}"
+    timestamp: "{timestamp if available}"
 repo_explored: {true|false}
 ---
 ```
+
+`github_repo_candidates` contains only verified canonical repository URLs. Omit unavailable optional fields and use `[]` when there are none. Keep `github_repo` for the repository explored in Phase 3. When candidates exist, add a visible "Repositories mentioned" section listing each linked URL and its source, including supporting links or timestamps when available. List unresolved references separately without inventing URLs.
 
 ---
 

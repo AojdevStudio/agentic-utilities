@@ -6,6 +6,7 @@
       "title": "Coding Workflows",
       "description": "Skills for implementation, Git, docs lookup, and harness operations.",
       "skills": [
+        "stars",
         "find-docs",
         "gitworkflow",
         "harness-audit",

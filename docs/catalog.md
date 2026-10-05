@@ -5,7 +5,8 @@ Keep this as the human-readable record of what lives in the package.
 | Name | Type | Path | Status | Purpose |
 | --- | --- | --- | --- | --- |
 | `agentic-utilities` | Claude Code Marketplace | `.claude-plugin/marketplace.json` | active | Marketplace manifest exposing Claude Code plugins from this repo. |
-| `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `npx skills add . --list`. |
+| `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `bunx skills add . --list`. |
+| `aoj-stars` (`stars`) | Bun CLI Package | `stars/` | active | Standalone GitHub star CLI with verified identity, batch stars, ledger, review queue, and follow-up actions. |
 | `bws-tui` (`hush`) | Rust CLI Crate | `bws-tui/` | active | Interactive TUI and agent-native CLI wrapper around the Bitwarden Secrets Manager `bws` CLI; published on crates.io as `bws-tui`. |
 | `html-docs` | Codex Plugin | `codex/plugins/html-docs/.codex-plugin/plugin.json` | experimental | Converts Markdown plans, reports, PR writeups, research notes, and general docs into standalone adjacent HTML artifacts. |
 | `adversarial-review` | Extension | `extensions/adversarial-review.ts` | active | Runs adversarial implementation review workflows from Pi as extension tools/commands. |
@@ -31,6 +32,7 @@ Keep this as the human-readable record of what lives in the package.
 | `harness-worktrees` | Skill | `skills/harness-worktrees/SKILL.md` | active | Manages Pi/Superconductor worktree refreshes and resets after PR merges. |
 | `herdr-fleet` | Skill | `skills/herdr-fleet/SKILL.md` | active | Global-canonical skill (canonical at `~/.agents/skills/herdr-fleet`, symlinked into pi/claude/codex; repo is the public snapshot). Orchestrates user-confirmed, project-scoped Herdr worker rosters from one control pane via a guided roster wizard. |
 | `pr-review-queue` | Skill | `skills/pr-review-queue/SKILL.md` | active | Standing PR-review loop for an explicitly assigned fleet reviewer worker; head-pinned claim election, two-axis completeness review, paginated gate evidence, and a versioned JSON verdict. |
+| `stars` | Skill | `skills/stars/SKILL.md` | active | Global-canonical skill mirrored from the private store; resolves explicit star requests from verified conversation links and uses the standalone CLI. |
 | `scaffold-notes` | Skill | `skills/scaffold-notes/SKILL.md` | active | Maintenance skill for adding resources to this repo consistently. |
 | `skill-inspector` | Skill | `skills/skill-inspector/SKILL.md` | active | Global-first skill (symlinked into `~/.claude/skills/skill-inspector`); security-scans agent skills with the `skillspector` CLI and renders a plain-English verdict report (safe/caution/do-not-install, threat breakdown, top findings) for chat. |
 | `critical-bug-hunt.prompt` | Prompt | `prompts/critical-bug-hunt.prompt.md` | active | Recent-commit audit prompt for high-severity correctness bugs and minimal fixes. |
@@ -52,7 +54,7 @@ Keep this as the human-readable record of what lives in the package.
 | `ship-issue` | Claude Code Plugin | `claude-code/plugins/ship-issue/.claude-plugin/plugin.json` | active | Executes GitHub issues one at a time as vertical slices: sync, branch, TDD each criterion, verify, self-review, open PR, then babysit to a terminal state before the next. |
 | `skill-inspector` | Claude Code Plugin | `claude-code/plugins/skill-inspector/.claude-plugin/plugin.json` | active | Security-scans an agent skill with the `skillspector` CLI and renders a plain-English verdict (SAFE/CAUTION/DO_NOT_INSTALL): capability-clustered, intent-weighted scoring with confirmed source-to-sink exfiltration as the do-not-install trigger; flags degraded static-only scans. |
 | `skill-stats` | Claude Code Plugin | `claude-code/plugins/skill-stats/.claude-plugin/plugin.json` | active | Telemetry-driven Claude Code skill-usage report: top-used, recently-active, dormant, and phantom skills. |
-| `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code. |
+| `youtube-analyzer` | Claude Code Plugin | `claude-code/plugins/youtube-analyzer/.claude-plugin/plugin.json` | active | Format-aware YouTube video analysis plugin for Claude Code; preserves verified repository candidates and source links for later explicit star requests. |
 
 ## Status labels
 

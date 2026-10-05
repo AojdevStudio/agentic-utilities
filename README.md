@@ -24,6 +24,7 @@
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
 | [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
 | [`scaffold-notes`](skills/scaffold-notes/) | Skill | Maintenance helper for adding resources to this repo consistently. |
+| [`stars`](stars/) · [skill](skills/stars/) | Bun CLI + Agent Skill | Verify and star GitHub repositories, then continue through the ledger and review workflow. |
 | [`youtube-analyzer`](claude-code/plugins/youtube-analyzer/) | Claude Code plugin | Format-aware YouTube video analysis with multi-agent transcript chunking. |
 | [`critical-bug-hunt`](prompts/critical-bug-hunt.prompt.md) | Prompt template | Recent-commit audit for high-severity correctness bugs and minimal fixes. |
 | [`hello`](extensions/hello/) | Example extension | Smoke-test scaffold exposing `/agentic-utilities` and `agentic_utilities_ping`. |
@@ -51,18 +52,35 @@ pi install git:github.com/AojdevStudio/agentic-utilities
 pi install git:github.com/AojdevStudio/agentic-utilities@v0.1.0
 ```
 
+### Stars CLI and agent skill
+
+After the npm release, install the standalone CLI with Bun (Bun 1.2 or newer on macOS or Linux). Authenticate `gh` first:
+
+```bash
+gh auth login
+bun add --global aoj-stars@0.1.0
+stars --version
+stars star OWNER/REPO --json
+stars star https://github.com/OWNER/ONE OWNER/TWO --json
+stars queue --json
+```
+
+The CLI stores its ledger and review queue under `${XDG_STATE_HOME:-$HOME/.local/state}/stars` unless `STARS_DATA_DIR` is set. The [standalone package guide](stars/README.md) covers configuration, upgrades, and migration. The [stars skill](skills/stars/) resolves references such as “star the two repositories we discussed” from verified conversation links. A mention alone does not initiate a star.
+
+Install the skill into the harness inventory you intend to use; inspect an existing `stars` installation before replacing it. Pi reads `skills/stars/` from this package. Codex and Claude Code can copy that directory into `~/.codex/skills/` and `~/.claude/skills/`, respectively. The private canonical skill store, when used, syncs one way to this public snapshot.
+
 ### As Agent Skills / skills CLI
 
 The root [`skills/`](skills/) directory is compatible with the Agent Skills CLI. To inspect what the CLI sees from this checkout:
 
 ```bash
-npx skills add . --list
+bunx skills add . --list
 ```
 
 To inspect the canonical GitHub repository:
 
 ```bash
-npx skills add AojdevStudio/agentic-utilities --list
+bunx skills add AojdevStudio/agentic-utilities --list
 ```
 
 Use the skills CLI for discovery and repo-page telemetry. For this user's isolated daily setup, copy from this repo into harness-specific inventories (`~/.pi/agent/skills`, `~/.codex/skills`, `~/.claude/skills`) instead of relying on a shared `~/.agents` bridge. The current CLI can still choose shared Agent Skills paths for some agent targets, so verify install output before using it as an installer.

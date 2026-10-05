@@ -42,6 +42,7 @@ with `changelog --unreleased`.
 
 Python 3.9 or newer. Note that this is a deliberate change from the `>=3.8` floor
 of earlier standalone copies of this script: Python 3.8 reached end of life.
+GitPython 3.1.62 or newer is required.
 
 ## Development
 

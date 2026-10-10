@@ -4,7 +4,12 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-import { DEFAULT_REPO_AUTOPILOT_PREFERENCES, loadRepoAutopilotPreferences, type RepoAutopilotPreferences, type VerificationProfile } from "./prefs.ts";
+import {
+  DEFAULT_REPO_AUTOPILOT_PREFERENCES,
+  loadRepoAutopilotPreferences,
+  type RepoAutopilotPreferences,
+  type VerificationProfile,
+} from "./prefs.ts";
 
 type PlanSource = {
   kind: "plan";
@@ -37,7 +42,11 @@ type LinearSource = {
 
 export type ContinueSource = PlanSource | GitHubSource | LinearSource;
 
-export async function buildContinueManifest(pi: ExtensionAPI, repoCwd: string, sourceInput: string): Promise<{ manifestPath: string; source: ContinueSource }> {
+export async function buildContinueManifest(
+  pi: ExtensionAPI,
+  repoCwd: string,
+  sourceInput: string,
+): Promise<{ manifestPath: string; source: ContinueSource }> {
   const source = await resolveContinueSource(pi, repoCwd, sourceInput);
   const branch = await getCurrentGitBranch(pi, repoCwd);
   const preferences = loadRepoAutopilotPreferences(repoCwd);
@@ -92,9 +101,16 @@ function buildManifestId(source: ContinueSource): string {
   return `${slug.slice(0, 60)}-${shortHash(source.reference)}`;
 }
 
-function buildManifestMarkdown(args: { source: ContinueSource; branch: string; checks: string[]; preferences: RepoAutopilotPreferences }): string {
+function buildManifestMarkdown(args: {
+  source: ContinueSource;
+  branch: string;
+  checks: string[];
+  preferences: RepoAutopilotPreferences;
+}): string {
   const { source, branch, checks, preferences } = args;
-  const allowPaths = preferences.allowPaths.length ? preferences.allowPaths : DEFAULT_REPO_AUTOPILOT_PREFERENCES.allowPaths;
+  const allowPaths = preferences.allowPaths.length
+    ? preferences.allowPaths
+    : DEFAULT_REPO_AUTOPILOT_PREFERENCES.allowPaths;
   const denyPaths = preferences.denyPaths.length ? preferences.denyPaths : DEFAULT_REPO_AUTOPILOT_PREFERENCES.denyPaths;
 
   const frontmatterLines = [
@@ -115,14 +131,7 @@ function buildManifestMarkdown(args: { source: ContinueSource; branch: string; c
     frontmatterLines.push(`source_title: ${yamlScalar(source.title)}`);
   }
 
-  frontmatterLines.push(
-    "authority:",
-    "  commit: false",
-    "  push: true",
-    "  pr: true",
-    "  merge: false",
-    "scope:",
-  );
+  frontmatterLines.push("authority:", "  commit: false", "  push: true", "  pr: true", "  merge: false", "scope:");
 
   if (source.kind === "github") {
     frontmatterLines.push(`  gh_issue_ids: [${source.number}]`);
@@ -150,18 +159,14 @@ function buildManifestMarkdown(args: { source: ContinueSource; branch: string; c
     "verify:",
     "  - all_required_checks_passed",
     "acceptance:",
-    source.kind === "plan"
-      ? "  - complete the plan"
-      : "  - resolve the source issue",
+    source.kind === "plan" ? "  - complete the plan" : "  - resolve the source issue",
     "  - required checks pass",
     "stop_when:",
     source.kind === "plan" ? "  - plan work is complete" : "  - source issue is resolved",
     "---",
   );
 
-  const body = source.kind === "plan"
-    ? buildPlanBody(source)
-    : buildIssueBody(source);
+  const body = source.kind === "plan" ? buildPlanBody(source) : buildIssueBody(source);
 
   return `${frontmatterLines.join("\n")}\n\n${body}\n`;
 }
@@ -186,22 +191,24 @@ function buildIssueBody(source: GitHubSource | LinearSource): string {
   const commentSection = source.comments.length
     ? [
         "## Comments",
-        ...source.comments.slice(0, 5).map((comment, index) => [
-          `### Comment ${index + 1}`,
-          `- author: ${comment.author || "unknown"}`,
-          "",
-          comment.body.trim() || "_Empty comment._",
-        ].join("\n")),
+        ...source.comments
+          .slice(0, 5)
+          .map((comment, index) =>
+            [
+              `### Comment ${index + 1}`,
+              `- author: ${comment.author || "unknown"}`,
+              "",
+              comment.body.trim() || "_Empty comment._",
+            ].join("\n"),
+          ),
       ]
     : [];
 
-  const extraCommentNote = source.comments.length > 5
-    ? [``, `... and ${source.comments.length - 5} more comments.`]
-    : [];
+  const extraCommentNote =
+    source.comments.length > 5 ? [``, `... and ${source.comments.length - 5} more comments.`] : [];
 
-  const labelSection = source.kind === "github" && source.labels.length
-    ? [`- labels: ${source.labels.join(", ")}`]
-    : [];
+  const labelSection =
+    source.kind === "github" && source.labels.length ? [`- labels: ${source.labels.join(", ")}`] : [];
 
   return [
     "## Source issue",
@@ -224,7 +231,8 @@ function buildIssueBody(source: GitHubSource | LinearSource): string {
 }
 
 function buildChecksForSource(source: ContinueSource, profile: VerificationProfile, repoCwd: string): string[] {
-  const text = `${source.title}\n${source.body}\n${source.kind === "plan" ? "" : source.comments.map((c) => c.body).join("\n")}`.toLowerCase();
+  const text =
+    `${source.title}\n${source.body}\n${source.kind === "plan" ? "" : source.comments.map((c) => c.body).join("\n")}`.toLowerCase();
   const checks = new Set<string>(["git diff --check"]);
 
   if (isHomelabRepo(repoCwd)) {
@@ -244,11 +252,17 @@ function addGenericChecks(checks: Set<string>, text: string, repoCwd: string, pr
     checks.add("cd app/src-tauri && cargo check");
   }
 
-  if (/\b(snaptrade|sqlite|drizzle|database|portfolio|sync|income|transactions)\b/.test(text) && fileExists(path.join(repoCwd, "packages", "data"))) {
+  if (
+    /\b(snaptrade|sqlite|drizzle|database|portfolio|sync|income|transactions)\b/.test(text) &&
+    fileExists(path.join(repoCwd, "packages", "data"))
+  ) {
     checks.add("cd packages/data && bun test");
   }
 
-  if ((/\b(server|api|route|elysia|context injector|context)\b/.test(text) || strict) && fileExists(path.join(repoCwd, "packages", "core"))) {
+  if (
+    (/\b(server|api|route|elysia|context injector|context)\b/.test(text) || strict) &&
+    fileExists(path.join(repoCwd, "packages", "core"))
+  ) {
     checks.add("cd packages/core && bun test src/server-contract.test.ts");
   }
 
@@ -256,8 +270,13 @@ function addGenericChecks(checks: Set<string>, text: string, repoCwd: string, pr
     checks.add("cd app && bun run typecheck");
   }
 
-  if ((text.includes("strategy composer") || (text.includes("strategy") && text.includes("dry-run")) || strict) && fileExists(path.join(repoCwd, "app"))) {
-    checks.add("cd app && bun run test src/features/strategy/__tests__/hooks.test.ts src/features/strategy/__tests__/StrategyComposerView.test.tsx");
+  if (
+    (text.includes("strategy composer") || (text.includes("strategy") && text.includes("dry-run")) || strict) &&
+    fileExists(path.join(repoCwd, "app"))
+  ) {
+    checks.add(
+      "cd app && bun run test src/features/strategy/__tests__/hooks.test.ts src/features/strategy/__tests__/StrategyComposerView.test.tsx",
+    );
   }
 
   if (strict && hasPackageScript(repoCwd, "typecheck")) {
@@ -288,7 +307,20 @@ function addHomelabChecks(checks: Set<string>, text: string, repoCwd: string, pr
     addComposeCheck("nas/docker-compose.yml");
   }
 
-  if (mention("nas/media-server", "jellyfin", "plex", "gluetun", "qbittorrent", "radarr", "sonarr", "prowlarr", "overseerr") || strict) {
+  if (
+    mention(
+      "nas/media-server",
+      "jellyfin",
+      "plex",
+      "gluetun",
+      "qbittorrent",
+      "radarr",
+      "sonarr",
+      "prowlarr",
+      "overseerr",
+    ) ||
+    strict
+  ) {
     addComposeCheck("nas/media-server/docker-compose.yml");
     if (!conservative) addComposeCheck("nas/media-server/docker-compose.openvpn.yml");
     addComposeCheck("mac-mini-server/plex/docker-compose.yml");
@@ -298,7 +330,18 @@ function addHomelabChecks(checks: Set<string>, text: string, repoCwd: string, pr
     addComposeCheck("nas/immich/docker-compose.yml");
   }
 
-  if (mention("proxmox/docker-lxc", "grafana", "prometheus", "cloudflared", "cloudflare tunnel", "homepage", "docker-lxc") || strict) {
+  if (
+    mention(
+      "proxmox/docker-lxc",
+      "grafana",
+      "prometheus",
+      "cloudflared",
+      "cloudflare tunnel",
+      "homepage",
+      "docker-lxc",
+    ) ||
+    strict
+  ) {
     addComposeCheck("proxmox/docker-lxc/docker-compose.yml");
   }
 
@@ -309,35 +352,57 @@ function addHomelabChecks(checks: Set<string>, text: string, repoCwd: string, pr
   if (mention("prometheus", "alert rule", "recording rule", "prometheus.yml", "homelab-health.yml") || strict) {
     const promDir = path.join(repoCwd, "proxmox", "docker-lxc", "prometheus");
     if (fileExists(path.join(promDir, "prometheus.yml"))) {
-      checks.add('docker run --rm -v "$PWD/proxmox/docker-lxc/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:latest check config /etc/prometheus/prometheus.yml');
+      checks.add(
+        'docker run --rm -v "$PWD/proxmox/docker-lxc/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:latest check config /etc/prometheus/prometheus.yml',
+      );
     }
     if (fileExists(path.join(promDir, "rules", "homelab-health.yml")) && !conservative) {
-      checks.add('docker run --rm -v "$PWD/proxmox/docker-lxc/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:latest check rules /etc/prometheus/rules/homelab-health.yml');
+      checks.add(
+        'docker run --rm -v "$PWD/proxmox/docker-lxc/prometheus:/etc/prometheus:ro" --entrypoint promtool prom/prometheus:latest check rules /etc/prometheus/rules/homelab-health.yml',
+      );
     }
   }
 
-  if (mention("proxmox/homepage/phi", " phi", "homepage generator", "services.yaml", "widgets.yaml", "settings.yaml", "traefik-phi.yml") || strict) {
+  if (
+    mention(
+      "proxmox/homepage/phi",
+      " phi",
+      "homepage generator",
+      "services.yaml",
+      "widgets.yaml",
+      "settings.yaml",
+      "traefik-phi.yml",
+    ) ||
+    strict
+  ) {
     if (fileExists(path.join(repoCwd, "proxmox", "homepage", "phi", "go.mod"))) {
       checks.add("cd proxmox/homepage/phi && go test ./...");
     }
   }
 
   if (mention("dashboard/", "next.js", "react", "dashboard") || strict) {
-    if (fileExists(path.join(repoCwd, "dashboard", "package.json")) && hasPackageScript(path.join(repoCwd, "dashboard"), "lint")) {
+    if (
+      fileExists(path.join(repoCwd, "dashboard", "package.json")) &&
+      hasPackageScript(path.join(repoCwd, "dashboard"), "lint")
+    ) {
       checks.add("cd dashboard && npm run lint");
     }
   }
 }
 
 function isHomelabRepo(repoCwd: string): boolean {
-  return fileExists(path.join(repoCwd, "AGENTS.md"))
-    && fileExists(path.join(repoCwd, "nas"))
-    && fileExists(path.join(repoCwd, "proxmox"));
+  return (
+    fileExists(path.join(repoCwd, "AGENTS.md")) &&
+    fileExists(path.join(repoCwd, "nas")) &&
+    fileExists(path.join(repoCwd, "proxmox"))
+  );
 }
 
 function hasPackageScript(dir: string, script: string): boolean {
   try {
-    const packageJson = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+    const packageJson = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
     return typeof packageJson.scripts?.[script] === "string";
   } catch {
     return false;
@@ -347,7 +412,9 @@ function hasPackageScript(dir: string, script: string): boolean {
 async function resolveContinueSource(pi: ExtensionAPI, repoCwd: string, sourceInput: string): Promise<ContinueSource> {
   const normalized = sourceInput.trim();
   if (!normalized) {
-    throw new Error("missing source argument. Expected a plan file path, GitHub issue reference, or Linear issue identifier");
+    throw new Error(
+      "missing source argument. Expected a plan file path, GitHub issue reference, or Linear issue identifier",
+    );
   }
 
   const planPath = resolvePlanPath(repoCwd, normalized);
@@ -417,7 +484,9 @@ async function parseGitHubSource(
 
   const repoRef = await resolveCurrentGitHubRepo(pi, repoCwd);
   if (!repoRef) {
-    throw new Error(`Could not resolve current GitHub repo for ${repoCwd}. Use owner/repo#123 or a full GitHub issue URL.`);
+    throw new Error(
+      `Could not resolve current GitHub repo for ${repoCwd}. Use owner/repo#123 or a full GitHub issue URL.`,
+    );
   }
 
   const issueNumber = Number.parseInt(localIssueMatch[1] ?? "", 10);
@@ -430,7 +499,10 @@ async function parseGitHubSource(
   };
 }
 
-async function resolveCurrentGitHubRepo(pi: ExtensionAPI, repoCwd: string): Promise<{ owner: string; repo: string } | null> {
+async function resolveCurrentGitHubRepo(
+  pi: ExtensionAPI,
+  repoCwd: string,
+): Promise<{ owner: string; repo: string } | null> {
   const remoteResult = await pi.exec(
     "bash",
     ["-lc", `cd ${shellQuote(repoCwd)} && git config --get remote.origin.url`],
@@ -442,11 +514,9 @@ async function resolveCurrentGitHubRepo(pi: ExtensionAPI, repoCwd: string): Prom
     return parsedRemote;
   }
 
-  const ghResult = await pi.exec(
-    "bash",
-    ["-lc", `cd ${shellQuote(repoCwd)} && gh repo view --json owner,name`],
-    { timeout: 20_000 } as any,
-  );
+  const ghResult = await pi.exec("bash", ["-lc", `cd ${shellQuote(repoCwd)} && gh repo view --json owner,name`], {
+    timeout: 20_000,
+  } as any);
   if (ghResult.code !== 0) {
     return null;
   }
@@ -502,7 +572,10 @@ function parseLinearSource(input: string): { issueId: string; reference: string;
   return null;
 }
 
-async function loadGitHubIssue(pi: ExtensionAPI, ref: { owner: string; repo: string; number: number; reference: string; url?: string }): Promise<GitHubSource> {
+async function loadGitHubIssue(
+  pi: ExtensionAPI,
+  ref: { owner: string; repo: string; number: number; reference: string; url?: string },
+): Promise<GitHubSource> {
   const result = await pi.exec(
     "gh",
     [
@@ -519,7 +592,9 @@ async function loadGitHubIssue(pi: ExtensionAPI, ref: { owner: string; repo: str
   );
 
   if (result.code !== 0) {
-    throw new Error(`gh issue view failed for ${ref.reference}: ${String(result.stderr || result.stdout || `exit ${result.code}`)}`);
+    throw new Error(
+      `gh issue view failed for ${ref.reference}: ${String(result.stderr || result.stdout || `exit ${result.code}`)}`,
+    );
   }
 
   const parsed = safeJsonParse(result.stdout);
@@ -540,15 +615,16 @@ async function loadGitHubIssue(pi: ExtensionAPI, ref: { owner: string; repo: str
   };
 }
 
-async function loadLinearIssue(pi: ExtensionAPI, ref: { issueId: string; reference: string; url?: string }): Promise<LinearSource> {
-  const result = await pi.exec(
-    "linearis",
-    ["issues", "read", ref.issueId],
-    { timeout: 120_000 } as any,
-  );
+async function loadLinearIssue(
+  pi: ExtensionAPI,
+  ref: { issueId: string; reference: string; url?: string },
+): Promise<LinearSource> {
+  const result = await pi.exec("linearis", ["issues", "read", ref.issueId], { timeout: 120_000 } as any);
 
   if (result.code !== 0) {
-    throw new Error(`linearis issues read failed for ${ref.reference}: ${String(result.stderr || result.stdout || `exit ${result.code}`)}`);
+    throw new Error(
+      `linearis issues read failed for ${ref.reference}: ${String(result.stderr || result.stdout || `exit ${result.code}`)}`,
+    );
   }
 
   const parsed = safeJsonParse(result.stdout);
@@ -579,11 +655,9 @@ async function loadLinearIssue(pi: ExtensionAPI, ref: { issueId: string; referen
 }
 
 async function getCurrentGitBranch(pi: ExtensionAPI, repoCwd: string): Promise<string> {
-  const result = await pi.exec(
-    "bash",
-    ["-lc", `cd ${shellQuote(repoCwd)} && git rev-parse --abbrev-ref HEAD`],
-    { timeout: 10_000 } as any,
-  );
+  const result = await pi.exec("bash", ["-lc", `cd ${shellQuote(repoCwd)} && git rev-parse --abbrev-ref HEAD`], {
+    timeout: 10_000,
+  } as any);
   if (result.code !== 0) return "";
   return String(result.stdout ?? "").trim();
 }
@@ -627,7 +701,10 @@ function normalizeComments(raw: unknown): Array<{ author: string; body: string }
       const record = item as Record<string, any>;
       const author = stringValue(
         record.author?.login,
-        stringValue(record.author?.name, stringValue(record.user?.name, stringValue(record.createdBy?.name, stringValue(record.creator?.name, "")))),
+        stringValue(
+          record.author?.name,
+          stringValue(record.user?.name, stringValue(record.createdBy?.name, stringValue(record.creator?.name, ""))),
+        ),
       );
       const body = stringValue(record.body, stringValue(record.content, stringValue(record.text, "")));
       if (!body.trim()) return null;

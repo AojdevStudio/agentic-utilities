@@ -7,7 +7,13 @@ export type WorkflowStatus = "active" | "blocked" | "ready" | "done" | "cancelle
 export type IssueType = "AFK" | "HITL";
 export type IssuePriority = "P0" | "P1" | "P2" | "P3";
 export type EvidenceKind = "red" | "green" | "refactor" | "visual" | "review" | "log" | "diff" | "risk";
-export type RunnerFailureReason = "command-failed" | "timeout" | "missing-evidence" | "review-blocked" | "integration-failed" | "cancelled";
+export type RunnerFailureReason =
+  | "command-failed"
+  | "timeout"
+  | "missing-evidence"
+  | "review-blocked"
+  | "integration-failed"
+  | "cancelled";
 export type PlanningPhase =
   | "intake"
   | "discovery"
@@ -478,7 +484,10 @@ export function isPreArtifactPlanningPhase(phase: WorkflowPhase): boolean {
   return PRE_ARTIFACT_PLANNING_PHASES.has(phase);
 }
 
-export function isPlanningArtifactLockedPath(state: WorkflowState, candidatePath: string): { locked: boolean; reason?: string } {
+export function isPlanningArtifactLockedPath(
+  state: WorkflowState,
+  candidatePath: string,
+): { locked: boolean; reason?: string } {
   if (state.lane !== "planning" || !isPreArtifactPlanningPhase(state.phase)) return { locked: false };
   const absolute = path.resolve(state.repoCwd, candidatePath.replace(/^@/, ""));
   const workflowDir = path.resolve(state.paths.workflowDir);
@@ -487,7 +496,10 @@ export function isPlanningArtifactLockedPath(state: WorkflowState, candidatePath
   if (relative === "decisions.md" || relative.startsWith("artifacts/source-notes/")) return { locked: false };
   const locked = LOCKED_PLANNING_ARTIFACT_PATTERNS.some((pattern) => pattern.test(relative));
   return locked
-    ? { locked: true, reason: `Autopilot planning is in ${state.phase}; PRD/glossary/issues/queue artifacts are locked until concept lock. Use decisions.md during grill.` }
+    ? {
+        locked: true,
+        reason: `Autopilot planning is in ${state.phase}; PRD/glossary/issues/queue artifacts are locked until concept lock. Use decisions.md during grill.`,
+      }
     : { locked: false };
 }
 
@@ -506,7 +518,17 @@ export function defaultNativeRunnerConfig(): NativeRunnerConfig {
     concurrency: 2,
     maxRepairAttempts: 2,
     idleTimeoutSeconds: 600,
-    envAllowlist: ["PATH", "HOME", "SHELL", "TMPDIR", "PI_*", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"],
+    envAllowlist: [
+      "PATH",
+      "HOME",
+      "SHELL",
+      "TMPDIR",
+      "PI_*",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "GOOGLE_API_KEY",
+      "GEMINI_API_KEY",
+    ],
     evidenceProfile: "concise",
   };
 }
@@ -562,7 +584,8 @@ export function buildQaHandoff(input: {
   diffPaths?: string[];
 }): QAHandoff {
   const evidence = input.evidence;
-  const byKind = (kind: EvidenceKind) => evidence.filter((item) => item.kind === kind).map((item) => item.path ?? item.summary);
+  const byKind = (kind: EvidenceKind) =>
+    evidence.filter((item) => item.kind === kind).map((item) => item.path ?? item.summary);
   const openRisks = byKind("risk");
   return {
     version: 2,
@@ -596,7 +619,10 @@ function countStatusRows(rows: SliceStatusRow[]): WorkflowStatusReport["counts"]
   };
 }
 
-function existingWorkflowEvidencePaths(state: WorkflowState, rawPaths: unknown): { existing: string[]; missing: string[] } {
+function existingWorkflowEvidencePaths(
+  state: WorkflowState,
+  rawPaths: unknown,
+): { existing: string[]; missing: string[] } {
   const values = Array.isArray(rawPaths) ? rawPaths.map(String).filter(Boolean) : [];
   const existing: string[] = [];
   const missing: string[] = [];
@@ -628,7 +654,8 @@ export function buildWorkflowStatusReport(state: WorkflowState, generatedAt = no
     const evidence = existingWorkflowEvidencePaths(state, item.evidencePaths);
     const missingEvidence: string[] = [];
     if (queueStatus === "done") {
-      if (!Array.isArray(item.evidencePaths) || item.evidencePaths.length === 0) missingEvidence.push("queue evidencePaths");
+      if (!Array.isArray(item.evidencePaths) || item.evidencePaths.length === 0)
+        missingEvidence.push("queue evidencePaths");
       for (const missingPath of evidence.missing) missingEvidence.push(`evidence file: ${missingPath}`);
       if (!executionRecord) missingEvidence.push(`issues/execution/${id}.json`);
       if (!prRecord) missingEvidence.push(`issues/prs/${id}.json`);
@@ -638,12 +665,21 @@ export function buildWorkflowStatusReport(state: WorkflowState, generatedAt = no
       title: String(item.title ?? id),
       queueStatus,
       computedState: sliceComputedState(queueStatus, missingEvidence),
-      evidenceHealth: queueStatus === "done" ? missingEvidence.length ? "missing" : "complete" : "not-required",
+      evidenceHealth: queueStatus === "done" ? (missingEvidence.length ? "missing" : "complete") : "not-required",
       missingEvidence,
       evidencePaths: evidence.existing,
       trackerRef: typeof item.trackerRef === "string" ? item.trackerRef : undefined,
-      prRef: typeof item.prUrl === "string" ? item.prUrl : typeof executionRecord?.prUrl === "string" ? executionRecord.prUrl : typeof prRecord?.prUrl === "string" ? prRecord.prUrl : undefined,
-      lastUpdated: String(item.completedAt ?? item.settledAt ?? item.updatedAt ?? executionRecord?.updatedAt ?? state.updatedAt ?? ""),
+      prRef:
+        typeof item.prUrl === "string"
+          ? item.prUrl
+          : typeof executionRecord?.prUrl === "string"
+            ? executionRecord.prUrl
+            : typeof prRecord?.prUrl === "string"
+              ? prRecord.prUrl
+              : undefined,
+      lastUpdated: String(
+        item.completedAt ?? item.settledAt ?? item.updatedAt ?? executionRecord?.updatedAt ?? state.updatedAt ?? "",
+      ),
     };
   });
   return {
@@ -674,7 +710,10 @@ export function buildWorkflowStatusOverview(workflows: WorkflowState[]): Workflo
   });
 }
 
-export function formatWorkflowStatusReport(report: WorkflowStatusReport, overview: WorkflowStatusOverviewRow[] = []): string {
+export function formatWorkflowStatusReport(
+  report: WorkflowStatusReport,
+  overview: WorkflowStatusOverviewRow[] = [],
+): string {
   const lines: string[] = [
     `Autopilot status: ${report.workflowId}`,
     `phase=${report.phase} status=${report.status} slices=${report.counts.done}/${report.counts.total} done not-done=${report.counts.notDone} blocked=${report.counts.blocked}`,
@@ -686,14 +725,17 @@ export function formatWorkflowStatusReport(report: WorkflowStatusReport, overvie
     for (const row of report.slices) {
       const pr = row.prRef ? ` pr=${row.prRef}` : " pr=-";
       const updated = row.lastUpdated ? ` updated=${row.lastUpdated}` : "";
-      const evidence = row.evidenceHealth === "missing" ? `missing ${row.missingEvidence.join(", ")}` : row.evidenceHealth;
+      const evidence =
+        row.evidenceHealth === "missing" ? `missing ${row.missingEvidence.join(", ")}` : row.evidenceHealth;
       lines.push(`- ${row.id} ${row.computedState} evidence=${evidence}${pr}${updated} — ${row.title}`);
     }
   }
   if (overview.length) {
     lines.push("workflows:");
     for (const row of overview) {
-      lines.push(`- ${row.workflowId} ${row.status}/${row.phase} done=${row.done}/${row.total} not-done=${row.notDone} blocked=${row.blocked}`);
+      lines.push(
+        `- ${row.workflowId} ${row.status}/${row.phase} done=${row.done}/${row.total} not-done=${row.notDone} blocked=${row.blocked}`,
+      );
     }
   }
   return lines.join("\n");
@@ -734,7 +776,11 @@ export function detectIntakeKind(repoCwd: string, rawInput: string): IntakeKind 
   if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return "local_plan";
   if (/^(?:https?:\/\/)?github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/i.test(input)) return "github";
   if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#\d+$/.test(input) || /^#\d+$/.test(input)) return "github";
-  if (/^(?:https?:\/\/)?linear\.app\/[^/]+\/issue\/[A-Za-z][A-Za-z0-9]+-\d+/i.test(input) || /^[A-Za-z][A-Za-z0-9]+-\d+$/.test(input)) return "linear";
+  if (
+    /^(?:https?:\/\/)?linear\.app\/[^/]+\/issue\/[A-Za-z][A-Za-z0-9]+-\d+/i.test(input) ||
+    /^[A-Za-z][A-Za-z0-9]+-\d+$/.test(input)
+  )
+    return "linear";
   if (/^https?:\/\//i.test(input)) return "web";
   if (/^(npm:|pypi:|crates:)/i.test(input)) return "opensrc_package";
   if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:[@#][A-Za-z0-9_.\-/]+)?$/.test(input)) return "opensrc_repo";
@@ -854,21 +900,33 @@ export function ensureWorkflowSkeleton(state: WorkflowState): void {
   for (const dir of dirs) fs.mkdirSync(dir, { recursive: true });
 
   writeIfMissing(path.join(state.paths.workflowDir, "intake.json"), `${JSON.stringify(state.source, null, 2)}\n`);
-  writeIfMissing(path.join(state.paths.workflowDir, "sources.json"), `${JSON.stringify({ sources: [state.source] }, null, 2)}\n`);
+  writeIfMissing(
+    path.join(state.paths.workflowDir, "sources.json"),
+    `${JSON.stringify({ sources: [state.source] }, null, 2)}\n`,
+  );
   writeIfMissing(path.join(state.paths.workflowDir, "decisions.md"), decisionsTemplate(state));
   if (state.lane !== "planning" || !isPreArtifactPlanningPhase(state.phase)) {
     writeIfMissing(path.join(state.paths.artifactsDir, "prd.draft.md"), prdDraftTemplate(state));
     writeIfMissing(path.join(state.paths.artifactsDir, "ubiquitous-language.draft.md"), glossaryDraftTemplate(state));
-    writeIfMissing(path.join(state.paths.issuesDir, "parent-prd-issue.json"), `${JSON.stringify({ status: "not-created", tracker: null, url: null }, null, 2)}\n`);
-    writeIfMissing(state.queue.queueFile, `${JSON.stringify({ version: 2, workflowId: state.workflowId, items: [] }, null, 2)}\n`);
+    writeIfMissing(
+      path.join(state.paths.issuesDir, "parent-prd-issue.json"),
+      `${JSON.stringify({ status: "not-created", tracker: null, url: null }, null, 2)}\n`,
+    );
+    writeIfMissing(
+      state.queue.queueFile,
+      `${JSON.stringify({ version: 2, workflowId: state.workflowId, items: [] }, null, 2)}\n`,
+    );
   }
 }
 
-export function recordConceptLock(state: WorkflowState, options: {
-  summary: string;
-  acceptedBy?: string;
-  now?: string;
-}): WorkflowState {
+export function recordConceptLock(
+  state: WorkflowState,
+  options: {
+    summary: string;
+    acceptedBy?: string;
+    now?: string;
+  },
+): WorkflowState {
   if (state.lane !== "planning") throw new Error("Concept lock is only valid for planning workflows.");
   if (!isPreArtifactPlanningPhase(state.phase) && state.phase !== "prd-draft") {
     throw new Error(`Cannot record concept lock from phase ${state.phase}.`);
@@ -884,13 +942,21 @@ export function recordConceptLock(state: WorkflowState, options: {
   ensureWorkflowSkeleton(next);
   const lockPath = path.join(next.paths.artifactsDir, "concept-lock.json");
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-  fs.writeFileSync(lockPath, `${JSON.stringify({
-    version: 2,
-    workflowId: next.workflowId,
-    summary: options.summary,
-    acceptedBy: options.acceptedBy ?? "agent",
-    lockedAt: now,
-  }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(
+    lockPath,
+    `${JSON.stringify(
+      {
+        version: 2,
+        workflowId: next.workflowId,
+        summary: options.summary,
+        acceptedBy: options.acceptedBy ?? "agent",
+        lockedAt: now,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
   saveWorkflowState(next);
   appendWorkflowEvent(next, "planning.concept_locked", {
     summary: options.summary,
@@ -981,9 +1047,7 @@ function readJsonOptional(filePath: string): any | null {
 }
 
 function workflowPath(state: WorkflowState, maybeRelativePath: string): string {
-  return path.isAbsolute(maybeRelativePath)
-    ? maybeRelativePath
-    : path.join(state.paths.workflowDir, maybeRelativePath);
+  return path.isAbsolute(maybeRelativePath) ? maybeRelativePath : path.join(state.paths.workflowDir, maybeRelativePath);
 }
 
 function sectionBody(markdown: string, heading: string): string {
@@ -993,13 +1057,17 @@ function sectionBody(markdown: string, heading: string): string {
 }
 
 function isTemplateLike(value: string): boolean {
-  const compact = value.replace(/[^a-z0-9]/gi, "").trim().toLowerCase();
+  const compact = value
+    .replace(/[^a-z0-9]/gi, "")
+    .trim()
+    .toLowerCase();
   return !compact || compact === "tbd" || compact === "pending" || compact.includes("tbdtbd") || /^todo/.test(compact);
 }
 
 function listMarkdownFiles(dir: string): string[] {
   try {
-    return fs.readdirSync(dir)
+    return fs
+      .readdirSync(dir)
       .filter((file) => file.endsWith(".md"))
       .map((file) => path.join(dir, file));
   } catch {
@@ -1008,8 +1076,9 @@ function listMarkdownFiles(dir: string): string[] {
 }
 
 function hasAcceptanceCriteria(markdown: string): boolean {
-  return /##\s+Acceptance criteria[\s\S]*[-*]\s+\[[ xX]\]/i.test(markdown)
-    || /##\s+Acceptance[\s\S]*[-*]\s+/i.test(markdown);
+  return (
+    /##\s+Acceptance criteria[\s\S]*[-*]\s+\[[ xX]\]/i.test(markdown) || /##\s+Acceptance[\s\S]*[-*]\s+/i.test(markdown)
+  );
 }
 
 function hasHitlAfkLabel(markdown: string): boolean {
@@ -1024,10 +1093,16 @@ function isHorizontalLayerBatch(markdown: string): boolean {
   const title = markdown.match(/^#\s+(.+)$/m)?.[1] ?? "";
   const buildScope = sectionBody(markdown, "What to build");
   const text = `${title}\n${buildScope}`;
-  const horizontal = /\b(schema-only|database-only|migration-only|api-only|ui-only|frontend-only|backend-only)\b/i.test(text)
-    || /^(?:create|add|implement)?\s*(?:the\s*)?(?:schema|database|migration|api|frontend|ui)\s+(?:layer|only)\b/i.test(title);
+  const horizontal =
+    /\b(schema-only|database-only|migration-only|api-only|ui-only|frontend-only|backend-only)\b/i.test(text) ||
+    /^(?:create|add|implement)?\s*(?:the\s*)?(?:schema|database|migration|api|frontend|ui)\s+(?:layer|only)\b/i.test(
+      title,
+    );
   if (!horizontal) return false;
-  const justified = /\b(vertical-slice rationale|horizontal-slice justification|horizontal justification|explicit horizontal|justified horizontal|tracer bullet)\b/i.test(markdown);
+  const justified =
+    /\b(vertical-slice rationale|horizontal-slice justification|horizontal justification|explicit horizontal|justified horizontal|tracer bullet)\b/i.test(
+      markdown,
+    );
   return !justified;
 }
 
@@ -1046,10 +1121,10 @@ function hasSourceSummary(state: WorkflowState, source: any): boolean {
 
 function isUiFacingWorkflow(state: WorkflowState, issueDraftTexts: string[]): boolean {
   const sourceText = `${state.source.title}\n${state.source.raw}`;
-  const issueTitles = issueDraftTexts
-    .map((text) => text.match(/^#\s+(.+)$/m)?.[1] ?? "")
-    .join("\n");
-  return /\b(UI|frontend|front-end|dashboard|screen|page|component|visual design|browser view)\b/i.test(`${sourceText}\n${issueTitles}`);
+  const issueTitles = issueDraftTexts.map((text) => text.match(/^#\s+(.+)$/m)?.[1] ?? "").join("\n");
+  return /\b(UI|frontend|front-end|dashboard|screen|page|component|visual design|browser view)\b/i.test(
+    `${sourceText}\n${issueTitles}`,
+  );
 }
 
 function hasVisualEvidence(state: WorkflowState, evidencePaths: string[] = []): boolean {
@@ -1078,7 +1153,14 @@ export function validateWorkflowArtifacts(state: WorkflowState, options: Artifac
   if (!prd) {
     reasons.push("PRD draft is missing.");
   } else {
-    for (const heading of ["Problem Statement", "Solution", "User Stories", "Implementation Decisions", "Testing Decisions", "Out of Scope"]) {
+    for (const heading of [
+      "Problem Statement",
+      "Solution",
+      "User Stories",
+      "Implementation Decisions",
+      "Testing Decisions",
+      "Out of Scope",
+    ]) {
       if (isTemplateLike(sectionBody(prd, heading))) reasons.push(`PRD draft has empty/template section: ${heading}.`);
     }
     if (!/\b(affected modules\/interfaces|modules?\b|interfaces?\b|deep module|touched interfaces?)\b/i.test(prd)) {
@@ -1091,7 +1173,8 @@ export function validateWorkflowArtifacts(state: WorkflowState, options: Artifac
   if (!glossary) {
     reasons.push("Glossary draft is missing.");
   } else {
-    const termRows = glossary.split(/\r?\n/)
+    const termRows = glossary
+      .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.startsWith("|") && !/^\|\s*-/.test(line) && !/\bTerm\b.*\bDefinition\b/i.test(line));
     if (!termRows.length || termRows.some((row) => /\|\s*TBD\s*\|\s*TBD\s*\|/i.test(row))) {
@@ -1109,9 +1192,12 @@ export function validateWorkflowArtifacts(state: WorkflowState, options: Artifac
     if (!hasAcceptanceCriteria(text)) reasons.push(`Issue draft ${label} is missing acceptance criteria.`);
     if (!hasHitlAfkLabel(text)) reasons.push(`Issue draft ${label} is missing HITL/AFK label.`);
     if (!hasNamedSection(text, "Verification")) reasons.push(`Issue draft ${label} is missing verification commands.`);
-    if (!hasNamedSection(text, "Affected modules/interfaces")) reasons.push(`Issue draft ${label} is missing affected modules/interfaces.`);
-    if (!hasNamedSection(text, "Vertical-slice rationale")) reasons.push(`Issue draft ${label} is missing vertical-slice rationale.`);
-    if (isHorizontalLayerBatch(text)) reasons.push(`Issue draft ${label} appears to be a horizontal layer batch without justification.`);
+    if (!hasNamedSection(text, "Affected modules/interfaces"))
+      reasons.push(`Issue draft ${label} is missing affected modules/interfaces.`);
+    if (!hasNamedSection(text, "Vertical-slice rationale"))
+      reasons.push(`Issue draft ${label} is missing vertical-slice rationale.`);
+    if (isHorizontalLayerBatch(text))
+      reasons.push(`Issue draft ${label} appears to be a horizontal layer batch without justification.`);
   });
 
   const queue = readJsonOptional(state.queue.queueFile);
@@ -1137,11 +1223,17 @@ export function validateWorkflowArtifacts(state: WorkflowState, options: Artifac
   const sources = readJsonOptional(path.join(state.paths.workflowDir, "sources.json"));
   for (const source of Array.isArray(sources?.sources) ? sources.sources : []) {
     if (sourceNeedsSummary(source) && !hasSourceSummary(state, source)) {
-      reasons.push(`External source ${source.raw ?? source.url ?? source.title ?? "<unknown>"} is missing source-note summary.`);
+      reasons.push(
+        `External source ${source.raw ?? source.url ?? source.title ?? "<unknown>"} is missing source-note summary.`,
+      );
     }
   }
 
-  if (options.requireExecutionEvidence && isUiFacingWorkflow(state, issueDraftTexts) && !hasVisualEvidence(state, options.evidencePaths)) {
+  if (
+    options.requireExecutionEvidence &&
+    isUiFacingWorkflow(state, issueDraftTexts) &&
+    !hasVisualEvidence(state, options.evidencePaths)
+  ) {
     reasons.push("UI-facing workflow is missing visual evidence such as screenshot, artifact, or browser observation.");
   }
 
@@ -1154,7 +1246,9 @@ function extractModuleInterfaceNotes(state: WorkflowState): string {
   const relevant = implementation
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => /\b(modules?|interfaces?|services?|validators?|routes?|components?|deep module|touched)\b/i.test(line));
+    .filter((line) =>
+      /\b(modules?|interfaces?|services?|validators?|routes?|components?|deep module|touched)\b/i.test(line),
+    );
   return relevant.join("\n") || implementation.slice(0, 500).trim();
 }
 
@@ -1187,14 +1281,20 @@ function queueItemsInDependencyOrder(items: any[]): any[] {
   return result;
 }
 
-function classifyIssueSlice(markdown: string): { sliceKind: TrackerIssueOperation["sliceKind"]; sliceRationale: string } {
-  const verticalMatch = markdown.match(/##\s+Vertical-slice rationale\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im)
-    ?? markdown.match(/##\s+Tracer-bullet rationale\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im);
+function classifyIssueSlice(markdown: string): {
+  sliceKind: TrackerIssueOperation["sliceKind"];
+  sliceRationale: string;
+} {
+  const verticalMatch =
+    markdown.match(/##\s+Vertical-slice rationale\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im) ??
+    markdown.match(/##\s+Tracer-bullet rationale\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im);
   if (verticalMatch?.[1]?.trim()) {
     return { sliceKind: "vertical", sliceRationale: verticalMatch[1].trim() };
   }
 
-  const horizontalMatch = markdown.match(/##\s+(?:Horizontal-slice justification|Horizontal justification)\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im);
+  const horizontalMatch = markdown.match(
+    /##\s+(?:Horizontal-slice justification|Horizontal justification)\s*\n([\s\S]*?)(?=^##\s+|(?![\s\S]))/im,
+  );
   if (horizontalMatch?.[1]?.trim()) {
     return { sliceKind: "horizontal-justified", sliceRationale: horizontalMatch[1].trim() };
   }
@@ -1202,11 +1302,15 @@ function classifyIssueSlice(markdown: string): { sliceKind: TrackerIssueOperatio
   if (!isHorizontalLayerBatch(markdown)) {
     return {
       sliceKind: "vertical",
-      sliceRationale: "Inferred vertical slice: this issue is not classified as a horizontal layer batch and is tied to queue, artifact, and verification feedback.",
+      sliceRationale:
+        "Inferred vertical slice: this issue is not classified as a horizontal layer batch and is tied to queue, artifact, and verification feedback.",
     };
   }
 
-  return { sliceKind: "unspecified", sliceRationale: "No vertical-slice rationale or horizontal-slice justification found." };
+  return {
+    sliceKind: "unspecified",
+    sliceRationale: "No vertical-slice rationale or horizontal-slice justification found.",
+  };
 }
 
 function trackerRefForIssue(issueId: string): string {
@@ -1248,10 +1352,11 @@ export function createTrackerIssues(
   const createdIssues = orderedItems.map((item: any) => {
     const issueId = String(item.id);
     const draft = String(item.draft ?? "");
-    const draftText = draft ? readOptionalText(workflowPath(state, draft)) ?? "" : "";
+    const draftText = draft ? (readOptionalText(workflowPath(state, draft)) ?? "") : "";
     if (!draftText) throw new Error(`Issue ${issueId} is missing source draft ${draft || "<missing>"}.`);
     const { sliceKind, sliceRationale } = classifyIssueSlice(draftText);
-    if (sliceKind === "unspecified") throw new Error(`Issue ${issueId} lacks vertical-slice rationale or horizontal-slice justification.`);
+    if (sliceKind === "unspecified")
+      throw new Error(`Issue ${issueId} lacks vertical-slice rationale or horizontal-slice justification.`);
 
     const trackerRef = trackerRefForIssue(issueId);
     operations.push({
@@ -1310,7 +1415,11 @@ export function createTrackerIssues(
     sourceArtifact: "artifacts/prd.draft.md",
     createdAt: now,
   };
-  fs.writeFileSync(path.join(state.paths.issuesDir, "parent-prd-issue.json"), `${JSON.stringify(parentIssue, null, 2)}\n`, "utf8");
+  fs.writeFileSync(
+    path.join(state.paths.issuesDir, "parent-prd-issue.json"),
+    `${JSON.stringify(parentIssue, null, 2)}\n`,
+    "utf8",
+  );
   fs.writeFileSync(path.join(createdDir, "000-parent-prd.json"), `${JSON.stringify(parentIssue, null, 2)}\n`, "utf8");
   for (const issue of createdIssues) {
     fs.writeFileSync(path.join(createdDir, `${issue.issueId}.json`), `${JSON.stringify(issue, null, 2)}\n`, "utf8");
@@ -1340,8 +1449,9 @@ export function createTrackerIssues(
   fs.writeFileSync(state.queue.queueFile, `${JSON.stringify(nextQueue, null, 2)}\n`, "utf8");
 
   if (options.archiveDrafts) {
-    const draftFiles = listMarkdownFiles(path.join(state.paths.issuesDir, "drafts"))
-      .map((filePath) => path.relative(state.paths.workflowDir, filePath));
+    const draftFiles = listMarkdownFiles(path.join(state.paths.issuesDir, "drafts")).map((filePath) =>
+      path.relative(state.paths.workflowDir, filePath),
+    );
     fs.writeFileSync(
       path.join(state.paths.issuesDir, "drafts", ".archived.json"),
       `${JSON.stringify({ version: 2, workflowId: state.workflowId, archivedAt: now, status: "archived", draftFiles }, null, 2)}\n`,
@@ -1379,7 +1489,11 @@ function loadExecutionState(state: WorkflowState, issueId: string): any | null {
 
 function saveExecutionState(state: WorkflowState, executionState: any): void {
   fs.mkdirSync(executionDir(state), { recursive: true });
-  fs.writeFileSync(executionStatePath(state, executionState.issueId), `${JSON.stringify(executionState, null, 2)}\n`, "utf8");
+  fs.writeFileSync(
+    executionStatePath(state, executionState.issueId),
+    `${JSON.stringify(executionState, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 function readQueue(state: WorkflowState): any {
@@ -1422,15 +1536,18 @@ function readRelevantSourceNotes(state: WorkflowState): Array<{ path: string; ex
     notePaths.add(path.relative(state.paths.workflowDir, filePath));
   }
 
-  return [...notePaths].map((notePath) => {
-    const text = readOptionalText(workflowPath(state, notePath)) ?? "";
-    return { path: notePath, excerpt: limitText(text, 1200) };
-  }).filter((entry) => entry.excerpt.length > 0);
+  return [...notePaths]
+    .map((notePath) => {
+      const text = readOptionalText(workflowPath(state, notePath)) ?? "";
+      return { path: notePath, excerpt: limitText(text, 1200) };
+    })
+    .filter((entry) => entry.excerpt.length > 0);
 }
 
 function recentWorkflowEvidence(state: WorkflowState, limit = 8): Array<Record<string, unknown>> {
   try {
-    return fs.readFileSync(state.paths.eventsFile, "utf8")
+    return fs
+      .readFileSync(state.paths.eventsFile, "utf8")
       .trim()
       .split(/\r?\n/)
       .filter(Boolean)
@@ -1442,11 +1559,7 @@ function recentWorkflowEvidence(state: WorkflowState, limit = 8): Array<Record<s
   }
 }
 
-export function buildExecutionContextPacket(
-  state: WorkflowState,
-  issue: any,
-  now = nowIso(),
-): ExecutionContextPacket {
+export function buildExecutionContextPacket(state: WorkflowState, issue: any, now = nowIso()): ExecutionContextPacket {
   const blockerIds = Array.isArray(issue.blockedBy) ? issue.blockedBy.map(String) : [];
   const queue = readQueue(state);
   const blockers = queue.items
@@ -1482,13 +1595,18 @@ export function buildExecutionContextPacket(
       sliceRationale: issue.sliceRationale,
     },
     blockers,
-    prdExcerpt: limitText([
-      sectionBody(prd, "Problem Statement"),
-      sectionBody(prd, "Solution"),
-      sectionBody(prd, "Implementation Decisions"),
-      sectionBody(prd, "Testing Decisions"),
-      sectionBody(prd, "Out of Scope"),
-    ].filter(Boolean).join("\n\n"), 3200),
+    prdExcerpt: limitText(
+      [
+        sectionBody(prd, "Problem Statement"),
+        sectionBody(prd, "Solution"),
+        sectionBody(prd, "Implementation Decisions"),
+        sectionBody(prd, "Testing Decisions"),
+        sectionBody(prd, "Out of Scope"),
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      3200,
+    ),
     glossaryExcerpt: limitText(glossary, 2000),
     sourceNotes: readRelevantSourceNotes(state),
     moduleInterfaceMap: issue.moduleInterfaceNotes || extractModuleInterfaceNotes(state),
@@ -1565,7 +1683,10 @@ export function claimNextExecutionIssue(
     const deps: string[] = Array.isArray(item.blockedBy) ? item.blockedBy.map(String) : [];
     return deps.every((dep) => queue.items.find((candidate: any) => String(candidate.id) === dep)?.status === "done");
   });
-  if (!issue) throw new Error(options.issueId ? `No ready queued issue found: ${options.issueId}.` : "No ready queued issue found.");
+  if (!issue)
+    throw new Error(
+      options.issueId ? `No ready queued issue found: ${options.issueId}.` : "No ready queued issue found.",
+    );
 
   const now = options.now ?? nowIso();
   const issueId = String(issue.id);
@@ -1582,7 +1703,7 @@ export function claimNextExecutionIssue(
     worktreePath,
     executionMode: options.mode ?? "local",
   };
-  queue.items = queue.items.map((item: any) => String(item.id) === issueId ? claimedIssue : item);
+  queue.items = queue.items.map((item: any) => (String(item.id) === issueId ? claimedIssue : item));
   queue.status = "approved";
   queue.readyCount = queueReadyCount(queue.items);
   queue.updatedAt = now;
@@ -1662,7 +1783,10 @@ export function recordWorkerRun(
       kind: "log",
       path: result.logPath,
       command: result.command,
-      summary: result.exitCode === 0 ? "Worker command completed." : `Worker command failed with exit code ${result.exitCode}.`,
+      summary:
+        result.exitCode === 0
+          ? "Worker command completed."
+          : `Worker command failed with exit code ${result.exitCode}.`,
       exitCode: result.exitCode,
       createdAt: now,
     },
@@ -1696,16 +1820,20 @@ export function recordWorkerRun(
 
 function executionEvidenceEntries(options: ExecutionVerificationOptions, now: string): ExecutionEvidence[] {
   const entries: ExecutionEvidence[] = [];
-  const redEvidence = options.redEvidence ?? (options.redTestObserved ? ["Red test observed before implementation."] : []);
+  const redEvidence =
+    options.redEvidence ?? (options.redTestObserved ? ["Red test observed before implementation."] : []);
   const greenEvidence = options.greenEvidence ?? (options.checksPassed ? options.evidence : []);
   for (const summary of redEvidence) entries.push({ kind: "red", summary, createdAt: now });
   for (const summary of greenEvidence) entries.push({ kind: "green", summary, createdAt: now });
   for (const summary of options.refactorNotes ?? []) entries.push({ kind: "refactor", summary, createdAt: now });
   for (const summary of options.visualEvidence ?? []) entries.push({ kind: "visual", summary, createdAt: now });
-  for (const pathValue of options.evidencePaths ?? []) entries.push({ kind: "log", path: pathValue, summary: pathValue, createdAt: now });
-  for (const command of options.commands ?? []) entries.push({ kind: "log", command, summary: command, createdAt: now });
+  for (const pathValue of options.evidencePaths ?? [])
+    entries.push({ kind: "log", path: pathValue, summary: pathValue, createdAt: now });
+  for (const command of options.commands ?? [])
+    entries.push({ kind: "log", command, summary: command, createdAt: now });
   if (!entries.length) {
-    for (const summary of options.evidence) entries.push({ kind: options.checksPassed ? "green" : "red", summary, createdAt: now });
+    for (const summary of options.evidence)
+      entries.push({ kind: options.checksPassed ? "green" : "red", summary, createdAt: now });
   }
   return entries;
 }
@@ -1716,12 +1844,20 @@ function executionHasEvidence(executionState: any, kind: EvidenceKind): boolean 
 
 function isUiFacingExecutionIssue(state: WorkflowState, issueId: string): boolean {
   const queue = readJsonOptional(state.queue.queueFile);
-  const item = Array.isArray(queue?.items) ? queue.items.find((candidate: any) => String(candidate.id) === issueId) : null;
-  const draftText = item?.draft ? readOptionalText(workflowPath(state, String(item.draft))) ?? "" : "";
-  return /\b(UI|frontend|front-end|dashboard|screen|page|component|visual|browser|screenshot)\b/i.test(`${item?.title ?? ""}\n${draftText}`);
+  const item = Array.isArray(queue?.items)
+    ? queue.items.find((candidate: any) => String(candidate.id) === issueId)
+    : null;
+  const draftText = item?.draft ? (readOptionalText(workflowPath(state, String(item.draft))) ?? "") : "";
+  return /\b(UI|frontend|front-end|dashboard|screen|page|component|visual|browser|screenshot)\b/i.test(
+    `${item?.title ?? ""}\n${draftText}`,
+  );
 }
 
-export function validateExecutionHandoff(state: WorkflowState, issueId: string, options: { requireVisualEvidence?: boolean } = {}): string[] {
+export function validateExecutionHandoff(
+  state: WorkflowState,
+  issueId: string,
+  options: { requireVisualEvidence?: boolean } = {},
+): string[] {
   const executionState = loadExecutionState(state, issueId);
   if (!executionState) return [`Execution state not found for issue ${issueId}.`];
   const reasons: string[] = [];
@@ -1758,7 +1894,9 @@ export function buildReviewerPacket(state: WorkflowState, issueId: string): Reco
       verification: executionState.verification,
       evidence: executionState.evidence ?? [],
     },
-    acceptanceCriteria: issue?.draft ? sectionBody(readOptionalText(workflowPath(state, String(issue.draft))) ?? "", "Acceptance criteria") : "",
+    acceptanceCriteria: issue?.draft
+      ? sectionBody(readOptionalText(workflowPath(state, String(issue.draft))) ?? "", "Acceptance criteria")
+      : "",
     reviewMode: "report-only",
     mayEditFiles: false,
   };
@@ -1767,7 +1905,13 @@ export function buildReviewerPacket(state: WorkflowState, issueId: string): Reco
 export function recordRepairAttempt(
   state: WorkflowState,
   issueId: string,
-  options: { status: "passed" | "blocked"; findings: string[]; maxAttempts?: number; reportPath?: string; now?: string },
+  options: {
+    status: "passed" | "blocked";
+    findings: string[];
+    maxAttempts?: number;
+    reportPath?: string;
+    now?: string;
+  },
 ): IssueExecutionState {
   const executionState = loadExecutionState(state, issueId);
   if (!executionState) throw new Error(`Execution state not found for issue ${issueId}.`);
@@ -1799,14 +1943,26 @@ export function recordRepairAttempt(
     },
   };
   saveExecutionState(state, next);
-  appendWorkflowEvent(state, "issue.repair_recorded", { issueId, attempts, maxAttempts, status: options.status, exhausted });
+  appendWorkflowEvent(state, "issue.repair_recorded", {
+    issueId,
+    attempts,
+    maxAttempts,
+    status: options.status,
+    exhausted,
+  });
   return next as IssueExecutionState;
 }
 
 export function settleExecutionIssue(
   state: WorkflowState,
   issueId: string,
-  options: { status: "done" | "blocked" | "queued" | "pr-open"; evidencePaths?: string[]; branch?: string; attempts?: number; now?: string },
+  options: {
+    status: "done" | "blocked" | "queued" | "pr-open";
+    evidencePaths?: string[];
+    branch?: string;
+    attempts?: number;
+    now?: string;
+  },
 ): any {
   const queue = readQueue(state);
   const now = options.now ?? nowIso();
@@ -1816,7 +1972,10 @@ export function settleExecutionIssue(
     settled = {
       ...item,
       status: options.status,
-      evidencePaths: [...(Array.isArray(item.evidencePaths) ? item.evidencePaths : []), ...(options.evidencePaths ?? [])],
+      evidencePaths: [
+        ...(Array.isArray(item.evidencePaths) ? item.evidencePaths : []),
+        ...(options.evidencePaths ?? []),
+      ],
       branch: options.branch ?? item.branch,
       attempts: options.attempts ?? item.attempts,
       settledAt: now,
@@ -1827,7 +1986,11 @@ export function settleExecutionIssue(
   queue.readyCount = queueReadyCount(queue.items);
   queue.updatedAt = now;
   fs.writeFileSync(state.queue.queueFile, `${JSON.stringify(queue, null, 2)}\n`, "utf8");
-  appendWorkflowEvent(state, "issue.settled", { issueId, status: options.status, evidencePaths: options.evidencePaths });
+  appendWorkflowEvent(state, "issue.settled", {
+    issueId,
+    status: options.status,
+    evidencePaths: options.evidencePaths,
+  });
   return queue;
 }
 
@@ -1835,27 +1998,34 @@ export async function runSchedulerRound(
   state: WorkflowState,
   options: {
     concurrency?: number;
-    executeIssue: (issue: any) => Promise<{ status: "done" | "blocked"; evidencePaths?: string[]; branch?: string; attempts?: number }>;
+    executeIssue: (
+      issue: any,
+    ) => Promise<{ status: "done" | "blocked"; evidencePaths?: string[]; branch?: string; attempts?: number }>;
   },
 ): Promise<{ selected: any[]; settled: Array<{ issueId: string; status: "done" | "blocked" }> }> {
   const queue = readQueue(state);
   const selected = selectReadyAfkIssues(queue, options.concurrency ?? defaultNativeRunnerConfig().concurrency);
   const settled: Array<{ issueId: string; status: "done" | "blocked" }> = [];
-  await Promise.all(selected.map(async (issue: any) => {
-    try {
-      const result = await options.executeIssue(issue);
-      settleExecutionIssue(state, String(issue.id), result);
-      settled.push({ issueId: String(issue.id), status: result.status });
-    } catch (error) {
-      settleExecutionIssue(state, String(issue.id), {
-        status: "blocked",
-        evidencePaths: [],
-        attempts: Number(issue.attempts ?? 0) + 1,
-      });
-      appendWorkflowEvent(state, "issue.scheduler_failure", { issueId: String(issue.id), message: error instanceof Error ? error.message : String(error) });
-      settled.push({ issueId: String(issue.id), status: "blocked" });
-    }
-  }));
+  await Promise.all(
+    selected.map(async (issue: any) => {
+      try {
+        const result = await options.executeIssue(issue);
+        settleExecutionIssue(state, String(issue.id), result);
+        settled.push({ issueId: String(issue.id), status: result.status });
+      } catch (error) {
+        settleExecutionIssue(state, String(issue.id), {
+          status: "blocked",
+          evidencePaths: [],
+          attempts: Number(issue.attempts ?? 0) + 1,
+        });
+        appendWorkflowEvent(state, "issue.scheduler_failure", {
+          issueId: String(issue.id),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        settled.push({ issueId: String(issue.id), status: "blocked" });
+      }
+    }),
+  );
   return { selected, settled };
 }
 
@@ -1897,12 +2067,21 @@ export function recordIntegrationResult(
 
   const queue = readJsonOptional(state.queue.queueFile);
   const issueSummaries = Array.isArray(queue?.items)
-    ? queue.items.map((item: any) => ({ issueId: String(item.id), title: String(item.title ?? item.id), status: String(item.status ?? "queued") }))
+    ? queue.items.map((item: any) => ({
+        issueId: String(item.id),
+        title: String(item.title ?? item.id),
+        status: String(item.status ?? "queued"),
+      }))
     : [];
   const evidence: ExecutionEvidence[] = [
     ...options.commands.map((command) => ({ kind: "log" as const, command, summary: command, createdAt: now })),
     ...(options.conflicts ?? []).map((summary) => ({ kind: "risk" as const, summary, createdAt: now })),
-    ...(options.evidencePaths ?? []).map((pathValue) => ({ kind: "log" as const, path: pathValue, summary: pathValue, createdAt: now })),
+    ...(options.evidencePaths ?? []).map((pathValue) => ({
+      kind: "log" as const,
+      path: pathValue,
+      summary: pathValue,
+      createdAt: now,
+    })),
   ];
   const handoff = buildQaHandoff({
     workflowId: state.workflowId,
@@ -2010,7 +2189,8 @@ export function openExecutionPullRequest(
   if (!executionState) throw new Error(`Execution state not found for issue ${issueId}.`);
   const handoffReasons = validateExecutionHandoff(state, issueId);
   if (handoffReasons.length) throw new Error(`Cannot open PR: ${handoffReasons.join(" ")}`);
-  if (executionState.review && executionState.review.status !== "passed") throw new Error("Cannot open PR with blocking fresh-context review findings.");
+  if (executionState.review && executionState.review.status !== "passed")
+    throw new Error("Cannot open PR with blocking fresh-context review findings.");
   const now = options.now ?? nowIso();
   const prUrl = `local-pr://${state.workflowId}/${issueId}`;
   const next: any = {
@@ -2032,7 +2212,9 @@ export function openExecutionPullRequest(
   fs.writeFileSync(path.join(prDir, `${issueId}.json`), `${JSON.stringify(next.pr, null, 2)}\n`, "utf8");
 
   const queue = readQueue(state);
-  queue.items = queue.items.map((item: any) => String(item.id) === issueId ? { ...item, status: "pr-open", prUrl } : item);
+  queue.items = queue.items.map((item: any) =>
+    String(item.id) === issueId ? { ...item, status: "pr-open", prUrl } : item,
+  );
   queue.updatedAt = now;
   fs.writeFileSync(state.queue.queueFile, `${JSON.stringify(queue, null, 2)}\n`, "utf8");
   appendWorkflowEvent(state, "issue.pr_opened", { issueId, prUrl, mergeAuthority: false });
@@ -2048,7 +2230,13 @@ export function recordExecutionFailure(
   if (!executionState) throw new Error(`Execution state not found for issue ${issueId}.`);
   const now = options.now ?? nowIso();
   const failureStreak = Number(executionState.failureStreak ?? 0) + 1;
-  const route = options.ambiguous ? "grill" : options.designFriction ? "architecture" : failureStreak === 1 ? "debug" : "pause";
+  const route = options.ambiguous
+    ? "grill"
+    : options.designFriction
+      ? "architecture"
+      : failureStreak === 1
+        ? "debug"
+        : "pause";
   const next: any = {
     ...executionState,
     updatedAt: now,
@@ -2100,10 +2288,12 @@ export function validateWorkflowTransition(
     if (missingExecutionEvidence.length) {
       reasons.push(`Missing execution evidence requirements: ${missingExecutionEvidence.join(", ")}.`);
     }
-    reasons.push(...validateWorkflowArtifacts(state, {
-      requireExecutionEvidence: true,
-      evidencePaths: options.evidencePaths,
-    }));
+    reasons.push(
+      ...validateWorkflowArtifacts(state, {
+        requireExecutionEvidence: true,
+        evidencePaths: options.evidencePaths,
+      }),
+    );
   }
 
   if (targetPhase === "ready-to-execute") {
@@ -2179,16 +2369,19 @@ export function loadWorkflowState(repoCwd: string, workflowId: string): Workflow
 
 export function findWorkflowState(repoCwd: string, selector: string): WorkflowState | null {
   const workflows = listWorkflowStates(repoCwd);
-  return workflows.find((wf) => wf.workflowId === selector)
-    ?? workflows.find((wf) => wf.workflowId.startsWith(selector))
-    ?? workflows.find((wf) => slugify(wf.source.title).includes(slugify(selector)))
-    ?? null;
+  return (
+    workflows.find((wf) => wf.workflowId === selector) ??
+    workflows.find((wf) => wf.workflowId.startsWith(selector)) ??
+    workflows.find((wf) => slugify(wf.source.title).includes(slugify(selector))) ??
+    null
+  );
 }
 
 export function listWorkflowStates(repoCwd: string): WorkflowState[] {
   const workflowsDir = path.join(getAutopilotRoot(repoCwd), WORKFLOWS_DIR);
   if (!fs.existsSync(workflowsDir)) return [];
-  return fs.readdirSync(workflowsDir)
+  return fs
+    .readdirSync(workflowsDir)
     .map((entry) => path.join(workflowsDir, entry, "state.json"))
     .filter((stateFile) => fs.existsSync(stateFile))
     .map((stateFile) => {
@@ -2202,7 +2395,12 @@ export function listWorkflowStates(repoCwd: string): WorkflowState[] {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export function approveGate(state: WorkflowState, gate: ApprovalGate, approvedBy: string, note?: string): WorkflowState {
+export function approveGate(
+  state: WorkflowState,
+  gate: ApprovalGate,
+  approvedBy: string,
+  note?: string,
+): WorkflowState {
   const approvalFile = path.join(state.paths.approvalsDir, `${gate}.json`);
   const approvedAt = nowIso();
   const approval: GateState = {
@@ -2240,12 +2438,20 @@ export function approveGate(state: WorkflowState, gate: ApprovalGate, approvedBy
   }
 
   fs.mkdirSync(path.dirname(approvalFile), { recursive: true });
-  fs.writeFileSync(approvalFile, `${JSON.stringify({ version: 2, workflowId: state.workflowId, gate, ...approval }, null, 2)}\n`, "utf8");
+  fs.writeFileSync(
+    approvalFile,
+    `${JSON.stringify({ version: 2, workflowId: state.workflowId, gate, ...approval }, null, 2)}\n`,
+    "utf8",
+  );
   appendWorkflowEvent(transition.state, "approval.granted", { gate, approvedBy, note, approvalFile });
   return transition.state;
 }
 
-export function updateWorkflowPhase(state: WorkflowState, phase: WorkflowPhase, status: WorkflowStatus = state.status): WorkflowState {
+export function updateWorkflowPhase(
+  state: WorkflowState,
+  phase: WorkflowPhase,
+  status: WorkflowStatus = state.status,
+): WorkflowState {
   const next: WorkflowState = { ...state, phase, status, updatedAt: nowIso() };
   saveWorkflowState(next);
   appendWorkflowEvent(next, "workflow.phase_changed", { phase, status });
@@ -2273,7 +2479,14 @@ export function buildPlanningPrompt(state: WorkflowState): string {
   const grillMeSkillPath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "grill-me", "SKILL.md");
   const theFoolSkillPath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "the-fool", "SKILL.md");
   const opensrcSkillPath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "opensrc", "SKILL.md");
-  const ubiquitousLanguagePath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "ubiquitous-language", "SKILL.md");
+  const ubiquitousLanguagePath = path.join(
+    process.env.HOME ?? "",
+    ".pi",
+    "agent",
+    "skills",
+    "ubiquitous-language",
+    "SKILL.md",
+  );
   const toIssuesPath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "to-issues", "SKILL.md");
 
   return [
@@ -2332,7 +2545,14 @@ export function buildPlanningPrompt(state: WorkflowState): string {
 }
 
 export function buildArchitecturePrompt(state: WorkflowState): string {
-  const improvePath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "improve-codebase-architecture", "SKILL.md");
+  const improvePath = path.join(
+    process.env.HOME ?? "",
+    ".pi",
+    "agent",
+    "skills",
+    "improve-codebase-architecture",
+    "SKILL.md",
+  );
   const refactorPath = path.join(process.env.HOME ?? "", ".pi", "agent", "skills", "request-refactor-plan", "SKILL.md");
 
   return [
@@ -2375,7 +2595,7 @@ export function buildApprovalPrompt(state: WorkflowState, gate: ApprovalGate): s
       "- Preserve the local drafts as source artifacts.",
       "- Create child issues in dependency order.",
       "- Record created tracker refs under issues/created/ and update triage/queue.json.",
-      "- Do NOT start implementation. Stop after issue creation/triage and request execution approval with autopilot_transition({ gate: \"execution\" }).",
+      '- Do NOT start implementation. Stop after issue creation/triage and request execution approval with autopilot_transition({ gate: "execution" }).',
     ].join("\n");
   }
 

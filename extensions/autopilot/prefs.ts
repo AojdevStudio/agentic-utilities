@@ -53,7 +53,17 @@ export const DEFAULT_REPO_AUTOPILOT_PREFERENCES: RepoAutopilotPreferences = {
   runnerConcurrency: 2,
   runnerMaxRepairAttempts: 2,
   runnerIdleTimeoutSeconds: 600,
-  runnerEnvAllowlist: ["PATH", "HOME", "SHELL", "TMPDIR", "PI_*", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"],
+  runnerEnvAllowlist: [
+    "PATH",
+    "HOME",
+    "SHELL",
+    "TMPDIR",
+    "PI_*",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+  ],
 };
 
 export const HOMELAB_REPO_AUTOPILOT_PREFERENCES: RepoAutopilotPreferences = {
@@ -108,14 +118,15 @@ export function loadRepoAutopilotPreferences(repoCwd: string): RepoAutopilotPref
   const defaults = getDefaultRepoAutopilotPreferences(repoCwd);
   return {
     sourcePriority: normalizeSourcePriority(config.source_priority) ?? defaults.sourcePriority,
-    verificationProfile:
-      normalizeVerificationProfile(config.verification_profile) ?? defaults.verificationProfile,
+    verificationProfile: normalizeVerificationProfile(config.verification_profile) ?? defaults.verificationProfile,
     allowPaths: ensureOpensrcAllowed(normalizeStringArray(config.allow_paths) ?? defaults.allowPaths),
     denyPaths: stripOpensrcDeny(normalizeStringArray(config.deny_paths) ?? defaults.denyPaths),
     runnerCommandTemplate: normalizeNonEmptyString(config.runner_command_template) ?? defaults.runnerCommandTemplate,
     runnerConcurrency: normalizePositiveInteger(config.runner_concurrency) ?? defaults.runnerConcurrency,
-    runnerMaxRepairAttempts: normalizePositiveInteger(config.runner_max_repair_attempts) ?? defaults.runnerMaxRepairAttempts,
-    runnerIdleTimeoutSeconds: normalizePositiveInteger(config.runner_idle_timeout_seconds) ?? defaults.runnerIdleTimeoutSeconds,
+    runnerMaxRepairAttempts:
+      normalizePositiveInteger(config.runner_max_repair_attempts) ?? defaults.runnerMaxRepairAttempts,
+    runnerIdleTimeoutSeconds:
+      normalizePositiveInteger(config.runner_idle_timeout_seconds) ?? defaults.runnerIdleTimeoutSeconds,
     runnerEnvAllowlist: normalizeStringArray(config.runner_env_allowlist) ?? defaults.runnerEnvAllowlist,
   };
 }
@@ -182,7 +193,10 @@ export function readGlobalAutopilotAllowlist(globalConfigPath: string): string[]
   return allow;
 }
 
-export async function ensureRepoInGlobalAutopilotAllowlist(globalConfigPath: string, repoPath: string): Promise<string> {
+export async function ensureRepoInGlobalAutopilotAllowlist(
+  globalConfigPath: string,
+  repoPath: string,
+): Promise<string> {
   const normalizedRepo = path.resolve(repoPath);
   const allowlist = readGlobalAutopilotAllowlist(globalConfigPath);
   if (!allowlist.includes(normalizedRepo)) {
@@ -194,7 +208,10 @@ export async function ensureRepoInGlobalAutopilotAllowlist(globalConfigPath: str
   return globalConfigPath;
 }
 
-export async function setupAutopilotRepo(ctx: ExtensionContext, globalConfigPath: string): Promise<{
+export async function setupAutopilotRepo(
+  ctx: ExtensionContext,
+  globalConfigPath: string,
+): Promise<{
   configPath: string;
   enabledPath: string;
   allowlistPath: string;
@@ -269,9 +286,18 @@ function normalizeSetupPreferences(options: AutopilotSetupOptions, repoCwd?: str
     allowPaths: ensureOpensrcAllowed(options.allowPaths?.length ? options.allowPaths : defaults.allowPaths),
     denyPaths: stripOpensrcDeny(options.denyPaths?.length ? options.denyPaths : defaults.denyPaths),
     runnerCommandTemplate: options.runnerCommandTemplate?.trim() || defaults.runnerCommandTemplate,
-    runnerConcurrency: options.runnerConcurrency && options.runnerConcurrency > 0 ? Math.floor(options.runnerConcurrency) : defaults.runnerConcurrency,
-    runnerMaxRepairAttempts: options.runnerMaxRepairAttempts && options.runnerMaxRepairAttempts > 0 ? Math.floor(options.runnerMaxRepairAttempts) : defaults.runnerMaxRepairAttempts,
-    runnerIdleTimeoutSeconds: options.runnerIdleTimeoutSeconds && options.runnerIdleTimeoutSeconds > 0 ? Math.floor(options.runnerIdleTimeoutSeconds) : defaults.runnerIdleTimeoutSeconds,
+    runnerConcurrency:
+      options.runnerConcurrency && options.runnerConcurrency > 0
+        ? Math.floor(options.runnerConcurrency)
+        : defaults.runnerConcurrency,
+    runnerMaxRepairAttempts:
+      options.runnerMaxRepairAttempts && options.runnerMaxRepairAttempts > 0
+        ? Math.floor(options.runnerMaxRepairAttempts)
+        : defaults.runnerMaxRepairAttempts,
+    runnerIdleTimeoutSeconds:
+      options.runnerIdleTimeoutSeconds && options.runnerIdleTimeoutSeconds > 0
+        ? Math.floor(options.runnerIdleTimeoutSeconds)
+        : defaults.runnerIdleTimeoutSeconds,
     runnerEnvAllowlist: options.runnerEnvAllowlist?.length ? options.runnerEnvAllowlist : defaults.runnerEnvAllowlist,
   };
 }
@@ -284,9 +310,11 @@ function getDefaultRepoAutopilotPreferences(repoCwd: string): RepoAutopilotPrefe
 }
 
 function isHomelabRepo(repoCwd: string): boolean {
-  return fs.existsSync(path.join(repoCwd, "AGENTS.md"))
-    && fs.existsSync(path.join(repoCwd, "nas"))
-    && fs.existsSync(path.join(repoCwd, "proxmox"));
+  return (
+    fs.existsSync(path.join(repoCwd, "AGENTS.md")) &&
+    fs.existsSync(path.join(repoCwd, "nas")) &&
+    fs.existsSync(path.join(repoCwd, "proxmox"))
+  );
 }
 
 function ensureOpensrcAllowed(paths: string[]): string[] {
@@ -296,7 +324,12 @@ function ensureOpensrcAllowed(paths: string[]): string[] {
 }
 
 function stripOpensrcDeny(paths: string[]): string[] {
-  return dedupe(paths.map((item) => item.trim()).filter(Boolean).filter((item) => item !== "opensrc/**"));
+  return dedupe(
+    paths
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => item !== "opensrc/**"),
+  );
 }
 
 function mapSourcePriority(choice: string): SourcePriority[] {
@@ -324,10 +357,7 @@ async function chooseAllowPaths(choice: string, ctx: ExtensionContext, repoCwd: 
     const example = isHomelabRepo(repoCwd)
       ? "nas/**, proxmox/**, cloudflare/**, dream-machine/**, docs/**, scripts/**, opensrc/**"
       : "packages/**, app/**, docs/**, opensrc/**";
-    const value = await ctx.ui.input(
-      "Allowed paths",
-      `Comma-separated globs like ${example}`,
-    );
+    const value = await ctx.ui.input("Allowed paths", `Comma-separated globs like ${example}`);
     if (!value) throw new Error("setup cancelled");
     const paths = value
       .split(",")
@@ -404,7 +434,9 @@ function parseScalar(value: string): string | boolean | number {
 function normalizeSourcePriority(value: unknown): SourcePriority[] | null {
   const items = normalizeStringArray(value);
   if (!items) return null;
-  const filtered = items.filter((item): item is SourcePriority => item === "plan" || item === "github" || item === "linear");
+  const filtered = items.filter(
+    (item): item is SourcePriority => item === "plan" || item === "github" || item === "linear",
+  );
   return filtered.length ? filtered : null;
 }
 
@@ -418,7 +450,10 @@ function normalizeStringArray(value: unknown): string[] | null {
     return value.map((item) => String(item).trim()).filter((item) => item.length > 0);
   }
   if (typeof value === "string" && value.trim()) {
-    return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
   }
   return null;
 }
@@ -438,15 +473,30 @@ function normalizePositiveInteger(value: unknown): number | null {
 function serializeRepoAutopilotConfig(config: RepoAutopilotConfig): string {
   const prefs = {
     enabled: config.enabled ?? false,
-    sourcePriority: normalizeSourcePriority(config.source_priority) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.sourcePriority,
-    verificationProfile: normalizeVerificationProfile(config.verification_profile) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.verificationProfile,
-    allowPaths: ensureOpensrcAllowed(normalizeStringArray(config.allow_paths) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.allowPaths),
-    denyPaths: stripOpensrcDeny(normalizeStringArray(config.deny_paths) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.denyPaths),
-    runnerCommandTemplate: normalizeNonEmptyString(config.runner_command_template) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerCommandTemplate,
-    runnerConcurrency: normalizePositiveInteger(config.runner_concurrency) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerConcurrency,
-    runnerMaxRepairAttempts: normalizePositiveInteger(config.runner_max_repair_attempts) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerMaxRepairAttempts,
-    runnerIdleTimeoutSeconds: normalizePositiveInteger(config.runner_idle_timeout_seconds) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerIdleTimeoutSeconds,
-    runnerEnvAllowlist: normalizeStringArray(config.runner_env_allowlist) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerEnvAllowlist,
+    sourcePriority:
+      normalizeSourcePriority(config.source_priority) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.sourcePriority,
+    verificationProfile:
+      normalizeVerificationProfile(config.verification_profile) ??
+      DEFAULT_REPO_AUTOPILOT_PREFERENCES.verificationProfile,
+    allowPaths: ensureOpensrcAllowed(
+      normalizeStringArray(config.allow_paths) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.allowPaths,
+    ),
+    denyPaths: stripOpensrcDeny(
+      normalizeStringArray(config.deny_paths) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.denyPaths,
+    ),
+    runnerCommandTemplate:
+      normalizeNonEmptyString(config.runner_command_template) ??
+      DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerCommandTemplate,
+    runnerConcurrency:
+      normalizePositiveInteger(config.runner_concurrency) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerConcurrency,
+    runnerMaxRepairAttempts:
+      normalizePositiveInteger(config.runner_max_repair_attempts) ??
+      DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerMaxRepairAttempts,
+    runnerIdleTimeoutSeconds:
+      normalizePositiveInteger(config.runner_idle_timeout_seconds) ??
+      DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerIdleTimeoutSeconds,
+    runnerEnvAllowlist:
+      normalizeStringArray(config.runner_env_allowlist) ?? DEFAULT_REPO_AUTOPILOT_PREFERENCES.runnerEnvAllowlist,
   };
 
   return [

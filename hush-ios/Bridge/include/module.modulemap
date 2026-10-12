@@ -1,0 +1,4 @@
+module HushBridge {
+  header "hush_bridge.h"
+  export *
+}

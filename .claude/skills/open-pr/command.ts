@@ -193,6 +193,7 @@ function splitAttached(args: string[], valued: string[]): string[] {
  * The repo and PR selector of a `gh pr merge`, read in one pass the way gh's flag parser
  * reads them: `-st X` is `-s -t X`, `-R=o/r` and `-Ro/r` attach the value, and a token a
  * value-taking flag consumes is never read as a flag or the selector, even with a leading `-`.
+ * A boolean with `=` (`-s=t`) takes the rest of its token.
  */
 function mergeArgs(args: string[]): { repo?: string; target?: string } {
   let repo: string | undefined;
@@ -211,6 +212,7 @@ function mergeArgs(args: string[]): { repo?: string; target?: string } {
     } else if (a.startsWith("-") && a.length > 1) {
       for (let k = 1; k < a.length; k++) {
         const flag = `-${a[k]}`;
+        if (!MERGE_VALUED.includes(flag) && a[k + 1] === "=") break;
         if (!MERGE_VALUED.includes(flag)) continue;
         const value = a.slice(k + 1).replace(/^=/, "") || args[++i];
         if (flag === "-R") repo = value;
@@ -240,6 +242,8 @@ interface Ctx {
   written: Map<string, string>;
   dir?: string;
   host?: string;
+  /** `GH_REPO` set in the command, which gh reads when no `-R` is given. */
+  ghRepo?: string;
 }
 
 function inlineOrFile(value: string, ctx: Ctx, stdinDoc?: string): BodySource {
@@ -275,11 +279,19 @@ const GH_VALUED = ["-R", "--repo", "-t", "--title", "-b", "--body", "-F", "--bod
 const MERGE_VALUED = ["-R", "--repo", "-A", "--author-email", "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit"];
 
 function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
-  const i = seg.indexOf("pr");
-  const verb = seg[i + 1];
+  // gh also takes `-R` between `pr` and the verb: `gh pr -R o/r merge 67`.
+  let j = seg.indexOf("pr") + 1;
+  let prRepo: string | undefined;
+  for (; seg[j]?.startsWith("-"); j++) {
+    const attached = seg[j].match(/^(?:-R=?|--repo=)([\s\S]+)$/);
+    if (seg[j] === "-R" || seg[j] === "--repo") prRepo = seg[++j];
+    else if (attached) prRepo = attached[1];
+  }
+  const verb = seg[j];
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
-  const args = splitAttached(seg.slice(i + 2), valued);
-  const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
+  const args = splitAttached(seg.slice(j + 1), valued);
+  const repo = flagValues(args, ["-R", "--repo"]).at(-1) || prRepo || ctx.ghRepo || undefined;
+  const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {
     const file = flagValues(args, ["-F", "--body-file"]).at(-1);
@@ -298,7 +310,9 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
     return { ...base, kind: "edit", title, body: b };
   }
   if (verb === "merge") {
-    const { repo, target } = mergeArgs(seg.slice(i + 2));
+    const merge = mergeArgs(seg.slice(j + 1));
+    const target = merge.target;
+    const repo = merge.repo || prRepo || ctx.ghRepo || undefined;
     return { ...base, repo, kind: "merge", target, pinned: repo !== undefined || /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(target ?? "") };
   }
   return null;
@@ -399,7 +413,14 @@ function scan(command: string, ctx: Ctx): PrCommand[] {
       const inner = t.match(/\$\(([\s\S]*)\)/);
       if (inner && /\bgh\b/.test(inner[1])) found.push(...scan(inner[1], { ...ctx, written: new Map(ctx.written) }));
     }
-    while (seg[0] && /^[A-Za-z_]\w*=/.test(seg[0])) seg = seg.slice(1);
+    if (seg[0] === "export") {
+      for (const t of seg) if (t.startsWith("GH_REPO=")) ctx.ghRepo = t.slice("GH_REPO=".length);
+      continue;
+    }
+    let env = ctx.ghRepo;
+    for (; seg[0] && /^[A-Za-z_]\w*=/.test(seg[0]); seg = seg.slice(1)) {
+      if (seg[0].startsWith("GH_REPO=")) env = seg[0].slice("GH_REPO=".length);
+    }
     if (/^(?:.*\/)?(?:bash|sh|zsh)$/.test(seg[0] ?? "") && seg[1] === "-c" && seg[2]) {
       found.push(...scan(seg[2], ctx));
       continue;
@@ -424,7 +445,7 @@ function scan(command: string, ctx: Ctx): PrCommand[] {
     const gh = seg.findIndex((t) => t === "gh" || t.endsWith("/gh"));
     if (gh < 0) continue;
     const tail = seg.slice(gh);
-    const cmd = tail[1] === "pr" ? ghPr(tail, ctx) : tail[1] === "api" ? ghApi(tail, ctx) : null;
+    const cmd = tail[1] === "pr" ? ghPr(tail, { ...ctx, ghRepo: env }) : tail[1] === "api" ? ghApi(tail, ctx) : null;
     if (cmd) found.push(cmd);
   }
   return found;

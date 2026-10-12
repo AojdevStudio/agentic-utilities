@@ -41,6 +41,16 @@ test.each([
   ["gh pr merge --body -sRother/repo 67 --squash", undefined, "67", false],
   ["gh pr merge --body -ABC 67 --squash", undefined, "67", false],
   ["gh pr merge -t -R 67", undefined, "67", false],
+  ["gh pr merge -s=t 67", undefined, "67", false],
+  ["gh pr merge -d=F 67", undefined, "67", false],
+  ["gh pr merge -s=TRUE 67", undefined, "67", false],
+  ["gh pr merge --repo= 67 -s", undefined, "67", false],
+  ["gh pr merge -R '' 67", undefined, "67", false],
+  ["gh pr -R other/repo merge 67 -s", "other/repo", "67", true],
+  ["gh pr --repo=other/repo merge 67", "other/repo", "67", true],
+  ["GH_REPO=other/repo gh pr merge 67 -s", "other/repo", "67", true],
+  ["export GH_REPO=other/repo; gh pr merge 67", "other/repo", "67", true],
+  ["GH_REPO=other/repo gh pr merge -R o/r 67", "o/r", "67", true],
 ])("%s keeps its repo, target, and pinned status", (command, repo, expected, pinned) => {
   const [cmd] = findPrCommands(command);
   if (cmd?.kind !== "merge") throw new Error(`not a merge: ${command}`);

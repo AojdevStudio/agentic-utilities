@@ -206,7 +206,11 @@ extension SessionPhase {
         defer { if started == epoch { isRefreshing = false } }
         do throws(VaultFailure) {
             try await store.refresh()
-            if started == epoch { vaultFailure = nil }
+            guard started == epoch else { return }
+            vaultFailure = nil
+            if let filter = projectFilter, let catalog = store.phase.catalog, catalog.project(filter) == nil {
+                projectFilter = nil
+            }
         } catch {
             if started == epoch { vaultFailure = error }
         }
@@ -247,7 +251,8 @@ extension SessionPhase {
     func openCreate() {
         guard case .unlocked(let catalog) = store.phase else { return }
         if draft.projectID == nil {
-            draft.projectID = projectFilter ?? (catalog.projects.count == 1 ? catalog.projects.first?.id : nil)
+            draft.projectID = projectFilter.flatMap { catalog.project($0)?.id }
+                ?? (catalog.projects.count == 1 ? catalog.projects.first?.id : nil)
         }
         draft.failure = nil
         sheet = .create

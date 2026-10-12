@@ -1,0 +1,11 @@
+.build/
+build/
+Bridge/target/
+*.xcodeproj/
+*.xcresult/
+*.xcarchive/
+*.ipa
+*.mobileprovision
+*.p12
+*.key
+*.xcuserstate

@@ -42,7 +42,7 @@
     ]
   },
   "scripts": {
-    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
+    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run check:hush-ios-bridge && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
     "list": "bun scripts/list-resources.mjs",
     "check:bws-tui": "cargo fmt --manifest-path bws-tui/Cargo.toml -- --check && cargo test --manifest-path bws-tui/Cargo.toml && cargo clippy --manifest-path bws-tui/Cargo.toml -- -D warnings",
     "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
@@ -60,7 +60,8 @@
     "typecheck": "tsc --noEmit",
     "validate:skills": "bun scripts/validate-agent-skills.mjs",
     "sync:public": "bun scripts/sync-public.mjs",
-    "sync:public:check": "bun scripts/sync-public.mjs --check"
+    "sync:public:check": "bun scripts/sync-public.mjs --check",
+    "check:hush-ios-bridge": "cargo fmt --manifest-path hush-ios/Bridge/Cargo.toml -- --check && cargo test --locked --manifest-path hush-ios/Bridge/Cargo.toml && cargo clippy --locked --manifest-path hush-ios/Bridge/Cargo.toml -- -D warnings"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

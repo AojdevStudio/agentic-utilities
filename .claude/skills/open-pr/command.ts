@@ -115,15 +115,21 @@ function liftHeredocs(command: string): { rest: string; docs: string[] } {
   return { rest: out.join("\n"), docs };
 }
 
+/** Starts a word whose leading redirection operator was not quoted, so `> x` differs from `'> x'`. */
+const REDIRECT = "\u0001";
+
 function tokenize(command: string): Token[] {
   const tokens: Token[] = [];
   let cur = "";
   let has = false;
+  let quotedAt = -1;
   let quote: "'" | '"' | null = null;
   const push = () => {
-    if (has) tokens.push({ text: cur });
+    const plain = quotedAt < 0 ? cur : cur.slice(0, quotedAt);
+    if (has) tokens.push({ text: /^(?:\d*|&)[<>]/.test(plain) ? REDIRECT + cur : cur });
     cur = "";
     has = false;
+    quotedAt = -1;
   };
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
@@ -136,10 +142,12 @@ function tokenize(command: string): Token[] {
     if (c === "'" || c === '"') {
       quote = c;
       has = true;
+      if (quotedAt < 0) quotedAt = cur.length;
     } else if (c === "\\" && command[i + 1] === "\n") {
       i++;
       push();
     } else if (c === "\\" && i + 1 < command.length) {
+      if (quotedAt < 0) quotedAt = cur.length;
       cur += command[++i];
       has = true;
     } else if (c === "(" || c === ")") {
@@ -292,22 +300,32 @@ const FLAGS_FIRST = "this gate reads gh flags only after the subcommand. Write `
 const MERGE_UNREADABLE = "this gate reads only plain merge arguments: known flags, one PR selector, a non-empty `-R owner/name`, and no `=` on boolean flags.";
 const GH_ENV = "GH_REPO and GH_HOST change which repo gh merges, and this gate cannot track them. Merge with `-R owner/name` and without GH_REPO or GH_HOST.";
 
-/** The words gh receives: bash removes redirections such as `2>&1`, `>out`, and `2> file`. */
-function dropRedirects(words: string[]): string[] {
+/**
+ * The words gh receives: bash removes unquoted redirections such as `2>&1`, `>out`, and
+ * `2> file`. Null for one this gate cannot read, such as a `<<<` here-string.
+ */
+function dropRedirects(words: string[]): string[] | null {
   const out: string[] = [];
   for (let k = 0; k < words.length; k++) {
-    const m = words[k].match(/^(?:\d*|&)(?:>>?\|?|<)(.*)$/);
-    if (!m) out.push(words[k]);
-    else if (m[1] === "") k++;
+    if (!words[k].startsWith(REDIRECT)) {
+      out.push(words[k]);
+      continue;
+    }
+    const m = words[k].slice(1).match(/^(?:\d*|&)(?:>>?\|?|<)(.*)$/);
+    if (!m || /^[<>]/.test(m[1])) return null;
+    if (m[1] === "") k++;
   }
   return out;
 }
 
+const REDIRECT_UNREADABLE = "this gate cannot read the redirection in this command. Drop it, or redirect only output (`> file`, `2>&1`).";
+
 function ghPr(words: string[], ctx: Ctx): PrCommand | null {
+  const via = words.join(" ").replaceAll(REDIRECT, "").slice(0, 120);
   const seg = dropRedirects(words);
+  if (!seg) return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: REDIRECT_UNREADABLE };
   const i = seg.indexOf("pr");
   const verb = seg[i + 1];
-  const via = seg.join(" ").slice(0, 120);
   if (verb?.startsWith("-") && seg.some((t) => ["create", "new", "edit", "merge"].includes(t))) {
     return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: FLAGS_FIRST };
   }
@@ -447,8 +465,8 @@ function scan(command: string, ctx: Ctx): PrCommand[] {
       continue;
     }
     if (seg[0] === "cat" || seg[0] === "tee") {
-      const at = seg.findIndex((t) => /^>\|?$/.test(t));
-      const target = seg[0] === "tee" ? seg[1] : at >= 0 ? seg[at + 1] : seg.find((t) => /^>\|?./.test(t))?.replace(/^>\|?/, "");
+      const at = seg.findIndex((t) => /^\u0001>\|?$/.test(t));
+      const target = seg[0] === "tee" ? seg[1] : at >= 0 ? seg[at + 1] : seg.find((t) => /^\u0001>\|?./.test(t))?.replace(/^\u0001>\|?/, "");
       const doc = segmentDoc(seg, ctx);
       if (target && doc !== undefined) ctx.written.set(target, doc);
       continue;

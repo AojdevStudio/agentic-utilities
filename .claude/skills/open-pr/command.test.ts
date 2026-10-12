@@ -46,6 +46,9 @@ test.each([
   ["gh pr merge 67 --squash 2> /dev/null -R o/r", "o/r", "67", true],
   ["gh pr merge -t s 2>/dev/null 67", undefined, "67", false],
   ["gh pr merge --subject 2>/dev/null 7", undefined, undefined, false],
+  ["gh pr merge --subject '> Release' 67 --squash", undefined, "67", false],
+  ["gh pr merge -t \\>x 67", undefined, "67", false],
+  ["gh pr merge -b '2>&1' 67", undefined, "67", false],
 ])("%s keeps its repo, target, and pinned status", (command, repo, expected, pinned) => {
   const [cmd] = findPrCommands(command);
   if (cmd?.kind !== "merge") throw new Error(`not a merge: ${command}`);
@@ -75,6 +78,8 @@ test.each([
   "export GH_REPO=o/r; gh pr merge 67",
   "GH_REPO=o/r bash -c 'gh pr merge 67'",
   "export GH_RE''PO=o/r; gh pr merge 67",
+  "gh pr merge <<< 67 --squash",
+  "gh pr merge <<<67",
   "env G\\H_REPO=o/r gh pr merge 67",
   "GH_HOST=example.com gh pr merge 67 -R o/r",
   "GH_REPO=o/r gh api -X PUT repos/{owner}/{repo}/pulls/67/merge",
@@ -106,4 +111,8 @@ test.each([
   for (const flag of ["-F body=@body.md", "--field body=@body.md", "--field=body=@body.md"]) {
     expect(body(`${prefix} ${flag}`)).toEqual({ kind: "file", path: "body.md" });
   }
+});
+
+test("a quoted > in an edit body is body text, not a redirection", () => {
+  expect(body("gh pr edit 67 --body '> Quote'")).toEqual({ kind: "inline", text: "> Quote" });
 });

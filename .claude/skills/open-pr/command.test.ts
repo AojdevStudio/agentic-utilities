@@ -18,6 +18,11 @@ test.each([
   ["gh pr merge -tSubject 67 --squash", "67"],
   ["gh pr merge -b 'merge body' 67", "67"],
   ["gh pr merge 67 --match-head-commit abc123", "67"],
+  ["gh pr merge -st feat/x 67", "67"],
+  ["gh pr merge -dA x 67", "67"],
+  ["gh pr merge -sR o/r 67", "67"],
+  ["gh pr merge -dtSubject 67", "67"],
+  ["gh pr merge -sb text 67", "67"],
 ])("%s targets PR 67", (command, expected) => {
   expect(target(command)).toBe(expected);
 });
@@ -27,6 +32,18 @@ const body = (command: string): BodySource | undefined => {
   if (cmd?.kind !== "create" && cmd?.kind !== "edit") throw new Error(`not a create or edit: ${command}`);
   return cmd.body;
 };
+
+test("a clustered -R names the repo", () => {
+  const [cmd] = findPrCommands("gh pr merge -sR o/r 67");
+  expect(cmd?.repo).toBe("o/r");
+});
+
+test("a field inside another flag's value is not the body", () => {
+  expect(body("gh api -X PATCH repos/o/r/pulls/67 -F body=@bad.md --jq '--raw-field=body=GOOD'")).toEqual({
+    kind: "file",
+    path: "bad.md",
+  });
+});
 
 test.each([
   ["create", "gh api repos/o/r/pulls -f title=t"],

@@ -189,6 +189,27 @@ function splitAttached(args: string[], valued: string[]): string[] {
   return args.flatMap((a) => (/^-[A-Za-z]./.test(a) && valued.includes(a.slice(0, 2)) ? [a.slice(0, 2), a.slice(2).replace(/^=/, "")] : [a]));
 }
 
+/**
+ * Expands clustered short flags the way gh's flag parser reads them: `-st X` is `-s -t X`,
+ * and the first value-taking letter takes the rest of the token, so `-dtX` is `-d -t X`.
+ */
+function splitClusters(args: string[], valued: string[]): string[] {
+  return args.flatMap((a) => {
+    if (!/^-[A-Za-z]{2}/.test(a)) return [a];
+    const out: string[] = [];
+    for (let k = 1; k < a.length; k++) {
+      const flag = `-${a[k]}`;
+      out.push(flag);
+      if (valued.includes(flag)) {
+        const rest = a.slice(k + 1).replace(/^=/, "");
+        if (rest) out.push(rest);
+        break;
+      }
+    }
+    return out;
+  });
+}
+
 function hasFlag(args: string[], names: string[]): boolean {
   return args.some((a) => names.includes(a) || names.some((n) => n.startsWith("--") && a.startsWith(n + "=") && a.slice(n.length + 1) !== "false"));
 }
@@ -246,7 +267,7 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
   const i = seg.indexOf("pr");
   const verb = seg[i + 1];
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
-  const args = splitAttached(seg.slice(i + 2), valued);
+  const args = verb === "merge" ? splitClusters(seg.slice(i + 2), valued) : splitAttached(seg.slice(i + 2), valued);
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {
@@ -321,7 +342,11 @@ function ghApi(seg: string[], ctx: Ctx): PrCommand | null {
   for (let j = 0; j < args.length; j++) {
     const long = args[j].match(/^(--field|--raw-field)=([\s\S]*)$/);
     const flag = long ? long[1] : args[j];
-    if (!["-f", "-F", "--field", "--raw-field"].includes(flag)) continue;
+    if (!["-f", "-F", "--field", "--raw-field"].includes(flag)) {
+      // Skip another flag's value, so `--jq '-f body=x'` is not read as a field.
+      if (API_VALUED.includes(args[j])) j++;
+      continue;
+    }
     const f = long ? long[2] : args[++j];
     const eq = f?.indexOf("=") ?? -1;
     if (f !== undefined && eq > 0) fields.set(f.slice(0, eq), { value: f.slice(eq + 1), typed: flag === "-F" || flag === "--field" });

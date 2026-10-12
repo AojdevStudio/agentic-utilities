@@ -3,9 +3,11 @@
  * Pure, so the gate and tests share it. The gate fetches the state over the REST API.
  *
  * Pullfrog is the active review bot. Its `pullfrog-approval` check-run concluding
- * `success` on the exact head is the pass signal. One exception: when the bot approved
- * the previous head and the head is a merge commit on top of it (a conflict fix), the
- * approval carries forward, provided the merged-in parent is on the base branch.
+ * `success` on the exact head is the pass signal. Only a run the Pullfrog app produced
+ * counts: any workflow can name a job `pullfrog-approval`. One exception: when the bot
+ * approved the previous head and the head is a merge commit on top of it (a conflict fix),
+ * the approval carries forward, provided the merged-in parent is on the base branch and
+ * the bot has not rejected the head itself.
  *
  * The kit's source repo is Ossie's curated settings repo, and no review bot gates it. The
  * list lives here in the kit, never in a file the target repo could edit. It holds SHA-256
@@ -15,6 +17,8 @@
  */
 
 export const PASS_SIGNAL = "pullfrog-approval";
+/** The Pullfrog GitHub App's id, as the check-runs API reports it in `app.id`. */
+export const PASS_APP_ID = 1768019;
 
 const BOT_EXEMPT = new Set([
   "6159f38c55dea314c96c15a2b5ddf2edd32a5b51019c9d0b4521e2ff077c0815",
@@ -29,6 +33,8 @@ export interface CheckRun {
   name: string;
   status: string;
   conclusion: string | null;
+  /** The id of the GitHub App that produced the run. */
+  appId: number | null;
 }
 
 export interface HeadState {
@@ -50,11 +56,12 @@ export type MergeVerdict =
   | { ok: true; via: "approval" | "conflict-fix" | "exempt" }
   | { ok: false; reason: string };
 
-const passed = (runs: CheckRun[] | undefined) =>
-  runs?.some((r) => r.name === PASS_SIGNAL && r.status === "completed" && r.conclusion === "success") ?? false;
+const verdicts = (runs: CheckRun[] | undefined) => runs?.filter((r) => r.name === PASS_SIGNAL && r.appId === PASS_APP_ID) ?? [];
+const passed = (runs: CheckRun[] | undefined) => verdicts(runs).some((r) => r.status === "completed" && r.conclusion === "success");
+const rejected = (runs: CheckRun[]) => verdicts(runs).some((r) => r.status === "completed" && r.conclusion !== "success");
 
 function describe(runs: CheckRun[]): string {
-  const run = runs.find((r) => r.name === PASS_SIGNAL);
+  const run = verdicts(runs)[0];
   if (!run) return `no ${PASS_SIGNAL} check-run exists`;
   return run.status === "completed" ? `${PASS_SIGNAL} concluded ${run.conclusion}` : `${PASS_SIGNAL} is ${run.status}`;
 }
@@ -65,6 +72,8 @@ export function decideMerge(head: HeadState): MergeVerdict {
     return { ok: false, reason: `${head.repo} skips the review bot only when the merge names it. Pass -R ${head.repo} or the PR URL.` };
   }
   if (passed(head.runs)) return { ok: true, via: "approval" };
-  if (head.parents.length === 2 && head.mergesBase === true && passed(head.parentRuns)) return { ok: true, via: "conflict-fix" };
+  if (!rejected(head.runs) && head.parents.length === 2 && head.mergesBase === true && passed(head.parentRuns)) {
+    return { ok: true, via: "conflict-fix" };
+  }
   return { ok: false, reason: `${describe(head.runs)} on head ${head.sha.slice(0, 7)}. A missing, running, or failed verdict does not pass.` };
 }

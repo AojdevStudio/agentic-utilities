@@ -236,12 +236,17 @@ function segmentDoc(seg: string[], ctx: Ctx): string | undefined {
   return undefined;
 }
 
+/** Value-taking flags of `gh pr create` and `gh pr edit`. */
 const GH_VALUED = ["-R", "--repo", "-t", "--title", "-b", "--body", "-F", "--body-file", "-B", "--base", "-H", "--head", "-a", "--assignee", "-l", "--label", "-m", "--milestone", "-p", "--project", "-r", "--reviewer", "-T", "--template", "--subject", "--attach", "--add-label", "--remove-label"];
+
+/** Value-taking flags of `gh pr merge`. There `-m` and `-r` are booleans (merge, rebase). */
+const MERGE_VALUED = ["-R", "--repo", "-A", "--author-email", "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit"];
 
 function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
   const i = seg.indexOf("pr");
   const verb = seg[i + 1];
-  const args = splitAttached(seg.slice(i + 2), GH_VALUED);
+  const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
+  const args = splitAttached(seg.slice(i + 2), valued);
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {
@@ -261,7 +266,7 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
     return { ...base, kind: "edit", title, body: b };
   }
   if (verb === "merge") {
-    const target = positional(args, GH_VALUED);
+    const target = positional(args, MERGE_VALUED);
     return { ...base, kind: "merge", target, pinned: base.repo !== undefined || /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(target ?? "") };
   }
   return null;
@@ -311,27 +316,31 @@ function ghApi(seg: string[], ctx: Ctx): PrCommand | null {
   const m = path?.match(/^repos\/([^/]+\/[^/]+)\/pulls(?:\/(\d+)(\/merge)?)?$/i);
   if (!m) return null;
   const [, repo, number, merge] = m;
-  const fields = new Map<string, string>();
-  for (const f of flagValues(args, ["-f", "-F", "--field", "--raw-field"])) {
-    const eq = f.indexOf("=");
-    if (eq > 0) fields.set(f.slice(0, eq), f.slice(eq + 1));
+  // gh reads `@file` only from a typed field (`-F`/`--field`). A raw field sends `@file` as literal text.
+  const fields = new Map<string, { value: string; typed: boolean }>();
+  for (let j = 0; j < args.length; j++) {
+    const long = args[j].match(/^(--field|--raw-field)=([\s\S]*)$/);
+    const flag = long ? long[1] : args[j];
+    if (!["-f", "-F", "--field", "--raw-field"].includes(flag)) continue;
+    const f = long ? long[2] : args[++j];
+    const eq = f?.indexOf("=") ?? -1;
+    if (f !== undefined && eq > 0) fields.set(f.slice(0, eq), { value: f.slice(eq + 1), typed: flag === "-F" || flag === "--field" });
   }
   const method = (flagValues(args, ["-X", "--method"]).at(-1) ?? (fields.size > 0 || hasFlag(args, ["--input"]) ? "POST" : "GET")).toUpperCase();
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo };
   const input = flagValues(args, ["--input"]).at(-1);
   const body = (): BodySource | undefined => {
-    const raw = fields.get("body");
-    if (raw !== undefined) return raw.startsWith("@") ? inlineOrFile(raw.slice(1), ctx, segmentDoc(seg, ctx)) : inlineText(raw, ctx);
-    if (input !== undefined) return { kind: "file", path: `json:${input}` };
-    return undefined;
+    const field = fields.get("body");
+    if (field === undefined) return input === undefined ? undefined : { kind: "file", path: `json:${input}` };
+    return field.typed && field.value.startsWith("@") ? inlineOrFile(field.value.slice(1), ctx, segmentDoc(seg, ctx)) : inlineText(field.value, ctx);
   };
   if (merge) return method === "PUT" ? { ...base, kind: "merge", target: number, pinned: !repo.includes("{") && !hasFlag(args, ["--hostname"]) } : null;
   if (!number && method === "POST") {
-    return { ...base, kind: "create", title: fields.get("title"), draft: fields.get("draft") === "true", body: body() ?? { kind: "missing" } };
+    return { ...base, kind: "create", title: fields.get("title")?.value, draft: fields.get("draft")?.value === "true", body: body() ?? { kind: "missing" } };
   }
   if (number && method === "PATCH") {
     const b = body();
-    const title = fields.get("title");
+    const title = fields.get("title")?.value;
     if (b === undefined && title === undefined) return null;
     return { ...base, kind: "edit", title, body: b };
   }

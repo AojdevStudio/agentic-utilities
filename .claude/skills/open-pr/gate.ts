@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { checkPullRequest, formatViolations, titleViolation, type PullRequest } from "./contract";
 import { findPrCommands, graphqlRisk, type BodySource, type PrCommand } from "./command";
-import { botExempt, decideMerge, PASS_SIGNAL, type CheckRun } from "../land-pr/merge";
+import { botExempt, decideMerge, PASS_APP_ID, PASS_SIGNAL, type CheckRun } from "../land-pr/merge";
 
 interface HookInput {
   tool: string;
@@ -118,6 +118,7 @@ function parseRun(x: unknown): CheckRun {
     name: field(x, "name", isStr, "a check-run"),
     status: field(x, "status", isStr, "a check-run"),
     conclusion: field(x, "conclusion", isStrOrNull, "a check-run"),
+    appId: isObj(x) && isObj(x.app) && isNum(x.app.id) ? x.app.id : null,
   };
 }
 
@@ -139,7 +140,7 @@ function resolvePull(cmd: Extract<PrCommand, { kind: "merge" }>, cwd: string): {
 }
 
 function latestRuns(repo: string, sha: string, cwd: string): CheckRun[] {
-  const page = ghJson(`repos/${repo}/commits/${sha}/check-runs?check_name=${PASS_SIGNAL}&filter=latest`, cwd);
+  const page = ghJson(`repos/${repo}/commits/${sha}/check-runs?check_name=${PASS_SIGNAL}&app_id=${PASS_APP_ID}&filter=latest`, cwd);
   return field(page, "check_runs", isArr, "a check-run list").map(parseRun);
 }
 

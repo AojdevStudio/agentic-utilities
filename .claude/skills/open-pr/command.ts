@@ -190,24 +190,35 @@ function splitAttached(args: string[], valued: string[]): string[] {
 }
 
 /**
- * Expands clustered short flags the way gh's flag parser reads them: `-st X` is `-s -t X`,
- * and the first value-taking letter takes the rest of the token, so `-dtX` is `-d -t X`.
+ * The repo and PR selector of a `gh pr merge`, read in one pass the way gh's flag parser
+ * reads them: `-st X` is `-s -t X`, `-R=o/r` and `-Ro/r` attach the value, and a token a
+ * value-taking flag consumes is never read as a flag or the selector, even with a leading `-`.
  */
-function splitClusters(args: string[], valued: string[]): string[] {
-  return args.flatMap((a) => {
-    if (!/^-[A-Za-z]{2}/.test(a)) return [a];
-    const out: string[] = [];
-    for (let k = 1; k < a.length; k++) {
-      const flag = `-${a[k]}`;
-      out.push(flag);
-      if (valued.includes(flag)) {
-        const rest = a.slice(k + 1).replace(/^=/, "");
-        if (rest) out.push(rest);
+function mergeArgs(args: string[]): { repo?: string; target?: string } {
+  let repo: string | undefined;
+  let target: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      target ??= args[i + 1];
+      break;
+    }
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const name = eq < 0 ? a : a.slice(0, eq);
+      const value = eq >= 0 ? a.slice(eq + 1) : MERGE_VALUED.includes(name) ? args[++i] : undefined;
+      if (name === "--repo") repo = value;
+    } else if (a.startsWith("-") && a.length > 1) {
+      for (let k = 1; k < a.length; k++) {
+        const flag = `-${a[k]}`;
+        if (!MERGE_VALUED.includes(flag)) continue;
+        const value = a.slice(k + 1).replace(/^=/, "") || args[++i];
+        if (flag === "-R") repo = value;
         break;
       }
-    }
-    return out;
-  });
+    } else target ??= a;
+  }
+  return { repo, target };
 }
 
 function hasFlag(args: string[], names: string[]): boolean {
@@ -267,7 +278,7 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
   const i = seg.indexOf("pr");
   const verb = seg[i + 1];
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
-  const args = verb === "merge" ? splitClusters(seg.slice(i + 2), valued) : splitAttached(seg.slice(i + 2), valued);
+  const args = splitAttached(seg.slice(i + 2), valued);
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {
@@ -287,8 +298,8 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
     return { ...base, kind: "edit", title, body: b };
   }
   if (verb === "merge") {
-    const target = positional(args, MERGE_VALUED);
-    return { ...base, kind: "merge", target, pinned: base.repo !== undefined || /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(target ?? "") };
+    const { repo, target } = mergeArgs(seg.slice(i + 2));
+    return { ...base, repo, kind: "merge", target, pinned: repo !== undefined || /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(target ?? "") };
   }
   return null;
 }

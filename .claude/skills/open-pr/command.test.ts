@@ -33,9 +33,18 @@ const body = (command: string): BodySource | undefined => {
   return cmd.body;
 };
 
-test("a clustered -R names the repo", () => {
-  const [cmd] = findPrCommands("gh pr merge -sR o/r 67");
-  expect(cmd?.repo).toBe("o/r");
+test.each([
+  ["gh pr merge -sR o/r 67", "o/r", "67", true],
+  ["gh pr merge -R=other/repo 67 --squash", "other/repo", "67", true],
+  ["gh pr merge -Rother/repo 67", "other/repo", "67", true],
+  ["gh pr merge --repo=other/repo 67", "other/repo", "67", true],
+  ["gh pr merge --body -sRother/repo 67 --squash", undefined, "67", false],
+  ["gh pr merge --body -ABC 67 --squash", undefined, "67", false],
+  ["gh pr merge -t -R 67", undefined, "67", false],
+])("%s keeps its repo, target, and pinned status", (command, repo, expected, pinned) => {
+  const [cmd] = findPrCommands(command);
+  if (cmd?.kind !== "merge") throw new Error(`not a merge: ${command}`);
+  expect({ repo: cmd.repo, target: cmd.target, pinned: cmd.pinned }).toEqual({ repo, target: expected, pinned });
 });
 
 test("a field inside another flag's value is not the body", () => {

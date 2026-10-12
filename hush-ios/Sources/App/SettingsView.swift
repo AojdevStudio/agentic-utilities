@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Local settings: region shown, appearance, lock, and forget the saved token.
+/// Local settings: live vault region, appearance, lock, and forget the saved token.
 struct SettingsView: View {
     let model: AppModel
     @AppStorage(AppearanceKey.darkMode) private var darkMode = false
-    @AppStorage(AppearanceKey.region) private var region: Region = .us
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingForget = false
 
@@ -12,8 +11,10 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Region", value: region.name)
-                        .accessibilityIdentifier("settings-region")
+                    if let region = model.store.vaultIdentity?.region {
+                        LabeledContent("Region", value: region.name)
+                            .accessibilityIdentifier("settings-region")
+                    }
                     Toggle("Dark mode", isOn: $darkMode)
                         .accessibilityIdentifier("settings-dark-mode")
                 } footer: {

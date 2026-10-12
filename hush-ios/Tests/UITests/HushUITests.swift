@@ -134,7 +134,20 @@ import XCTest
         XCTAssertTrue(app.buttons["add-button"].isEnabled)
     }
 
-    /// Settings shows the saved region, opens the bundled notices, and Lock now returns to the lock screen.
+    /// Settings shows the live vault region even when the connect default differs.
+    func testSettingsShowsLiveRegionInsteadOfConnectDefault() {
+        app.launchArguments = ["-connection.region", "eu"]
+        launch("saved")
+        unlock()
+        app.buttons["settings-button"].tap()
+
+        let region = element("settings-region")
+        XCTAssertTrue(region.waitForExistence(timeout: 5))
+        XCTAssertTrue(region.label.contains("United States"))
+        XCTAssertFalse(region.label.contains("Europe"))
+    }
+
+    /// Settings shows the live vault region, opens the bundled notices, and Lock now returns to the lock screen.
     func testSettingsShowsRegionNoticesAndLocks() {
         launch("fresh")
         let token = app.secureTextFields["token-field"]

@@ -30,6 +30,8 @@ targets:
       path: .build/Info.plist
       properties:
         CFBundleDisplayName: Hush
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         NSFaceIDUsageDescription: Unlock your Hush secrets with Face ID.
         UILaunchScreen: {}

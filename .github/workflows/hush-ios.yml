@@ -40,6 +40,7 @@ jobs:
           if b'HUSH_UI_TEST_SCENARIO' in binary:
               raise SystemExit('Release binary contains the UI test harness')
           PY
+          python3 scripts/check-sqlite.py .build/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush
       - name: Preserve test results
         if: always()
         uses: actions/upload-artifact@v4

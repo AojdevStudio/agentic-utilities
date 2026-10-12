@@ -40,8 +40,8 @@ for target in "${targets[@]}"; do
   sdk=iphoneos
   [[ "$target" == *-sim ]] && sdk=iphonesimulator
   sdk_root="$(xcrun --sdk "$sdk" --show-sdk-path)"
-  # Use Apple's SQLite for the SDK's in-memory database. Bundled SQLite also
-  # links unused filesystem probes that do not describe this app's behavior.
+  # Satisfy the SDK's rusqlite dependency with Apple's SQLite. Hush does not
+  # initialize the SDK database. Bundled SQLite links unused filesystem probes.
   export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
   export SQLITE3_LIB_DIR="$sdk_root/usr/lib"
   export SQLITE3_INCLUDE_DIR="$sdk_root/usr/include"

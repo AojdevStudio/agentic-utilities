@@ -23,11 +23,11 @@ The catalog holds metadata only. Values and notes are fetched on demand and are 
 
 Credentials use `WhenPasscodeSetThisDeviceOnly` and user presence. The Rust session and in-flight work use a serial queue. Lock invalidates the session immediately, so a late response cannot unlock it or restore its contents. This reduces retention but does not promise that Swift strings can be securely erased from process memory.
 
-The privacy manifest declares app-local preferences and file metadata used when reading the bundled notices file. The SDK uses an in-memory database with `state_file: None`. Hush does not enable Rust backtraces or read an SDK state file. Dormant Rust file and diagnostic symbols do not describe an additional app feature. The file metadata declaration applies to files in the app container, not arbitrary library paths.
+The privacy manifest declares app-local preferences and file metadata used when reading the bundled notices file. The bridge passes `state_file: None` and does not initialize the SDK database. Hush does not enable Rust backtraces or read an SDK state file. Dormant Rust file and diagnostic symbols do not describe an additional app feature. The file metadata declaration applies to files in the app container, not arbitrary library paths.
 
 ## Build and test
 
-Use an Apple silicon Mac with Xcode, an iOS simulator runtime, Rust, Python 3, and XcodeGen. The app supports iOS and iPadOS 17 or later. The bridge currently builds arm64 device and simulator slices. It links Apple's system SQLite for the SDK's in-memory state database.
+Use an Apple silicon Mac with Xcode, an iOS simulator runtime, Rust, Python 3, and XcodeGen. The app supports iOS and iPadOS 17 or later. The bridge currently builds arm64 device and simulator slices. It links Apple's system SQLite to satisfy the SDK's rusqlite dependency. Release verification rejects SQLite imports outside the checked iOS 17 set.
 
 ```sh
 brew install xcodegen

@@ -31,8 +31,12 @@ ditto -x -k "$exported/Hush.ipa" "$verification"
 codesign --verify --deep --strict "$verification/Payload/Hush.app"
 python3 - "$verification/Payload/Hush.app/Hush" <<'PYVERIFY'
 from pathlib import Path
-import sys
+import os, plistlib, sys
+info = plistlib.loads(Path(sys.argv[1]).with_name("Info.plist").read_bytes())
+if info["CFBundleVersion"] != os.environ["HUSH_BUILD_NUMBER"]:
+    raise SystemExit("Exported build number does not match HUSH_BUILD_NUMBER")
 if b"HUSH_UI_TEST_SCENARIO" in Path(sys.argv[1]).read_bytes():
     raise SystemExit("Release binary contains the UI test harness")
 PYVERIFY
+python3 scripts/check-sqlite.py "$verification/Payload/Hush.app/Hush"
 echo "Exported and verified $exported/Hush.ipa"

@@ -292,7 +292,19 @@ const FLAGS_FIRST = "this gate reads gh flags only after the subcommand. Write `
 const MERGE_UNREADABLE = "this gate reads only plain merge arguments: known flags, one PR selector, a non-empty `-R owner/name`, and no `=` on boolean flags.";
 const GH_ENV = "GH_REPO and GH_HOST change which repo gh merges, and this gate cannot track them. Merge with `-R owner/name` and without GH_REPO or GH_HOST.";
 
-function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
+/** The words gh receives: bash removes redirections such as `2>&1`, `>out`, and `2> file`. */
+function dropRedirects(words: string[]): string[] {
+  const out: string[] = [];
+  for (let k = 0; k < words.length; k++) {
+    const m = words[k].match(/^(?:\d*|&)(?:>>?\|?|<)(.*)$/);
+    if (!m) out.push(words[k]);
+    else if (m[1] === "") k++;
+  }
+  return out;
+}
+
+function ghPr(words: string[], ctx: Ctx): PrCommand | null {
+  const seg = dropRedirects(words);
   const i = seg.indexOf("pr");
   const verb = seg[i + 1];
   const via = seg.join(" ").slice(0, 120);
@@ -414,7 +426,7 @@ export function findPrCommands(command: string): PrCommand[] {
   if (!/\b(pr|api)\b/.test(command)) return [];
   const { rest, docs } = liftHeredocs(command);
   const found = scan(rest, { docs, written: new Map() });
-  if (!/\bGH_(REPO|HOST)\b/.test(command)) return found;
+  if (!tokenize(rest).some((t) => /\bGH_(REPO|HOST)\b/.test(t.text))) return found;
   return found.map((c) => (c.kind === "merge" ? { ...c, kind: "unreadable", reason: GH_ENV } : c));
 }
 

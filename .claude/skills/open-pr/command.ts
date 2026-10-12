@@ -35,7 +35,9 @@ export type PrCommand =
   /** `pinned`: the command itself names the repo with `-R`, a PR URL, or a literal REST path. */
   | (Base & { kind: "merge"; target?: string; pinned: boolean })
   /** `query` is the GraphQL text, or with `json` the `--input` request whose `query` field holds it. */
-  | (Base & { kind: "graphql"; query: BodySource; json: boolean; operationName: boolean });
+  | (Base & { kind: "graphql"; query: BodySource; json: boolean; operationName: boolean })
+  /** A PR write in a form this parser cannot read with certainty. The gate refuses it. */
+  | (Base & { kind: "unreadable"; reason: string });
 
 /**
  * What a GraphQL document can do to a PR: merge it, write it (create or update), or
@@ -190,35 +192,44 @@ function splitAttached(args: string[], valued: string[]): string[] {
 }
 
 /**
- * The repo and PR selector of a `gh pr merge`, read in one pass the way gh's flag parser
- * reads them: `-st X` is `-s -t X`, `-R=o/r` and `-Ro/r` attach the value, and a token a
- * value-taking flag consumes is never read as a flag or the selector, even with a leading `-`.
- * A boolean with `=` (`-s=t`) takes the rest of its token.
+ * The repo and PR selector of a `gh pr merge`, or null when the arguments are not in the
+ * plain form this gate reads with certainty. A value-taking flag consumes its value
+ * verbatim, as gh does, so `--body -sRo/r` is body text. Unknown flags, `=` on a boolean,
+ * an empty value, and a second selector all come back null, and the gate refuses them.
  */
-function mergeArgs(args: string[]): { repo?: string; target?: string } {
+function mergeArgs(args: string[]): { repo?: string; target?: string } | null {
   let repo: string | undefined;
   let target: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    let flag: string;
+    let value: string | undefined;
     if (a === "--") {
-      target ??= args[i + 1];
+      if (target !== undefined || args.length !== i + 2) return null;
+      target = args[i + 1];
       break;
     }
     if (a.startsWith("--")) {
+      if (MERGE_BOOLEANS.includes(a)) continue;
       const eq = a.indexOf("=");
-      const name = eq < 0 ? a : a.slice(0, eq);
-      const value = eq >= 0 ? a.slice(eq + 1) : MERGE_VALUED.includes(name) ? args[++i] : undefined;
-      if (name === "--repo") repo = value;
-    } else if (a.startsWith("-") && a.length > 1) {
-      for (let k = 1; k < a.length; k++) {
-        const flag = `-${a[k]}`;
-        if (!MERGE_VALUED.includes(flag) && a[k + 1] === "=") break;
-        if (!MERGE_VALUED.includes(flag)) continue;
-        const value = a.slice(k + 1).replace(/^=/, "") || args[++i];
-        if (flag === "-R") repo = value;
-        break;
-      }
-    } else target ??= a;
+      flag = eq < 0 ? a : a.slice(0, eq);
+      if (!MERGE_VALUED.includes(flag)) return null;
+      value = eq < 0 ? args[++i] : a.slice(eq + 1);
+    } else if (a.length > 1 && a.startsWith("-")) {
+      let k = 1;
+      while (k < a.length && MERGE_BOOLEANS.includes(`-${a[k]}`)) k++;
+      if (k === a.length) continue;
+      flag = `-${a[k]}`;
+      if (!MERGE_VALUED.includes(flag)) return null;
+      const rest = a.slice(k + 1);
+      value = rest === "" ? args[++i] : rest.replace(/^=/, "");
+    } else {
+      if (target !== undefined) return null;
+      target = a;
+      continue;
+    }
+    if (!value) return null;
+    if (flag === "-R" || flag === "--repo") repo = value;
   }
   return { repo, target };
 }
@@ -242,8 +253,6 @@ interface Ctx {
   written: Map<string, string>;
   dir?: string;
   host?: string;
-  /** `GH_REPO` set in the command, which gh reads when no `-R` is given. */
-  ghRepo?: string;
 }
 
 function inlineOrFile(value: string, ctx: Ctx, stdinDoc?: string): BodySource {
@@ -276,22 +285,23 @@ function segmentDoc(seg: string[], ctx: Ctx): string | undefined {
 const GH_VALUED = ["-R", "--repo", "-t", "--title", "-b", "--body", "-F", "--body-file", "-B", "--base", "-H", "--head", "-a", "--assignee", "-l", "--label", "-m", "--milestone", "-p", "--project", "-r", "--reviewer", "-T", "--template", "--subject", "--attach", "--add-label", "--remove-label"];
 
 /** Value-taking flags of `gh pr merge`. There `-m` and `-r` are booleans (merge, rebase). */
+const MERGE_BOOLEANS = ["-d", "-m", "-r", "-s", "--admin", "--auto", "--delete-branch", "--disable-auto", "--merge", "--rebase", "--squash"];
 const MERGE_VALUED = ["-R", "--repo", "-A", "--author-email", "-b", "--body", "-F", "--body-file", "-t", "--subject", "--match-head-commit"];
 
+const FLAGS_FIRST = "this gate reads gh flags only after the subcommand. Write `gh pr <verb> -R owner/name ...`.";
+const MERGE_UNREADABLE = "this gate reads only plain merge arguments: known flags, one PR selector, a non-empty `-R owner/name`, and no `=` on boolean flags.";
+const GH_ENV = "GH_REPO and GH_HOST change which repo gh merges, and this gate cannot track them. Merge with `-R owner/name` and without GH_REPO or GH_HOST.";
+
 function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
-  // gh also takes `-R` between `pr` and the verb: `gh pr -R o/r merge 67`.
-  let j = seg.indexOf("pr") + 1;
-  let prRepo: string | undefined;
-  for (; seg[j]?.startsWith("-"); j++) {
-    const attached = seg[j].match(/^(?:-R=?|--repo=)([\s\S]+)$/);
-    if (seg[j] === "-R" || seg[j] === "--repo") prRepo = seg[++j];
-    else if (attached) prRepo = attached[1];
+  const i = seg.indexOf("pr");
+  const verb = seg[i + 1];
+  const via = seg.join(" ").slice(0, 120);
+  if (verb?.startsWith("-") && seg.some((t) => ["create", "new", "edit", "merge"].includes(t))) {
+    return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: FLAGS_FIRST };
   }
-  const verb = seg[j];
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
-  const args = splitAttached(seg.slice(j + 1), valued);
-  const repo = flagValues(args, ["-R", "--repo"]).at(-1) || prRepo || ctx.ghRepo || undefined;
-  const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo };
+  const args = splitAttached(seg.slice(i + 2), valued);
+  const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {
     const file = flagValues(args, ["-F", "--body-file"]).at(-1);
@@ -310,9 +320,9 @@ function ghPr(seg: string[], ctx: Ctx): PrCommand | null {
     return { ...base, kind: "edit", title, body: b };
   }
   if (verb === "merge") {
-    const merge = mergeArgs(seg.slice(j + 1));
-    const target = merge.target;
-    const repo = merge.repo || prRepo || ctx.ghRepo || undefined;
+    const merge = mergeArgs(seg.slice(i + 2));
+    if (!merge) return { ...base, kind: "unreadable", reason: MERGE_UNREADABLE };
+    const { repo, target } = merge;
     return { ...base, repo, kind: "merge", target, pinned: repo !== undefined || /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(target ?? "") };
   }
   return null;
@@ -403,7 +413,9 @@ const SSH_VALUED = ["-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", 
 export function findPrCommands(command: string): PrCommand[] {
   if (!/\b(pr|api)\b/.test(command)) return [];
   const { rest, docs } = liftHeredocs(command);
-  return scan(rest, { docs, written: new Map() });
+  const found = scan(rest, { docs, written: new Map() });
+  if (!/\bGH_(REPO|HOST)\b/.test(command)) return found;
+  return found.map((c) => (c.kind === "merge" ? { ...c, kind: "unreadable", reason: GH_ENV } : c));
 }
 
 function scan(command: string, ctx: Ctx): PrCommand[] {
@@ -413,14 +425,7 @@ function scan(command: string, ctx: Ctx): PrCommand[] {
       const inner = t.match(/\$\(([\s\S]*)\)/);
       if (inner && /\bgh\b/.test(inner[1])) found.push(...scan(inner[1], { ...ctx, written: new Map(ctx.written) }));
     }
-    if (seg[0] === "export") {
-      for (const t of seg) if (t.startsWith("GH_REPO=")) ctx.ghRepo = t.slice("GH_REPO=".length);
-      continue;
-    }
-    let env = ctx.ghRepo;
-    for (; seg[0] && /^[A-Za-z_]\w*=/.test(seg[0]); seg = seg.slice(1)) {
-      if (seg[0].startsWith("GH_REPO=")) env = seg[0].slice("GH_REPO=".length);
-    }
+    while (seg[0] && /^[A-Za-z_]\w*=/.test(seg[0])) seg = seg.slice(1);
     if (/^(?:.*\/)?(?:bash|sh|zsh)$/.test(seg[0] ?? "") && seg[1] === "-c" && seg[2]) {
       found.push(...scan(seg[2], ctx));
       continue;
@@ -445,7 +450,11 @@ function scan(command: string, ctx: Ctx): PrCommand[] {
     const gh = seg.findIndex((t) => t === "gh" || t.endsWith("/gh"));
     if (gh < 0) continue;
     const tail = seg.slice(gh);
-    const cmd = tail[1] === "pr" ? ghPr(tail, { ...ctx, ghRepo: env }) : tail[1] === "api" ? ghApi(tail, ctx) : null;
+    if (tail[1]?.startsWith("-") && tail.some((t) => t === "pr" || t === "api")) {
+      found.push({ via: tail.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: FLAGS_FIRST });
+      continue;
+    }
+    const cmd = tail[1] === "pr" ? ghPr(tail, ctx) : tail[1] === "api" ? ghApi(tail, ctx) : null;
     if (cmd) found.push(cmd);
   }
   return found;

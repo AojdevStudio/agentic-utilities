@@ -189,6 +189,7 @@ function checkMerge(cmd: Extract<PrCommand, { kind: "merge" }>, cwd: string): vo
 
 function check(cmd: PrCommand, hookCwd: string): void {
   const cwd = cmd.host ? hookCwd : expand(cmd.dir ?? ".", hookCwd);
+  if (cmd.kind === "unreadable") throw new Refusal(cmd.reason);
   if (cmd.kind === "merge") return checkMerge(cmd, cwd);
   if (cmd.kind === "graphql") return checkGraphql(cmd, cwd);
   if (cmd.kind === "create") return contract({ title: cmd.title, draft: cmd.draft, body: readBody(cmd.body, cmd, cwd) });

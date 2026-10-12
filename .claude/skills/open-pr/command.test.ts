@@ -41,20 +41,40 @@ test.each([
   ["gh pr merge --body -sRother/repo 67 --squash", undefined, "67", false],
   ["gh pr merge --body -ABC 67 --squash", undefined, "67", false],
   ["gh pr merge -t -R 67", undefined, "67", false],
-  ["gh pr merge -s=t 67", undefined, "67", false],
-  ["gh pr merge -d=F 67", undefined, "67", false],
-  ["gh pr merge -s=TRUE 67", undefined, "67", false],
-  ["gh pr merge --repo= 67 -s", undefined, "67", false],
-  ["gh pr merge -R '' 67", undefined, "67", false],
-  ["gh pr -R other/repo merge 67 -s", "other/repo", "67", true],
-  ["gh pr --repo=other/repo merge 67", "other/repo", "67", true],
-  ["GH_REPO=other/repo gh pr merge 67 -s", "other/repo", "67", true],
-  ["export GH_REPO=other/repo; gh pr merge 67", "other/repo", "67", true],
-  ["GH_REPO=other/repo gh pr merge -R o/r 67", "o/r", "67", true],
+  ["gh pr merge -- 67", undefined, "67", false],
 ])("%s keeps its repo, target, and pinned status", (command, repo, expected, pinned) => {
   const [cmd] = findPrCommands(command);
   if (cmd?.kind !== "merge") throw new Error(`not a merge: ${command}`);
   expect({ repo: cmd.repo, target: cmd.target, pinned: cmd.pinned }).toEqual({ repo, target: expected, pinned });
+});
+
+test.each([
+  "gh pr merge -s=t 67",
+  "gh pr merge -d=F 67",
+  "gh pr merge --squash=true 67",
+  "gh pr merge -t= 67",
+  "gh pr merge -b= 67 --squash",
+  "gh pr merge --repo= 67 -s",
+  "gh pr merge -R '' 67",
+  "gh pr merge 67 68",
+  "gh pr merge --help",
+  "gh pr merge -x 67",
+  "gh pr -R o/r merge 67 -s",
+  "gh pr --repo=o/r merge 67",
+  "gh pr -t -R merge 67",
+  "gh pr -sRo/r merge 67",
+  "gh -R o/r pr merge 67",
+  "gh --repo o/r pr create -t t -b b",
+  "gh pr -R o/r create -t t -b b",
+  "GH_REPO=o/r gh pr merge 67 -s",
+  "env GH_REPO=o/r gh pr merge 67",
+  "export GH_REPO=o/r; gh pr merge 67",
+  "GH_REPO=o/r bash -c 'gh pr merge 67'",
+  "GH_HOST=example.com gh pr merge 67 -R o/r",
+  "GH_REPO=o/r gh api -X PUT repos/{owner}/{repo}/pulls/67/merge",
+])("%s is refused as unreadable", (command) => {
+  const [cmd] = findPrCommands(command);
+  expect(cmd?.kind).toBe("unreadable");
 });
 
 test("a field inside another flag's value is not the body", () => {

@@ -101,7 +101,7 @@ function liftHeredocs(command: string): { rest: string; docs: string[] } {
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
     const pending: string[] = [];
-    line = line.replace(/<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/g, (_m, _q, tag: string) => {
+    line = line.replace(/(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][\w-]*)\1/g, (_m, _q, tag: string) => {
       pending.push(tag);
       return ` __HEREDOC_${docs.length + pending.length - 1}__ `;
     });
@@ -115,21 +115,20 @@ function liftHeredocs(command: string): { rest: string; docs: string[] } {
   return { rest: out.join("\n"), docs };
 }
 
-/** Starts a word whose leading redirection operator was not quoted, so `> x` differs from `'> x'`. */
+/** Starts a word holding an unquoted `<` or `>`, so `> x` differs from `'> x'`. */
 const REDIRECT = "\u0001";
 
 function tokenize(command: string): Token[] {
   const tokens: Token[] = [];
   let cur = "";
   let has = false;
-  let quotedAt = -1;
+  let bare = false;
   let quote: "'" | '"' | null = null;
   const push = () => {
-    const plain = quotedAt < 0 ? cur : cur.slice(0, quotedAt);
-    if (has) tokens.push({ text: /^(?:\d*|&)[<>]/.test(plain) ? REDIRECT + cur : cur });
+    if (has) tokens.push({ text: bare ? REDIRECT + cur : cur });
     cur = "";
     has = false;
-    quotedAt = -1;
+    bare = false;
   };
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
@@ -142,17 +141,15 @@ function tokenize(command: string): Token[] {
     if (c === "'" || c === '"') {
       quote = c;
       has = true;
-      if (quotedAt < 0) quotedAt = cur.length;
     } else if (c === "\\" && command[i + 1] === "\n") {
       i++;
       push();
     } else if (c === "\\" && i + 1 < command.length) {
-      if (quotedAt < 0) quotedAt = cur.length;
       cur += command[++i];
       has = true;
     } else if (c === "(" || c === ")") {
       push();
-    } else if ((c === "&" || c === "|") && cur.endsWith(">")) {
+    } else if (((c === "&" || c === "|") && cur.endsWith(">")) || (c === "&" && command[i + 1] === ">")) {
       cur += c;
       has = true;
     } else if (c === "\n" || c === ";" || c === "&" || c === "|") {
@@ -164,6 +161,7 @@ function tokenize(command: string): Token[] {
     } else {
       cur += c;
       has = true;
+      if (c === "<" || c === ">") bare = true;
     }
   }
   push();
@@ -301,19 +299,21 @@ const MERGE_UNREADABLE = "this gate reads only plain merge arguments: known flag
 const GH_ENV = "GH_REPO and GH_HOST change which repo gh merges, and this gate cannot track them. Merge with `-R owner/name` and without GH_REPO or GH_HOST.";
 
 /**
- * The words gh receives: bash removes unquoted redirections such as `2>&1`, `>out`, and
- * `2> file`. Null for one this gate cannot read, such as a `<<<` here-string.
+ * The words gh receives once bash removes output redirections: `>f`, `2> f`, `>>f`, `>|f`,
+ * `2>&1`. Null for any other unquoted `<` or `>`, which this gate does not read.
  */
 function dropRedirects(words: string[]): string[] | null {
   const out: string[] = [];
   for (let k = 0; k < words.length; k++) {
-    if (!words[k].startsWith(REDIRECT)) {
-      out.push(words[k]);
+    const w = words[k];
+    if (!w.startsWith(REDIRECT)) {
+      out.push(w);
       continue;
     }
-    const m = words[k].slice(1).match(/^(?:\d*|&)(?:>>?\|?|<)(.*)$/);
-    if (!m || /^[<>]/.test(m[1])) return null;
-    if (m[1] === "") k++;
+    if (/^\d?>&\d$/.test(w.slice(1))) continue;
+    const operand = w.slice(1).match(/^\d?(?:>>?|>\|)([^<>&].*)?$/);
+    if (!operand) return null;
+    if (operand[1] === undefined && (++k >= words.length || words[k].startsWith(REDIRECT))) return null;
   }
   return out;
 }
@@ -389,7 +389,9 @@ function apiPath(raw: string): string {
   return raw.replace(/^https?:\/\/[^/]+/i, "").replace(/\?.*$/, "").replace(/^\/+|\/+$/g, "").replace(/^api\/(?:v3\/)?/i, "");
 }
 
-function ghApi(seg: string[], ctx: Ctx): PrCommand | null {
+function ghApi(words: string[], ctx: Ctx): PrCommand | null {
+  const seg = dropRedirects(words);
+  if (!seg) return { via: words.join(" ").replaceAll(REDIRECT, "").slice(0, 120), dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: REDIRECT_UNREADABLE };
   const args = splitAttached(seg.slice(seg.indexOf("api") + 1), API_VALUED);
   const raw = positional(args, API_VALUED);
   const path = raw === undefined ? undefined : apiPath(raw);

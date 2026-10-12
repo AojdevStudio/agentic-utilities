@@ -80,6 +80,17 @@ test.each([
   "export GH_RE''PO=o/r; gh pr merge 67",
   "gh pr merge <<< 67 --squash",
   "gh pr merge <<<67",
+  "gh pr merge <<< x --squash",
+  "gh pr merge <<<x",
+  "gh pr merge 5 <<<x\ngh pr merge 99\nx",
+  "gh pr merge --subject 'a'> 67",
+  'gh pr merge -t "x"<<< 67',
+  "gh pr merge &>log 67",
+  "gh pr edit 67 &>log --body 'bad'",
+  "gh pr merge <&3 67",
+  "gh pr merge >& feature-branch -t x",
+  "gh pr merge < in 67",
+  "gh api 2>/dev/null repos/o/r/pulls -f title=t -f body=b <in",
   "env G\\H_REPO=o/r gh pr merge 67",
   "GH_HOST=example.com gh pr merge 67 -R o/r",
   "GH_REPO=o/r gh api -X PUT repos/{owner}/{repo}/pulls/67/merge",
@@ -115,4 +126,8 @@ test.each([
 
 test("a quoted > in an edit body is body text, not a redirection", () => {
   expect(body("gh pr edit 67 --body '> Quote'")).toEqual({ kind: "inline", text: "> Quote" });
+});
+
+test("an output redirection before the gh api path is dropped", () => {
+  expect(body("gh api 2>/dev/null repos/o/r/pulls -f title=t -f body=b")).toEqual({ kind: "inline", text: "b" });
 });

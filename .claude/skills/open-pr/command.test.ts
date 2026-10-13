@@ -131,3 +131,20 @@ test("a quoted > in an edit body is body text, not a redirection", () => {
 test("an output redirection before the gh api path is dropped", () => {
   expect(body("gh api 2>/dev/null repos/o/r/pulls -f title=t -f body=b")).toEqual({ kind: "inline", text: "b" });
 });
+
+test("a clobber redirection consumes its separate filename", () => {
+  expect(findPrCommands("gh pr merge >| 67 --squash")).toEqual([
+    { via: "gh pr merge --squash", kind: "merge", target: undefined, pinned: false },
+  ]);
+  expect(body("gh api >| /dev/null repos/o/r/pulls -f title=t -f body=b")).toEqual({ kind: "inline", text: "b" });
+});
+
+test("a body flag with only a redirection word is unreadable", () => {
+  expect(findPrCommands("gh pr edit 67 --body '2'>/dev/null")).toEqual([
+    {
+      via: "gh pr edit 67 --body 2>/dev/null",
+      kind: "unreadable",
+      reason: "this gate cannot read the value for a pull-request flag at the end of this command.",
+    },
+  ]);
+});

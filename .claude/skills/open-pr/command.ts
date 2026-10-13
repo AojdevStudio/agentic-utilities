@@ -311,7 +311,7 @@ function dropRedirects(words: string[]): string[] | null {
       continue;
     }
     if (/^\d?>&\d$/.test(w.slice(1))) continue;
-    const operand = w.slice(1).match(/^\d?(?:>>?|>\|)([^<>&].*)?$/);
+    const operand = w.slice(1).match(/^\d?(?:>\||>>?)([^<>&].*)?$/);
     if (!operand) return null;
     if (operand[1] === undefined && (++k >= words.length || words[k].startsWith(REDIRECT))) return null;
   }
@@ -331,6 +331,9 @@ function ghPr(words: string[], ctx: Ctx): PrCommand | null {
   }
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
   const args = splitAttached(seg.slice(i + 2), valued);
+  if (verb !== "merge" && args.at(-1) !== undefined && GH_VALUED.includes(args.at(-1)!)) {
+    return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: "this gate cannot read the value for a pull-request flag at the end of this command." };
+  }
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };
   const stdinDoc = segmentDoc(seg, ctx);
   const body = (): BodySource | undefined => {

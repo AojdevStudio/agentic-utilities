@@ -407,7 +407,7 @@ function apiPath(raw: string): string {
 
 function ghApi(words: string[], ctx: Ctx): PrCommand | null {
   const seg = dropRedirects(words);
-  if (!seg) return { via: words.join(" ").replaceAll(REDIRECT, "").slice(0, 120), dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: REDIRECT_UNREADABLE };
+  if (!seg) return { via: words.join(" ").replaceAll(MIXED_REDIRECT, "").replaceAll(REDIRECT, "").slice(0, 120), dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: REDIRECT_UNREADABLE };
   const args = splitAttached(seg.slice(seg.indexOf("api") + 1), API_VALUED);
   const raw = positional(args, API_VALUED);
   const path = raw === undefined ? undefined : apiPath(raw);

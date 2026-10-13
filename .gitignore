@@ -14,8 +14,13 @@ pnpm-debug.log*
 .pi/npm/
 .pi/git/
 
-# Local harness state
-.claude/
+# Local harness state. The PR kit (open-pr, land-pr, and its gate hook) is shared.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/open-pr/
+!.claude/skills/land-pr/
 .cursor/
 .codegraph/
 .codex/environments/

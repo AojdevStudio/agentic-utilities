@@ -29,8 +29,8 @@ GitHub Issues plus the linked GitHub Project are the work hub. Keep issue state 
 ## Review conventions
 
 - **Self-review before PR:** yes.
-- **Automated review:** use whatever GitHub checks or review bots are configured on the pull request; none are required beyond CI unless the issue says otherwise.
-- **Preferred review gate:** human or configured GitHub review automation.
+- **Automated review:** Pullfrog is the review bot. Its `pullfrog-approval` check-run must conclude `success` on the exact head before merge, as the `land-pr` skill in `.claude/skills/` states. Other bots, such as CodeRabbit, are advisory.
+- **Preferred review gate:** Pullfrog plus required CI on the same head.
 - **Human review required before merge:** depends on the user request and repository permissions.
 - **Review replies:** when a reviewer raises a point, reply with what changed or why no change was made.
 

@@ -50,6 +50,10 @@ pub fn get(key: &str, project: Option<&str>) -> Result<()> {
 }
 
 pub fn list(project: Option<&str>, json: bool) -> Result<()> {
+    if let Some(rendered) = broker_list(project, json)? {
+        print!("{rendered}");
+        return Ok(());
+    }
     let entries = sync_index()?;
     let entries: Vec<index::Entry> = entries
         .into_iter()
@@ -68,6 +72,33 @@ pub fn list(project: Option<&str>, json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Broker metadata when a daemon is reachable. `None` means fall back to today's path.
+fn broker_list(project: Option<&str>, json: bool) -> Result<Option<String>> {
+    let Ok(mut client) = crate::broker::Client::try_connect() else {
+        return Ok(None);
+    };
+    let Ok(entries) = client.catalog(project) else {
+        return Ok(None);
+    };
+    if json {
+        Ok(Some(format!(
+            "{}\n",
+            serde_json::to_string_pretty(&entries)?
+        )))
+    } else {
+        let mut out = String::new();
+        for entry in &entries {
+            out.push_str(&format!(
+                "{}\t{}\t{}\n",
+                entry.id,
+                entry.key,
+                entry.project.as_deref().unwrap_or("no project")
+            ));
+        }
+        Ok(Some(out))
+    }
 }
 
 pub fn sync() -> Result<()> {

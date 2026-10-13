@@ -203,6 +203,10 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 - **Scoped reads:** `get` and `exec` fetch single secrets by id; only `list`/`sync` refreshes see the full metadata set, and nothing persists values.
 - **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.
 
+### Broker daemon (in progress)
+
+A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by the daemon user.
+
 ### Known upstream limit: argv exposure
 
 `bws` 2.1.0 accepts create/edit values only as positional argv. That makes a value briefly visible to local process inspection (`ps`) while the subprocess runs. `hush` cannot remove that exposure until upstream supports stdin or file descriptors.

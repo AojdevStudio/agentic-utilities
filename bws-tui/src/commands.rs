@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
@@ -70,6 +71,18 @@ pub(crate) enum Cmd {
         project: Option<String>,
         #[arg(long)]
         yes: bool,
+    },
+    /// Run the broker daemon. Hidden. See docs/adr/0002-hush-broker.md.
+    #[command(hide = true)]
+    Daemon {
+        #[arg(long)]
+        socket: Option<PathBuf>,
+        #[arg(long)]
+        token_file: Option<PathBuf>,
+        #[arg(long)]
+        audit_log: Option<PathBuf>,
+        #[arg(long)]
+        bws_path: Option<PathBuf>,
     },
 }
 
@@ -186,6 +199,17 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             note,
         }),
         Cmd::Delete { key, project, yes } => delete(key, project, yes),
+        Cmd::Daemon {
+            socket,
+            token_file,
+            audit_log,
+            bws_path,
+        } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
+            socket: socket.unwrap_or_else(crate::broker::default_socket_path),
+            token_file,
+            audit_log,
+            bws_path,
+        }),
     }
 }
 

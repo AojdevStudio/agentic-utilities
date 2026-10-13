@@ -1,4 +1,5 @@
 mod audit;
+mod broker;
 mod bws;
 mod commands;
 mod exec;

@@ -117,18 +117,21 @@ function liftHeredocs(command: string): { rest: string; docs: string[] } {
 
 /** Starts a word holding an unquoted `<` or `>`, so `> x` differs from `'> x'`. */
 const REDIRECT = "\u0001";
+const MIXED_REDIRECT = "\u0002";
 
 function tokenize(command: string): Token[] {
   const tokens: Token[] = [];
   let cur = "";
   let has = false;
   let bare = false;
+  let quoted = false;
   let quote: "'" | '"' | null = null;
   const push = () => {
-    if (has) tokens.push({ text: bare ? REDIRECT + cur : cur });
+    if (has) tokens.push({ text: bare ? (quoted ? MIXED_REDIRECT : "") + REDIRECT + cur : cur });
     cur = "";
     has = false;
     bare = false;
+    quoted = false;
   };
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
@@ -140,6 +143,7 @@ function tokenize(command: string): Token[] {
     }
     if (c === "'" || c === '"') {
       quote = c;
+      quoted = true;
       has = true;
     } else if (c === "\\" && command[i + 1] === "\n") {
       i++;
@@ -314,6 +318,7 @@ function dropRedirects(words: string[]): string[] | null {
   const out: string[] = [];
   for (let k = 0; k < words.length; k++) {
     const w = words[k];
+    if (w.startsWith(MIXED_REDIRECT)) return null;
     if (!w.startsWith(REDIRECT)) {
       out.push(w);
       continue;
@@ -329,7 +334,7 @@ function dropRedirects(words: string[]): string[] | null {
 const REDIRECT_UNREADABLE = "this gate cannot read the redirection in this command. Drop it, or redirect only output (`> file`, `2>&1`).";
 
 function ghPr(words: string[], ctx: Ctx): PrCommand | null {
-  const via = words.join(" ").replaceAll(REDIRECT, "").slice(0, 120);
+  const via = words.join(" ").replaceAll(MIXED_REDIRECT, "").replaceAll(REDIRECT, "").slice(0, 120);
   const seg = dropRedirects(words);
   if (!seg) return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: REDIRECT_UNREADABLE };
   const i = seg.indexOf("pr");

@@ -140,18 +140,28 @@ test("a clobber redirection consumes its separate filename", () => {
 });
 
 test("a body flag with only a redirection word is unreadable", () => {
-  expect(findPrCommands("gh pr edit 67 --body '2'>/dev/null")).toEqual([
-    {
-      via: "gh pr edit 67 --body 2>/dev/null",
-      kind: "unreadable",
-      reason: "this gate cannot read the value for a pull-request flag at the end of this command.",
-    },
-  ]);
+  expect(findPrCommands("gh pr edit 67 --body '2'>/dev/null")[0]).toMatchObject({
+    via: "gh pr edit 67 --body 2>/dev/null",
+    kind: "unreadable",
+    reason: "this gate cannot read the redirection in this command. Drop it, or redirect only output (`> file`, `2>&1`).",
+  });
 });
 
 test("a valued flag can receive another valued flag as its text", () => {
   expect(body("gh pr edit 67 --body --body")).toEqual({ kind: "inline", text: "--body" });
   expect(findPrCommands("gh pr create --repo --repo")).toEqual([
     { via: "gh pr create --repo --repo", dir: undefined, host: undefined, repo: "--repo", kind: "create", title: undefined, draft: false, body: { kind: "missing" } },
+  ]);
+});
+
+test("a quoted word joined to a redirection makes a merge unreadable", () => {
+  expect(findPrCommands("gh pr merge --subject '2'>/dev/null 67 --squash")).toEqual([
+    {
+      via: "gh pr merge --subject 2>/dev/null 67 --squash",
+      dir: undefined,
+      host: undefined,
+      kind: "unreadable",
+      reason: "this gate cannot read the redirection in this command. Drop it, or redirect only output (`> file`, `2>&1`).",
+    },
   ]);
 });

@@ -97,13 +97,26 @@ fn is_clean_eof(error: &anyhow::Error) -> bool {
         .any(|io| io.kind() == std::io::ErrorKind::UnexpectedEof)
 }
 
+/// Pure daemon start rule. A non-root euid needs the dev allowance.
+pub(crate) fn check_daemon_euid(euid: u32, dev_same_user: bool) -> Result<()> {
+    if !dev_same_user && euid != 0 {
+        #[cfg(debug_assertions)]
+        {
+            bail!("hush daemon must run as root. Pass --dev-same-user for same-user development");
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            bail!("hush daemon must run as root");
+        }
+    }
+    Ok(())
+}
+
 /// Start the daemon. Without `dev_same_user` the daemon must run as root.
 pub(crate) fn run_daemon(options: DaemonOptions) -> Result<()> {
     // SAFETY: geteuid takes no arguments and cannot fail.
     let euid = unsafe { libc::geteuid() };
-    if !options.dev_same_user && euid != 0 {
-        bail!("hush daemon must run as root. Pass --dev-same-user for same-user development");
-    }
+    check_daemon_euid(euid, options.dev_same_user)?;
     let token_path = options.token_file.unwrap_or_else(default_token_path);
     let token = load_checked(&token_path, options.dev_same_user)?;
     let bws_path = resolve_trusted_bws(options.bws_path, options.dev_same_user)?;

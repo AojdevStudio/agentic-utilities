@@ -2,7 +2,7 @@
 
 use super::daemon::{serve_connection_guarded, ServeConfig};
 use anyhow::{bail, Context, Result};
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
@@ -18,16 +18,7 @@ pub(crate) const SOCKET_MODE: u32 = 0o666;
 pub(crate) fn bind_listener(socket: &Path) -> Result<UnixListener> {
     if let Some(parent) = socket.parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create socket directory at {}", parent.display())
-            })?;
-            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(SOCKET_DIR_MODE))
-                .with_context(|| {
-                    format!(
-                        "failed to set socket directory mode at {}",
-                        parent.display()
-                    )
-                })?;
+            prepare_socket_dir(parent)?;
         }
     }
     if let Ok(metadata) = std::fs::symlink_metadata(socket) {
@@ -75,6 +66,70 @@ pub(crate) fn run_server(
                 eprintln!("connection failed: {error}");
             }
         });
+    }
+    Ok(())
+}
+
+/// Create or validate the socket directory.
+pub(crate) fn prepare_socket_dir(parent: &Path) -> Result<()> {
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    prepare_socket_dir_as(parent, euid)
+}
+
+/// Create or validate the socket directory for the daemon euid.
+fn prepare_socket_dir_as(parent: &Path, euid: u32) -> Result<()> {
+    match std::fs::create_dir(parent) {
+        Ok(()) => {
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(SOCKET_DIR_MODE))
+                .with_context(|| {
+                    format!(
+                        "failed to set socket directory mode at {}",
+                        parent.display()
+                    )
+                })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = std::fs::metadata(parent).with_context(|| {
+                format!("failed to inspect socket directory at {}", parent.display())
+            })?;
+            if !metadata.is_dir() {
+                bail!(
+                    "socket parent path must be a directory at {}",
+                    parent.display()
+                );
+            }
+            check_socket_dir(metadata.uid(), metadata.mode(), euid)
+                .with_context(|| format!("socket directory at {}", parent.display()))
+        }
+        Err(error) => match parent.parent() {
+            Some(ancestor) if !ancestor.as_os_str().is_empty() && !ancestor.is_dir() => {
+                prepare_socket_dir_as(ancestor, euid)?;
+                std::fs::create_dir(parent).with_context(|| {
+                    format!("failed to create socket directory at {}", parent.display())
+                })?;
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(SOCKET_DIR_MODE))
+                    .with_context(|| {
+                        format!(
+                            "failed to set socket directory mode at {}",
+                            parent.display()
+                        )
+                    })
+            }
+            _ => Err(error).with_context(|| {
+                format!("failed to create socket directory at {}", parent.display())
+            }),
+        },
+    }
+}
+
+/// Pure rule for an existing socket directory.
+pub(crate) fn check_socket_dir(owner_uid: u32, mode: u32, euid: u32) -> Result<()> {
+    if owner_uid != euid {
+        bail!("socket directory must be owned by the daemon user");
+    }
+    if mode & 0o022 != 0 {
+        bail!("socket directory must not be group writable or world writable");
     }
     Ok(())
 }

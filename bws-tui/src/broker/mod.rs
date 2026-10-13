@@ -25,4 +25,6 @@ pub(crate) use protocol::{Frame, RequestFrame, ResponseFrame};
 #[cfg(test)]
 mod fix_tests;
 #[cfg(test)]
+mod round2_tests;
+#[cfg(test)]
 mod tests;

@@ -3,14 +3,10 @@
 use super::hardening::{check_not_group_or_world_writable, check_owner};
 use anyhow::{bail, Context, Result};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Absolute bws candidates checked when the daemon gets no `--bws-path`.
-pub(crate) const DEFAULT_BWS_CANDIDATES: [&str; 3] = [
-    "/usr/local/bin/bws",
-    "/opt/homebrew/bin/bws",
-    "/usr/bin/bws",
-];
+pub(crate) const DEFAULT_BWS_CANDIDATES: [&str; 2] = ["/usr/local/bin/bws", "/usr/bin/bws"];
 
 /// Socket path. ADR 0002 fixes the default. `HUSH_SOCKET` overrides it.
 pub(crate) fn default_socket_path() -> PathBuf {
@@ -59,9 +55,12 @@ pub(crate) fn resolve_trusted_bws(
             Err(error) => last_error = Some(error),
         }
     }
+    let guidance = "no trusted bws binary found. Production expects a root owned \
+copy at /usr/local/bin/bws with every path component root owned and not group \
+writable or world writable";
     match last_error {
-        Some(error) => Err(error).context("no trusted bws binary found"),
-        None => bail!("no trusted bws binary found"),
+        Some(error) => Err(error).context(guidance),
+        None => bail!(guidance),
     }
 }
 
@@ -79,21 +78,64 @@ pub(crate) fn validate_trusted_bws_path(path: &Path, dev_same_user: bool) -> Res
     }
     // SAFETY: geteuid takes no arguments and cannot fail.
     let euid = unsafe { libc::geteuid() };
-    check_owner(metadata.uid(), euid, dev_same_user)
-        .with_context(|| format!("bws binary at {}", canonical.display()))?;
-    check_not_group_or_world_writable(metadata.mode())
-        .with_context(|| format!("bws binary at {}", canonical.display()))?;
-    let parent = canonical
-        .parent()
-        .context("bws binary has no parent directory")?;
-    let parent_meta = std::fs::metadata(parent)
-        .with_context(|| format!("bws parent directory missing at {}", parent.display()))?;
-    if !parent_meta.is_dir() {
-        bail!("bws parent path must be a directory");
+    let components = collect_path_components(&canonical)?;
+    for component in &components {
+        let meta = std::fs::metadata(component)
+            .with_context(|| format!("bws path component missing at {}", component.display()))?;
+        if component != &components[components.len() - 1] && !meta.is_dir() {
+            bail!(
+                "bws path component must be a directory at {}",
+                component.display()
+            );
+        }
+        check_owner(meta.uid(), euid, dev_same_user)
+            .with_context(|| format!("bws path at {}", component.display()))?;
+        check_not_group_or_world_writable(meta.mode())
+            .with_context(|| format!("bws path at {}", component.display()))?;
     }
-    check_owner(parent_meta.uid(), euid, dev_same_user)
-        .with_context(|| format!("bws parent directory at {}", parent.display()))?;
-    check_not_group_or_world_writable(parent_meta.mode())
-        .with_context(|| format!("bws parent directory at {}", parent.display()))?;
     Ok(canonical)
+}
+
+/// Build every prefix of an absolute canonical path from the root down.
+fn collect_path_components(canonical: &Path) -> Result<Vec<PathBuf>> {
+    let mut prefixes = Vec::new();
+    let mut current = PathBuf::new();
+    for component in canonical.components() {
+        match component {
+            Component::RootDir => {
+                current.push("/");
+                prefixes.push(current.clone());
+            }
+            Component::Normal(part) => {
+                current.push(part);
+                prefixes.push(current.clone());
+            }
+            Component::CurDir | Component::ParentDir => {
+                bail!("bws canonical path contains a relative component");
+            }
+            Component::Prefix(_) => {
+                bail!("bws canonical path contains a prefix component");
+            }
+        }
+    }
+    if prefixes.is_empty() {
+        bail!("bws canonical path is empty");
+    }
+    Ok(prefixes)
+}
+
+/// Pure trusted path rule. Every owner and mode pair must pass the shared checks.
+#[cfg(test)]
+pub(crate) fn check_trusted_components(
+    entries: &[(u32, u32)],
+    euid: u32,
+    dev_same_user: bool,
+) -> Result<()> {
+    for (index, (owner_uid, mode)) in entries.iter().enumerate() {
+        check_owner(*owner_uid, euid, dev_same_user)
+            .with_context(|| format!("bws path component {index}"))?;
+        check_not_group_or_world_writable(*mode)
+            .with_context(|| format!("bws path component {index}"))?;
+    }
+    Ok(())
 }

@@ -23,17 +23,17 @@ pub(crate) fn check_token_metadata(
     Ok(())
 }
 
-/// Ownership rule for one trusted path. Production requires root ownership.
-/// Development with `dev_same_user` requires ownership by the daemon euid.
+/// Ownership rule for one trusted path. Root ownership always passes.
+/// Development with `dev_same_user` also accepts ownership by the daemon euid,
+/// so a user-owned bws under root-owned `/` and `/Users` still validates.
 pub(crate) fn check_owner(owner_uid: u32, euid: u32, dev_same_user: bool) -> Result<()> {
-    if dev_same_user {
-        if owner_uid != euid {
-            bail!("path must be owned by the daemon user");
-        }
-    } else if owner_uid != 0 {
-        bail!("path must be owned by root");
+    if owner_uid == 0 || (dev_same_user && owner_uid == euid) {
+        return Ok(());
     }
-    Ok(())
+    if dev_same_user {
+        bail!("path must be owned by root or the daemon user");
+    }
+    bail!("path must be owned by root")
 }
 
 /// Writable bits rule for one trusted path. Group and other write bits fail.

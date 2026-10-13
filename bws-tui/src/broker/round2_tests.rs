@@ -71,6 +71,13 @@ fn bws_ancestor_non_root_is_refused() {
 }
 
 #[test]
+fn dev_same_user_accepts_root_owned_ancestors() {
+    let entries = [(0u32, 0o755u32), (501u32, 0o755u32), (501u32, 0o755u32)];
+    assert!(paths::check_trusted_components(&entries, 501, true).is_ok());
+    assert!(paths::check_trusted_components(&entries, 501, false).is_err());
+}
+
+#[test]
 fn non_root_euid_is_refused_without_dev_allowance() {
     assert!(daemon::check_daemon_euid(501, false).is_err());
     assert!(daemon::check_daemon_euid(501, true).is_ok());

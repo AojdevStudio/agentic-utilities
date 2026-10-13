@@ -253,6 +253,14 @@ function positional(args: string[], valued: string[]): string | undefined {
   return undefined;
 }
 
+function hasMissingValue(args: string[], valued: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    if (!valued.includes(args[i])) continue;
+    if (++i >= args.length) return true;
+  }
+  return false;
+}
+
 interface Ctx {
   docs: string[];
   /** Files written by `cat > f <<EOF` earlier in the command. */
@@ -331,7 +339,7 @@ function ghPr(words: string[], ctx: Ctx): PrCommand | null {
   }
   const valued = verb === "merge" ? MERGE_VALUED : GH_VALUED;
   const args = splitAttached(seg.slice(i + 2), valued);
-  if (verb !== "merge" && args.at(-1) !== undefined && GH_VALUED.includes(args.at(-1)!)) {
+  if (verb !== "merge" && hasMissingValue(args, GH_VALUED)) {
     return { via, dir: ctx.dir, host: ctx.host, kind: "unreadable", reason: "this gate cannot read the value for a pull-request flag at the end of this command." };
   }
   const base = { via: seg.join(" ").slice(0, 120), dir: ctx.dir, host: ctx.host, repo: flagValues(args, ["-R", "--repo"]).at(-1) };

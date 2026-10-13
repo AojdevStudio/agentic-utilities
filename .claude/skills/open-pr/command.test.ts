@@ -148,3 +148,10 @@ test("a body flag with only a redirection word is unreadable", () => {
     },
   ]);
 });
+
+test("a valued flag can receive another valued flag as its text", () => {
+  expect(body("gh pr edit 67 --body --body")).toEqual({ kind: "inline", text: "--body" });
+  expect(findPrCommands("gh pr create --repo --repo")).toEqual([
+    { via: "gh pr create --repo --repo", dir: undefined, host: undefined, repo: "--repo", kind: "create", title: undefined, draft: false, body: { kind: "missing" } },
+  ]);
+});

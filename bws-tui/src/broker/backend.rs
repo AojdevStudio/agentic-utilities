@@ -7,8 +7,12 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 #[cfg(test)]
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+/// Hard cap on bws stdout. `bws secret list` returns every value at once.
+pub(crate) const MAX_BWS_OUTPUT: usize = 16 * 1024 * 1024;
 
 /// The daemon's only path to stored values. `catalog` never returns values.
 #[allow(dead_code)]
@@ -70,19 +74,53 @@ impl BwsBackend {
     }
 
     fn run_bws(&self, args: &[&str]) -> Result<String> {
-        let output = Command::new(&self.bws_path)
+        self.run_bws_capped(args, MAX_BWS_OUTPUT)
+    }
+
+    /// Run bws with a byte cap on stdout. Stderr is discarded.
+    pub(crate) fn run_bws_capped(&self, args: &[&str], cap: usize) -> Result<String> {
+        let mut child = Command::new(&self.bws_path)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
             .env("BWS_ACCESS_TOKEN", self.token.expose_secret())
             .args(args)
             .args(["-o", "json"])
-            .output()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
             .context("failed to run bws")?;
-        if !output.status.success() {
-            let name = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
-            return Err(anyhow!("bws {name} failed ({})", output.status));
+        let mut stdout = child.stdout.take().context("failed to run bws")?;
+        let (mut bytes, overflow) = read_capped(&mut stdout, cap)?;
+        if overflow {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(anyhow!("bws output exceeded the size limit"));
         }
-        Ok(String::from_utf8(output.stdout)?)
+        let status = child.wait().context("failed to run bws")?;
+        if !status.success() {
+            let name = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
+            return Err(anyhow!("bws {name} failed ({status})"));
+        }
+        Ok(String::from_utf8(std::mem::take(&mut bytes))?)
+    }
+}
+
+/// Read at most `cap` bytes. The flag is true when more data remains.
+fn read_capped(reader: &mut impl Read, cap: usize) -> Result<(Vec<u8>, bool)> {
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            return Ok((out, false));
+        }
+        if out.len() + read > cap {
+            let keep = cap.saturating_sub(out.len());
+            out.extend_from_slice(&chunk[..keep]);
+            return Ok((out, true));
+        }
+        out.extend_from_slice(&chunk[..read]);
     }
 }
 
@@ -114,6 +152,21 @@ pub(crate) struct FakeBackend {
 impl FakeBackend {
     pub(crate) fn new(secrets: HashMap<String, (SecretMeta, String)>) -> Self {
         Self { secrets }
+    }
+}
+
+/// Catalog always fails. Tests use it to prove connected errors propagate.
+#[cfg(test)]
+pub(crate) struct FailingBackend;
+
+#[cfg(test)]
+impl VaultBackend for FailingBackend {
+    fn catalog(&self) -> Result<Vec<SecretMeta>> {
+        Err(anyhow!("backend exploded"))
+    }
+
+    fn fetch(&self, _secret: &SecretRef) -> Result<SecretMaterial> {
+        Err(anyhow!("backend exploded"))
     }
 }
 

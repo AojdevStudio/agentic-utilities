@@ -78,9 +78,9 @@ fn token_file_check_refuses_wrong_mode() {
     let path = dir.join("token");
     fs::write(&path, "tok\n").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-    assert!(token::load_checked(&path).is_err());
+    assert!(token::load_checked(&path, true).is_err());
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(token::load_checked(&path).is_ok());
+    assert!(token::load_checked(&path, true).is_ok());
 }
 
 #[test]
@@ -89,14 +89,10 @@ fn token_file_check_refuses_empty_and_wrong_owner() {
     let path = dir.join("token");
     fs::write(&path, "\n").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(token::load_checked(&path).is_err());
-    assert!(token::check_metadata(0o600, 999_999, unsafe { libc::geteuid() }).is_err());
-    assert!(
-        token::check_metadata(0o600, unsafe { libc::geteuid() }, unsafe {
-            libc::geteuid()
-        })
-        .is_ok()
-    );
+    assert!(token::load_checked(&path, true).is_err());
+    let euid = unsafe { libc::geteuid() };
+    assert!(hardening::check_token_metadata(0o600, 999_999, euid, true).is_err());
+    assert!(hardening::check_token_metadata(0o600, euid, euid, true).is_ok());
 }
 
 fn fake_backend() -> FakeBackend {

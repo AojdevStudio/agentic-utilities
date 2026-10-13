@@ -1,18 +1,16 @@
 //! Socket server. Holds the token, the catalog, and every secret value.
-//!
-//! In PR 1 the daemon has no filesystem identity check on the peer beyond
-//! recording kernel credentials. Policy gates arrive in later PRs.
 
 use super::audit::{AuditLog, FileAuditLog};
 use super::backend::{BwsBackend, VaultBackend};
-use super::paths::{default_token_path, resolve_on_path};
+use super::paths::{default_token_path, resolve_trusted_bws};
 use super::peercred::read_peer_credentials;
 use super::protocol::{read_frame, write_frame, Frame, RequestFrame, ResponseFrame};
 use super::token::load_checked;
-use anyhow::{Context, Result};
-use std::os::unix::net::{UnixListener, UnixStream};
+use anyhow::{bail, Context, Result};
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Options for the hidden `daemon` subcommand.
 pub(crate) struct DaemonOptions {
@@ -20,9 +18,40 @@ pub(crate) struct DaemonOptions {
     pub token_file: Option<PathBuf>,
     pub audit_log: Option<PathBuf>,
     pub bws_path: Option<PathBuf>,
+    pub dev_same_user: bool,
 }
 
-/// Serve one connection until the client disconnects. Exposed for tests.
+/// Per connection limits shared by every worker thread.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ServeConfig {
+    pub read_timeout: Duration,
+    pub write_timeout: Duration,
+    pub max_connections: usize,
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        Self {
+            read_timeout: Duration::from_secs(30),
+            write_timeout: Duration::from_secs(30),
+            max_connections: 32,
+        }
+    }
+}
+
+/// Serve one connection after setting stream timeouts.
+pub(crate) fn serve_connection_guarded(
+    stream: UnixStream,
+    backend: &dyn VaultBackend,
+    audit: &dyn AuditLog,
+    config: ServeConfig,
+) -> Result<()> {
+    stream.set_read_timeout(Some(config.read_timeout))?;
+    stream.set_write_timeout(Some(config.write_timeout))?;
+    serve_connection(stream, backend, audit)
+}
+
+/// Serve one connection until the client disconnects.
 pub(crate) fn serve_connection(
     mut stream: UnixStream,
     backend: &dyn VaultBackend,
@@ -60,6 +89,7 @@ pub(crate) fn serve_connection(
     }
 }
 
+/// Clean disconnect check for a frame read failure.
 fn is_clean_eof(error: &anyhow::Error) -> bool {
     error
         .chain()
@@ -67,41 +97,24 @@ fn is_clean_eof(error: &anyhow::Error) -> bool {
         .any(|io| io.kind() == std::io::ErrorKind::UnexpectedEof)
 }
 
+/// Start the daemon. Without `dev_same_user` the daemon must run as root.
 pub(crate) fn run_daemon(options: DaemonOptions) -> Result<()> {
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    if !options.dev_same_user && euid != 0 {
+        bail!("hush daemon must run as root. Pass --dev-same-user for same-user development");
+    }
     let token_path = options.token_file.unwrap_or_else(default_token_path);
-    let token = load_checked(&token_path)?;
-    let bws_path = match options.bws_path {
-        Some(path) => path,
-        None => resolve_on_path("bws")?,
-    };
+    let token = load_checked(&token_path, options.dev_same_user)?;
+    let bws_path = resolve_trusted_bws(options.bws_path, options.dev_same_user)?;
     let backend: Arc<dyn VaultBackend> = Arc::new(BwsBackend::new(bws_path, token));
     backend.catalog().context("initial catalog build failed")?;
     let audit_path = options
         .audit_log
         .unwrap_or_else(super::audit::default_audit_path);
-    let audit = Arc::new(FileAuditLog::open(&audit_path)?);
-    run_server(options.socket, backend.as_ref(), audit.as_ref())
-}
-
-fn run_server(socket: PathBuf, backend: &dyn VaultBackend, audit: &dyn AuditLog) -> Result<()> {
-    if let Some(parent) = socket.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    if socket.exists() {
-        std::fs::remove_file(&socket)?;
-    }
-    let listener = UnixListener::bind(&socket)
-        .with_context(|| format!("failed to bind daemon socket at {}", socket.display()))?;
-    eprintln!("hush daemon listening on {}", socket.display());
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Err(error) = serve_connection(stream, backend, audit) {
-                    eprintln!("connection failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("accept failed: {error}"),
-        }
-    }
-    Ok(())
+    let audit_raw = FileAuditLog::open(&audit_path)?;
+    let audit: Arc<dyn AuditLog> = Arc::new(audit_raw);
+    let listener = super::server::bind_listener(&options.socket)?;
+    eprintln!("hush daemon listening on {}", options.socket.display());
+    super::server::run_server(listener, backend, audit, ServeConfig::default())
 }

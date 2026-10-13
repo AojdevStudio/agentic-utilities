@@ -74,14 +74,14 @@ pub fn list(project: Option<&str>, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Broker metadata when a daemon is reachable. `None` means fall back to today's path.
+/// Broker metadata when a daemon is reachable. `None` means no daemon was reachable.
+/// Once connected, every failure propagates as an error.
 fn broker_list(project: Option<&str>, json: bool) -> Result<Option<String>> {
-    let Ok(mut client) = crate::broker::Client::try_connect() else {
-        return Ok(None);
+    let mut client = match crate::broker::Client::try_connect()? {
+        crate::broker::ConnectOutcome::Unavailable => return Ok(None),
+        crate::broker::ConnectOutcome::Connected(client) => client,
     };
-    let Ok(entries) = client.catalog(project) else {
-        return Ok(None);
-    };
+    let entries = client.catalog(project)?;
     if json {
         Ok(Some(format!(
             "{}\n",

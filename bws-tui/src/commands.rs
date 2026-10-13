@@ -83,6 +83,9 @@ pub(crate) enum Cmd {
         audit_log: Option<PathBuf>,
         #[arg(long)]
         bws_path: Option<PathBuf>,
+        /// Development only. Allow token and bws owned by the daemon user.
+        #[arg(long)]
+        dev_same_user: bool,
     },
 }
 
@@ -204,11 +207,13 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             token_file,
             audit_log,
             bws_path,
+            dev_same_user,
         } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
             socket: socket.unwrap_or_else(crate::broker::default_socket_path),
             token_file,
             audit_log,
             bws_path,
+            dev_same_user,
         }),
     }
 }

@@ -32,7 +32,12 @@ impl Masker {
     }
 
     pub(crate) fn push(&mut self, chunk: &[u8]) -> Vec<u8> {
-        self.pending.extend_from_slice(chunk);
+        // Grow into a fresh buffer: an in-place realloc would free the old
+        // secret-bearing allocation without zeroing it.
+        let mut grown = Zeroizing::new(Vec::with_capacity(self.pending.len() + chunk.len()));
+        grown.extend_from_slice(&self.pending);
+        grown.extend_from_slice(chunk);
+        self.pending = grown;
         self.drain(false)
     }
 
@@ -67,7 +72,7 @@ impl Masker {
                 }
             }
         }
-        self.pending.extend_from_slice(&buf[at..]);
+        self.pending = Zeroizing::new(buf[at..].to_vec());
         out
     }
 }

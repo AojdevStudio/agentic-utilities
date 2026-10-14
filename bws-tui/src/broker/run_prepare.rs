@@ -244,7 +244,12 @@ pub(crate) fn decide_switch(euid: u32, identity: Identity) -> Result<Option<Iden
 }
 
 /// A program with a slash resolves against `cwd`; a bare name searches the request PATH.
-fn resolve_program(program: &OsStr, cwd: &Path, path_var: Option<&[u8]>) -> Result<PathBuf> {
+/// Relative and empty PATH entries resolve against `cwd`, as they would in the caller's shell.
+pub(crate) fn resolve_program(
+    program: &OsStr,
+    cwd: &Path,
+    path_var: Option<&[u8]>,
+) -> Result<PathBuf> {
     if program.is_empty() {
         bail!("no program given after --");
     }
@@ -254,8 +259,7 @@ fn resolve_program(program: &OsStr, cwd: &Path, path_var: Option<&[u8]>) -> Resu
     let search = path_var.unwrap_or(b"/usr/bin:/bin");
     search
         .split(|&byte| byte == b':')
-        .filter(|dir| !dir.is_empty())
-        .map(|dir| Path::new(OsStr::from_bytes(dir)).join(program))
+        .map(|dir| cwd.join(OsStr::from_bytes(dir)).join(program))
         .find(|candidate| is_executable(candidate))
         .ok_or_else(|| anyhow!("program not found on PATH: {}", program.to_string_lossy()))
 }

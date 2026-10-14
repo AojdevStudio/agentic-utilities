@@ -120,9 +120,10 @@ pub(crate) fn spawn(plan: &ChildPlan) -> Result<SpawnedChild> {
             File::from(write)
         })
         .collect();
-    let mut report = [0u8; 5];
-    let read = read_full(&File::from(err_r), &mut report)?;
-    if read > 0 {
+    // The error pipe closes on exec, or carries a 5-byte report before the child exits.
+    let mut report = Vec::with_capacity(5);
+    std::io::Read::read_to_end(&mut File::from(err_r), &mut report)?;
+    if report.len() >= 5 {
         let mut status = 0;
         // SAFETY: pid is our own child; waitpid reaps it.
         unsafe { libc::waitpid(pid, &mut status, 0) };
@@ -240,13 +241,32 @@ unsafe fn close_from(first: i32, keep: i32, max_fd: i32) {
     }
 }
 
+/// The close loop must reach every inherited fd, even one above a lowered soft limit.
+pub(crate) fn close_bound(soft_limit: u64, highest_open: Option<i32>) -> i32 {
+    let limit = soft_limit.min(1 << 20) as i32;
+    highest_open.map_or(limit, |fd| limit.max(fd + 1))
+}
+
 fn max_fd() -> i32 {
     // SAFETY: getrlimit writes one rlimit through a valid pointer.
     let mut limit: libc::rlimit = unsafe { std::mem::zeroed() };
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
-        return 65_536;
-    }
-    limit.rlim_cur.min(65_536) as i32
+    let soft = match unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } {
+        0 => limit.rlim_cur,
+        _ => u64::MAX,
+    };
+    close_bound(soft, highest_open_fd())
+}
+
+fn highest_open_fd() -> Option<i32> {
+    let listing = if cfg!(target_os = "linux") {
+        "/proc/self/fd"
+    } else {
+        "/dev/fd"
+    };
+    std::fs::read_dir(listing)
+        .ok()?
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
+        .max()
 }
 
 fn cloexec_pipe() -> Result<(OwnedFd, OwnedFd)> {
@@ -269,18 +289,4 @@ fn cloexec_pipe() -> Result<(OwnedFd, OwnedFd)> {
     }
     // SAFETY: both fds are fresh and owned by nothing else.
     Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
-}
-
-fn read_full(mut file: &File, buf: &mut [u8]) -> Result<usize> {
-    use std::io::Read;
-    let mut filled = 0;
-    while filled < buf.len() {
-        match file.read(&mut buf[filled..]) {
-            Ok(0) => break,
-            Ok(read) => filled += read,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(filled)
 }

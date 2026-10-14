@@ -9,7 +9,9 @@ use super::hardening::{check_not_group_or_world_writable, check_owner};
 use super::runspec::RunAs;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use std::os::unix::fs::MetadataExt;
+use std::fs::OpenOptions;
+use std::io::Read;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn default_policy_path() -> PathBuf {
@@ -26,12 +28,19 @@ pub(crate) struct Policy {
 impl Policy {
     /// A missing file is the empty policy. An existing file a caller could edit is refused.
     pub(crate) fn load(path: &Path, dev_same_user: bool) -> Result<Self> {
-        let metadata = match std::fs::symlink_metadata(path) {
+        // One descriptor is checked and read, so the file cannot be swapped in between.
+        let mut file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+        {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Self::default())
             }
-            other => other.with_context(|| format!("failed to inspect {}", path.display()))?,
+            other => other
+                .with_context(|| format!("failed to open policy file at {}", path.display()))?,
         };
+        let metadata = file.metadata()?;
         if !metadata.is_file() {
             bail!("policy file must be a regular file at {}", path.display());
         }
@@ -40,7 +49,8 @@ impl Policy {
         check_owner(metadata.uid(), euid, dev_same_user)
             .and_then(|()| check_not_group_or_world_writable(metadata.mode()))
             .with_context(|| format!("policy file at {}", path.display()))?;
-        let text = std::fs::read_to_string(path)
+        let mut text = String::new();
+        file.read_to_string(&mut text)
             .with_context(|| format!("failed to read policy file at {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("invalid policy file at {}", path.display()))
     }

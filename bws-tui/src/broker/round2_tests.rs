@@ -3,6 +3,7 @@
 use super::*;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 fn tempdir(tag: &str) -> PathBuf {
@@ -117,4 +118,50 @@ fn liveness_probe_reads_a_missing_path_as_stale() {
     fs::write(&plain, "not a socket").unwrap();
     let outcome = server::socket_has_liveness(&plain);
     assert!(matches!(outcome, Ok(server::Liveness::Stale)));
+}
+
+/// A saturated accept queue must never end with the socket unlinked, whatever
+/// the refusal semantics of the platform: Linux reports the full queue as
+/// EAGAIN, macOS reports a refusal.
+#[test]
+fn saturated_listener_socket_is_never_unlinked() {
+    let dir = tempdir("saturated");
+    let socket = dir.join("hush.sock");
+    let listener = server::bind_listener(&socket).unwrap();
+
+    // Fill the pending queue with connections no one accepts.
+    let mut kept = Vec::new();
+    let mut saturated = false;
+    for _ in 0..400 {
+        let attempt = UnixStream::connect(&socket);
+        match attempt {
+            Ok(stream) => kept.push(stream),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            // On macOS the queue is full for sure once connects are refused.
+            Err(_refused) => saturated = true,
+        }
+    }
+
+    let outcome = server::socket_has_liveness(&socket);
+    if let Ok(server::Liveness::Stale) = outcome {
+        panic!("saturated listener read as stale");
+    }
+    assert!(
+        fs::symlink_metadata(&socket).is_ok(),
+        "socket file was removed while the listener is still bound"
+    );
+    drop(kept);
+
+    // The original listener stays reachable through its socket.
+    for _ in 0..40 {
+        if UnixStream::connect(&socket).is_ok() {
+            drop(listener);
+            saturated = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(saturated);
 }

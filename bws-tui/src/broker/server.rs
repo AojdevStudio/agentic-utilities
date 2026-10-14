@@ -79,10 +79,23 @@ pub(crate) fn socket_has_liveness(socket: &Path) -> Result<Liveness> {
             }
             let error = std::io::Error::last_os_error();
             match error.raw_os_error() {
-                // Nothing bound, or it refused: the path is stale.
-                Some(libc::ECONNREFUSED | libc::ENOENT | libc::ENOTSOCK) => {
+                Some(libc::ENOENT | libc::ENOTSOCK) => {
                     libc::close(fd);
                     Probe::Stale
+                }
+                // Linux refuses only when nothing listens. On macOS a saturated
+                // accept queue refuses too, so refusal is not proof of staleness
+                // there; keeping the socket is the harmless default.
+                Some(libc::ECONNREFUSED) => {
+                    libc::close(fd);
+                    if cfg!(target_os = "macos") {
+                        Probe::Unclear(std::io::Error::new(
+                            std::io::ErrorKind::ConnectionRefused,
+                            "refused (on macOS this can be a saturated listener, not an empty socket)",
+                        ))
+                    } else {
+                        Probe::Stale
+                    }
                 }
                 // A full pending queue still proves a listener exists.
                 Some(libc::EAGAIN) => {
@@ -118,7 +131,7 @@ pub(crate) fn socket_has_liveness(socket: &Path) -> Result<Liveness> {
         Probe::Live => Ok(Liveness::Live),
         Probe::Stale => Ok(Liveness::Stale),
         Probe::Unclear(error) => bail!(
-            "socket liveness probe could not decide at {} ({}). The socket is left in place",
+            "socket liveness probe could not decide at {} ({}). The socket is left in place. If no daemon is running, remove the socket file and start again",
             socket.display(),
             error
         ),

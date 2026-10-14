@@ -19,7 +19,7 @@ Keep this as the human-readable record of what lives in the package.
 | `interactive-artifacts` | Extension | `extensions/interactive-artifacts/index.ts` | active | Publishes browser-based interactive concept explainer artifacts from Pi. |
 | `question` | Extension | `extensions/question/index.ts` | active | Adds bounded legacy `AskUserQuestion`/`AskBatchQuestions` tools plus the namespaced `agentic_utilities_ask_user_question` TUI, which retains the rpiv parameter contract without colliding with upstream. |
 | `todos` | Extension | `extensions/todos.ts` | active | Manages file-backed todos for agent task tracking. |
-| `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search, fetch, and related browser-grade research tools. |
+| `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search as `agentic_utilities_web_search` (namespaced so it does not collide with `pi-web-access` `web_search`), fetch, and related browser-grade research tools. |
 | `adversarial-review` | Skill | `skills/adversarial-review/SKILL.md` | active | Deep implementation review skill for bug hunting and ship-readiness checks. |
 | `art` | Skill | `skills/art/SKILL.md` | active | Creates visual assets, diagrams, infographics, thumbnails, icons, comics, and art direction. |
 | `awesome-readme` | Skill | `skills/awesome-readme/SKILL.md` | active | Creates, improves, and reviews GitHub README files with a story-first structure. |

@@ -52,6 +52,10 @@ pub(crate) enum ResponseFrame {
     RunNotice {
         message: String,
     },
+    /// The client may send this many more stdin bytes.
+    RunStdinCredit {
+        bytes: u32,
+    },
     RunExit {
         outcome: RunOutcome,
     },

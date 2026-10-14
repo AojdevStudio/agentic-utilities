@@ -13,7 +13,7 @@ use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 /// Optional live inputs for a run. Without stdin the child sees end of file at once.
 #[derive(Default)]
@@ -43,7 +43,9 @@ impl Client {
         });
         write_frame(stream, &request)?;
         let writer = Arc::new(Mutex::new(stream.try_clone()?));
-        forward_stdin(Arc::clone(&writer), inputs.stdin);
+        let credit = Arc::new(Credit::default());
+        let _close_credit = CloseOnDrop(Arc::clone(&credit));
+        forward_stdin(Arc::clone(&writer), inputs.stdin, Arc::clone(&credit));
         if let Some(signals) = inputs.signals {
             forward_signals(writer, signals);
         }
@@ -54,6 +56,9 @@ impl Client {
                     StreamKind::Stderr => sink.stderr(&data.0)?,
                 },
                 Frame::Response(ResponseFrame::RunNotice { message }) => sink.notice(&message)?,
+                Frame::Response(ResponseFrame::RunStdinCredit { bytes }) => {
+                    credit.grant(bytes as usize)
+                }
                 Frame::Response(ResponseFrame::RunExit { outcome }) => return Ok(outcome),
                 Frame::Response(ResponseFrame::Error { message, .. }) => bail!("{message}"),
                 _ => bail!("unexpected frame from daemon"),
@@ -97,14 +102,62 @@ fn send(writer: &Mutex<UnixStream>, frame: RequestFrame) -> bool {
     }
 }
 
-fn forward_stdin(writer: Arc<Mutex<UnixStream>>, stdin: Option<Box<dyn Read + Send>>) {
+/// Stdin bytes the daemon has agreed to take. The stdin thread waits for it.
+#[derive(Default)]
+struct Credit {
+    state: Mutex<(usize, bool)>,
+    changed: Condvar,
+}
+
+impl Credit {
+    fn grant(&self, bytes: usize) {
+        if let Ok(mut state) = self.state.lock() {
+            state.0 += bytes;
+            self.changed.notify_all();
+        }
+    }
+
+    /// Wait for credit. `None` once the run is over.
+    fn wait(&self) -> Option<usize> {
+        let mut state = self.state.lock().ok()?;
+        while state.0 == 0 && !state.1 {
+            state = self.changed.wait(state).ok()?;
+        }
+        (!state.1).then_some(state.0)
+    }
+
+    fn spend(&self, bytes: usize) {
+        if let Ok(mut state) = self.state.lock() {
+            state.0 -= bytes;
+        }
+    }
+}
+
+struct CloseOnDrop(Arc<Credit>);
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.1 = true;
+            self.0.changed.notify_all();
+        }
+    }
+}
+
+fn forward_stdin(
+    writer: Arc<Mutex<UnixStream>>,
+    stdin: Option<Box<dyn Read + Send>>,
+    credit: Arc<Credit>,
+) {
     std::thread::spawn(move || {
         if let Some(mut stdin) = stdin {
             let mut buf = vec![0u8; 32 * 1024];
-            loop {
-                match stdin.read(&mut buf) {
+            while let Some(available) = credit.wait() {
+                let limit = available.min(buf.len());
+                match stdin.read(&mut buf[..limit]) {
                     Ok(0) | Err(_) => break,
                     Ok(read) => {
+                        credit.spend(read);
                         let data = WireBytes(buf[..read].to_vec());
                         if !send(&writer, RequestFrame::RunStdin { data }) {
                             return;

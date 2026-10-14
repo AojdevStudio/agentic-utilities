@@ -1,38 +1,32 @@
 //! Daemon run steps 6 to 8 from ADR 0002: start the child, move bytes, mask
 //! output, forward stdin and signals, and report the exit status.
+//!
+//! The supervisor never blocks on the client for longer than one tick, so a
+//! forwarded signal or a disconnect is handled while output waits. When the
+//! run ends, every process left in the child's group is killed.
 
 use super::mask::Masker;
-use super::protocol::{read_frame, write_frame, Frame, RequestFrame, ResponseFrame, WireBytes};
+use super::protocol::{write_frame, Frame, ResponseFrame, WireBytes};
+use super::run_io::{
+    spawn_client_reader, spawn_delivery, spawn_reader, spawn_waiter, Control, Output, STDIN_WINDOW,
+};
 use super::run_prepare::PreparedRun;
-use super::runspec::{ForwardSignal, RunOutcome, StreamKind};
+use super::runspec::{RunOutcome, StreamKind};
 use super::spawn::spawn;
 use anyhow::Result;
-use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
-use zeroize::{Zeroize, Zeroizing};
 
-/// After the child exits, wait this long for a grandchild to release its pipes.
+/// After the child exits, descendants get this long to release the output pipes.
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
-
-const CHUNK: usize = 32 * 1024;
-
-enum Event {
-    Output(StreamKind, Zeroizing<Vec<u8>>),
-    OutputEof(StreamKind),
-    Exited(RunOutcome),
-    Stdin(Vec<u8>),
-    StdinEof,
-    Signal(ForwardSignal),
-    ClientGone,
-}
+const TICK: Duration = Duration::from_millis(20);
+/// Encoded frames waiting for a slow client. Past this, output readers stall.
+const OUTGOING_CAP: usize = 256 * 1024;
 
 pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result<()> {
-    // A run may sit silent for hours; only a closed socket ends it early.
     stream.set_read_timeout(None)?;
-    stream.set_write_timeout(None)?;
     let PreparedRun {
         plan,
         fd_values,
@@ -41,108 +35,165 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     } = prepared;
     let child = spawn(&plan);
     drop(plan);
-    let child = child?;
-    let mut maskers = [
-        Masker::new(mask_values.iter().cloned()),
-        Masker::new(mask_values.iter().cloned()),
-    ];
+    let child = match child {
+        Ok(child) => child,
+        Err(error) => {
+            let frame = ResponseFrame::Error {
+                code: "run_failed".into(),
+                message: error.to_string(),
+            };
+            write_frame(&mut stream, &Frame::Response(frame))?;
+            return Ok(());
+        }
+    };
+    let mut supervisor = Supervisor {
+        pid: child.pid,
+        outgoing: Vec::new(),
+        maskers: [
+            Masker::new(mask_values.iter().cloned()),
+            Masker::new(mask_values.iter().cloned()),
+        ],
+        open: [true, true],
+        exited: None,
+        exit_queued: false,
+    };
     drop(mask_values);
     for key in short_keys {
         let message = format!(
             "hush: {key} is shorter than 8 bytes, so it is not masked in this run's output"
         );
-        let _ = write_frame(
-            &mut stream,
-            &Frame::Response(ResponseFrame::RunNotice { message }),
-        );
+        supervisor.queue(ResponseFrame::RunNotice { message });
     }
-    for (mut pipe, value) in child.delivery.into_iter().zip(fd_values) {
-        std::thread::spawn(move || {
-            let _ = pipe.write_all(&value);
-        });
-    }
-    let (events, inbox) = channel();
-    spawn_reader(child.stdout, StreamKind::Stdout, events.clone());
-    spawn_reader(child.stderr, StreamKind::Stderr, events.clone());
-    spawn_client_reader(stream.try_clone()?, events.clone());
-    let pid = child.pid;
-    let waiter = events;
-    std::thread::spawn(move || {
-        let _ = waiter.send(Event::Exited(wait_child(pid)));
+    supervisor.queue(ResponseFrame::RunStdinCredit {
+        bytes: STDIN_WINDOW as u32,
     });
-    let stdin_tx = Some(spawn_stdin_writer(child.stdin));
-    drive(&mut stream, pid, &inbox, &mut maskers, stdin_tx);
+    for (pipe, value) in child.delivery.into_iter().zip(fd_values) {
+        spawn_delivery(pipe, value);
+    }
+    let (output_tx, output) = sync_channel(16);
+    let (control_tx, control) = sync_channel(256);
+    spawn_reader(child.stdout, StreamKind::Stdout, output_tx.clone());
+    spawn_reader(child.stderr, StreamKind::Stderr, output_tx);
+    spawn_waiter(child.pid, control_tx.clone());
+    spawn_client_reader(stream.try_clone()?, child.stdin, control_tx);
+    stream.set_write_timeout(Some(TICK))?;
+    supervisor.supervise(&mut stream, &output, &control);
+    kill_group(child.pid, libc::SIGKILL);
+    let _ = stream.shutdown(std::net::Shutdown::Both);
     Ok(())
 }
 
-fn drive(
-    stream: &mut UnixStream,
+struct Supervisor {
     pid: libc::pid_t,
-    inbox: &std::sync::mpsc::Receiver<Event>,
-    maskers: &mut [Masker; 2],
-    mut stdin_tx: Option<Sender<Vec<u8>>>,
-) {
-    let mut client_alive = true;
-    let mut open = [true, true];
-    let mut exited: Option<(RunOutcome, Instant)> = None;
-    loop {
-        if let Some((outcome, deadline)) = exited {
-            if !client_alive {
+    outgoing: Vec<u8>,
+    maskers: [Masker; 2],
+    open: [bool; 2],
+    exited: Option<(RunOutcome, Instant)>,
+    exit_queued: bool,
+}
+
+impl Supervisor {
+    fn supervise(
+        &mut self,
+        stream: &mut UnixStream,
+        output: &Receiver<Output>,
+        control: &Receiver<Control>,
+    ) {
+        let mut credit = 0;
+        let mut group_killed = false;
+        loop {
+            while let Ok(event) = control.try_recv() {
+                match event {
+                    Control::Exited(outcome) => {
+                        self.exited = Some((outcome, Instant::now() + DRAIN_AFTER_EXIT));
+                    }
+                    Control::Signal(signal) => kill_group(self.pid, signal.number()),
+                    Control::StdinConsumed(bytes) => credit += bytes,
+                    Control::ClientGone => return,
+                }
+            }
+            if credit > 0 {
+                self.queue(ResponseFrame::RunStdinCredit {
+                    bytes: credit as u32,
+                });
+                credit = 0;
+            }
+            if let Some((outcome, deadline)) = self.exited {
+                if self.open == [false, false] {
+                    if !self.exit_queued {
+                        self.queue(ResponseFrame::RunExit { outcome });
+                        self.exit_queued = true;
+                    }
+                } else if Instant::now() >= deadline && !group_killed {
+                    kill_group(self.pid, libc::SIGKILL);
+                    group_killed = true;
+                } else if Instant::now() >= deadline + DRAIN_AFTER_EXIT {
+                    // A descendant outside the group still holds a pipe. Stop waiting.
+                    self.close_stream(StreamKind::Stdout);
+                    self.close_stream(StreamKind::Stderr);
+                }
+            }
+            if !self.flush(stream) {
                 return;
             }
-            if open == [false, false] || Instant::now() >= deadline {
-                for kind in [StreamKind::Stdout, StreamKind::Stderr] {
-                    let tail = maskers[index(kind)].finish();
-                    send_output(stream, kind, tail);
-                }
-                send(stream, ResponseFrame::RunExit { outcome });
+            if self.exit_queued && self.outgoing.is_empty() {
                 return;
             }
-        }
-        let event = match exited {
-            Some((_, deadline)) => {
-                match inbox.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(event) => event,
-                    Err(_) => continue,
+            if self.open != [false, false] && self.outgoing.len() < OUTGOING_CAP {
+                match output.recv_timeout(TICK) {
+                    Ok(Output::Chunk(kind, chunk)) => {
+                        let masked = self.maskers[index(kind)].push(&chunk);
+                        self.queue_output(kind, masked);
+                    }
+                    Ok(Output::Eof(kind)) => self.close_stream(kind),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => self.open = [false, false],
                 }
-            }
-            None => match inbox.recv() {
-                Ok(event) => event,
-                Err(_) => return,
-            },
-        };
-        match event {
-            Event::Output(kind, chunk) => {
-                let masked = maskers[index(kind)].push(&chunk);
-                if client_alive && !send_output(stream, kind, masked) {
-                    client_alive = false;
-                    kill_group(pid, libc::SIGKILL);
-                }
-            }
-            Event::OutputEof(kind) => {
-                open[index(kind)] = false;
-                let tail = maskers[index(kind)].finish();
-                if client_alive && !send_output(stream, kind, tail) {
-                    client_alive = false;
-                    kill_group(pid, libc::SIGKILL);
-                }
-            }
-            Event::Exited(outcome) => exited = Some((outcome, Instant::now() + DRAIN_AFTER_EXIT)),
-            Event::Stdin(data) => {
-                if let Some(tx) = &stdin_tx {
-                    let _ = tx.send(data);
-                }
-            }
-            Event::StdinEof => stdin_tx = None,
-            Event::Signal(signal) => kill_group(pid, signal.number()),
-            Event::ClientGone => {
-                if client_alive {
-                    client_alive = false;
-                    stdin_tx = None;
-                    kill_group(pid, libc::SIGKILL);
-                }
+            } else if self.outgoing.is_empty() {
+                std::thread::sleep(TICK);
             }
         }
+    }
+
+    fn close_stream(&mut self, kind: StreamKind) {
+        if self.open[index(kind)] {
+            self.open[index(kind)] = false;
+            let tail = self.maskers[index(kind)].finish();
+            self.queue_output(kind, tail);
+        }
+    }
+
+    fn queue_output(&mut self, kind: StreamKind, data: Vec<u8>) {
+        if !data.is_empty() {
+            self.queue(ResponseFrame::RunOutput {
+                stream: kind,
+                data: WireBytes(data),
+            });
+        }
+    }
+
+    fn queue(&mut self, frame: ResponseFrame) {
+        // Encoding into a Vec fails only past the payload limit, which a
+        // 32 KiB chunk, even fully masked, cannot reach.
+        let _ = write_frame(&mut self.outgoing, &Frame::Response(frame));
+    }
+
+    /// Write what the socket takes within one tick. False means the client is gone.
+    fn flush(&mut self, stream: &mut UnixStream) -> bool {
+        while !self.outgoing.is_empty() {
+            match stream.write(&self.outgoing) {
+                Ok(0) => return false,
+                Ok(written) => {
+                    self.outgoing.drain(..written);
+                }
+                Err(error) => match error.kind() {
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => return true,
+                    std::io::ErrorKind::Interrupted => {}
+                    _ => return false,
+                },
+            }
+        }
+        true
     }
 }
 
@@ -153,92 +204,7 @@ fn index(kind: StreamKind) -> usize {
     }
 }
 
-fn send(stream: &mut UnixStream, frame: ResponseFrame) -> bool {
-    write_frame(stream, &Frame::Response(frame)).is_ok()
-}
-
-fn send_output(stream: &mut UnixStream, kind: StreamKind, data: Vec<u8>) -> bool {
-    data.is_empty()
-        || send(
-            stream,
-            ResponseFrame::RunOutput {
-                stream: kind,
-                data: WireBytes(data),
-            },
-        )
-}
-
 fn kill_group(pid: libc::pid_t, signal: i32) {
     // SAFETY: the child leads its own process group, so -pid targets only that group.
     unsafe { libc::kill(-pid, signal) };
-}
-
-fn wait_child(pid: libc::pid_t) -> RunOutcome {
-    let mut status = 0;
-    loop {
-        // SAFETY: pid is this run's child; status is a valid out pointer.
-        let rc = unsafe { libc::waitpid(pid, &mut status, 0) };
-        if rc == pid {
-            break;
-        }
-        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return RunOutcome::Exited(127);
-        }
-    }
-    if libc::WIFSIGNALED(status) {
-        RunOutcome::Signaled(libc::WTERMSIG(status))
-    } else {
-        RunOutcome::Exited(libc::WEXITSTATUS(status))
-    }
-}
-
-fn spawn_reader(mut pipe: File, kind: StreamKind, events: Sender<Event>) {
-    std::thread::spawn(move || {
-        let mut buf = vec![0u8; CHUNK];
-        loop {
-            match pipe.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => {
-                    if events
-                        .send(Event::Output(kind, Zeroizing::new(buf[..read].to_vec())))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-        buf.zeroize();
-        let _ = events.send(Event::OutputEof(kind));
-    });
-}
-
-fn spawn_client_reader(mut stream: UnixStream, events: Sender<Event>) {
-    std::thread::spawn(move || loop {
-        let event = match read_frame(&mut stream) {
-            Ok(Frame::Request(RequestFrame::RunStdin { data })) => Event::Stdin(data.0),
-            Ok(Frame::Request(RequestFrame::RunStdinEof)) => Event::StdinEof,
-            Ok(Frame::Request(RequestFrame::RunSignal { signal })) => Event::Signal(signal),
-            Ok(_) => continue,
-            Err(_) => {
-                let _ = events.send(Event::ClientGone);
-                return;
-            }
-        };
-        if events.send(event).is_err() {
-            return;
-        }
-    });
-}
-
-fn spawn_stdin_writer(mut pipe: File) -> Sender<Vec<u8>> {
-    let (tx, rx) = channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        for data in rx {
-            if pipe.write_all(&data).is_err() {
-                return;
-            }
-        }
-    });
-    tx
 }

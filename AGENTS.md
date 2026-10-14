@@ -31,8 +31,8 @@ Quick rules:
 Run before shipping changes:
 
 ```bash
-npm run check
-npm run pack:dry
+bun run check
+bun run pack:dry
 pi -e .
 ```
 

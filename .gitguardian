@@ -1,0 +1,5 @@
+version: 2
+secret:
+  ignored_matches:
+    - name: "ADR CLI example uses env var names, not credentials. Incident 38176923"
+      match: "fad2adf0dc0cd83f2d9e202b92d0846e43b7f9025f3b1d679ba9afff1902211d"

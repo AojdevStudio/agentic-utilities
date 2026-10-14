@@ -17,10 +17,6 @@
   <code>cargo install --locked bws-tui</code> &nbsp;→&nbsp; <code>hush</code>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/hush-demo.gif" alt="hush demo: search for a secret, open its action menu, reveal it, and copy it" width="900">
-</p>
-
 > **Package:** `bws-tui` on crates.io · **Command:** `hush`
 
 ## The five-step problem
@@ -149,7 +145,7 @@ hush run --fd DB_PASSWORD -- ./migrate.sh
 - **No client path to a value.** `hush get` and `hush sync` are gone. No command prints a value to stdout, and the client never reads the vault itself.
 - **Injection over printing.** `run` is the way to use secrets, and `exec --key` stays an alias of `run --secret` on the same code path. Two bindings targeting the same env name refuse to run. `KEY=ENVNAME` remaps keys that are not valid env var names.
 - **Disclosure needs a human.** Reveal and copy need the account password typed on the requesting process's own foreground terminal. An agent without the password cannot approve them.
-- **Audit trail.** The daemon writes a names-only line for every catalog read, run, and human operation to its own root-owned log.
+- **Audit trail.** The daemon writes a names-only line for every catalog read, run, and human request to its own root-owned log. A human line is written before approval and before any write, so it records an attempt, not a completed operation.
 
 ## How it works
 
@@ -176,8 +172,8 @@ The client sends names and passes its terminal or stdin to the daemon as open fi
 - **Fresh approval:** every reveal, copy, edit, and delete asks for the password again. Nothing is cached.
 - **No values in lists, frames, or logs:** search rows hold key and project only. Errors name the operation, never a value.
 - **No values in argv:** `bws` takes write values as arguments, which other local users can read, so the daemon creates secrets and replaces values through the Bitwarden SDK instead.
-- **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment. `hush` reports such a twin and never deletes anything to undo it.
-- **Honest failures:** when a write's outcome is unknown, `hush` says so and does not retry. Check `hush list` first.
+- **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment, and `hush` cannot see or undo that. Bitwarden trims keys, so a key with leading or trailing whitespace is refused instead of being saved under another name.
+- **Honest failures:** when a write's outcome is unknown, `hush` says so and does not retry. That includes a delete that may have reached the vault before it failed. Check `hush list` first.
 
 ### The daemon's run path
 
@@ -206,13 +202,6 @@ cargo fmt --check
 cargo test
 cargo clippy -- -D warnings
 cargo publish --dry-run
-```
-
-The demo uses [VHS](https://github.com/charmbracelet/vhs) with safe fake data. Re-record it from the crate directory after building `hush`:
-
-```bash
-cargo build --release
-PATH="$PWD/docs/demo:$PWD/target/release:$PATH" vhs docs/assets/hush-demo.tape
 ```
 
 ## Contributing

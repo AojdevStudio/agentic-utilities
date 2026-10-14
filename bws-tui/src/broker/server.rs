@@ -109,9 +109,10 @@ pub(crate) fn socket_has_liveness(socket: &Path) -> Result<Liveness> {
                         revents: 0,
                     };
                     let waited = libc::poll(&mut pollfd, 1, LIVENESS_PROBE_TIMEOUT_MS);
-                    let outcome = if waited == 0 {
-                        Probe::Live
-                    } else if waited < 0 || pollfd.revents & libc::POLLERR != 0 {
+                    let outcome = if waited < 0 {
+                        // A failed poll says nothing about the listener.
+                        Probe::Unclear(std::io::Error::last_os_error())
+                    } else if pollfd.revents & libc::POLLERR != 0 {
                         Probe::Stale
                     } else {
                         Probe::Live

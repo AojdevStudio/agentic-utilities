@@ -12,6 +12,7 @@ mod console;
 pub(crate) mod daemon;
 #[cfg(test)]
 mod fake_backend;
+mod fdio;
 mod fdpass;
 pub(crate) mod hardening;
 pub(crate) mod human;
@@ -53,6 +54,8 @@ pub(crate) use protocol::{Frame, RequestFrame, ResponseFrame};
 #[cfg(test)]
 mod add_tests;
 #[cfg(test)]
+mod console_tests;
+#[cfg(test)]
 mod daemon_harness;
 #[cfg(test)]
 mod fdpass_tests;
@@ -76,3 +79,7 @@ mod run_unit_tests;
 mod sdk_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trust_tests;
+#[cfg(test)]
+mod write_tests;

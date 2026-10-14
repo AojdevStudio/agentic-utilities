@@ -34,7 +34,8 @@ pub(crate) trait VaultBackend: Send + Sync {
         secret: &SecretUpdate,
         value: &SecretMaterial,
     ) -> Result<SecretMeta, WriteFailure>;
-    fn delete(&self, id: &str) -> Result<()>;
+    /// A failure after the request may have reached the vault is `Uncertain`.
+    fn delete(&self, id: &str) -> Result<(), WriteFailure>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,12 +109,7 @@ impl BwsBackend {
     }
 
     fn run_bws(&self, args: &[&str]) -> Result<Zeroizing<String>> {
-        self.run_bws_capped(args, MAX_BWS_OUTPUT)
-    }
-
-    /// Run bws with a byte cap on stdout. Stderr is discarded.
-    pub(crate) fn run_bws_capped(&self, args: &[&str], cap: usize) -> Result<Zeroizing<String>> {
-        self.run_bws_with_deadline(args, cap, BWS_TIMEOUT)
+        self.run_bws_with_deadline(args, MAX_BWS_OUTPUT, BWS_TIMEOUT)
     }
 
     /// Run bws with a byte cap on stdout and a hard deadline. Stderr is discarded.
@@ -127,7 +123,12 @@ impl BwsBackend {
         let deadline = Instant::now()
             .checked_add(timeout)
             .context("failed to run bws")?;
-        let child = Command::new(&self.bws_path)
+        let child = self.spawn_bws(args)?;
+        Self::finish_bws(child, args, cap, deadline)
+    }
+
+    fn spawn_bws(&self, args: &[&str]) -> Result<Child> {
+        Command::new(&self.bws_path)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
             .env("BWS_ACCESS_TOKEN", self.token.expose_secret())
@@ -137,7 +138,15 @@ impl BwsBackend {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .context("failed to run bws")?;
+            .context("failed to run bws")
+    }
+
+    fn finish_bws(
+        child: Child,
+        args: &[&str],
+        cap: usize,
+        deadline: Instant,
+    ) -> Result<Zeroizing<String>> {
         let mut guard = ChildGuard::new(child);
         let stdout = guard.take_stdout().context("failed to run bws")?;
         let (mut bytes, overflow) = read_capped_until(stdout, cap, deadline)?;
@@ -202,17 +211,14 @@ struct ChildGuard {
 }
 
 impl ChildGuard {
-    /// Wrap a spawned child.
     fn new(child: Child) -> Self {
         Self { child: Some(child) }
     }
 
-    /// Take the piped stdout handle.
     fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
         self.child.as_mut()?.stdout.take()
     }
 
-    /// Wait for exit before the deadline.
     fn wait_until(&mut self, deadline: Instant) -> Result<std::process::ExitStatus> {
         loop {
             let child = match self.child.as_mut() {
@@ -282,8 +288,12 @@ impl VaultBackend for BwsBackend {
         self.writer.update(secret, value)
     }
 
-    fn delete(&self, id: &str) -> Result<()> {
-        self.run_bws(&["secret", "delete", id])?;
-        Ok(())
+    /// Only a delete that never started is `Rejected`.
+    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
+        let args = ["secret", "delete", id];
+        let child = self.spawn_bws(&args).map_err(|_| WriteFailure::Rejected)?;
+        let deadline = Instant::now() + BWS_TIMEOUT;
+        let finished = Self::finish_bws(child, &args, MAX_BWS_OUTPUT, deadline);
+        finished.map(drop).map_err(|_| WriteFailure::Uncertain)
     }
 }

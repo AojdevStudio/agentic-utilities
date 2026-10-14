@@ -16,6 +16,7 @@ pub(crate) struct FakeBackend {
     fetches: AtomicUsize,
     writes: AtomicUsize,
     write_delay: Duration,
+    lose_delete_reply: bool,
 }
 
 impl FakeBackend {
@@ -30,7 +31,14 @@ impl FakeBackend {
             fetches: AtomicUsize::new(0),
             writes: AtomicUsize::new(0),
             write_delay: Duration::ZERO,
+            lose_delete_reply: false,
         }
+    }
+
+    /// Deletes commit and then fail, like a provider reply lost after the change.
+    pub(crate) fn with_lost_delete_reply(mut self) -> Self {
+        self.lose_delete_reply = true;
+        self
     }
 
     /// Every write waits this long first, which widens race windows in tests.
@@ -135,10 +143,14 @@ impl VaultBackend for FakeBackend {
         Ok(meta.clone())
     }
 
-    fn delete(&self, id: &str) -> Result<()> {
+    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
         self.record_write();
         let mut secrets = self.secrets.lock().unwrap();
-        secrets.remove(id).map(|_| ()).context("unknown secret id")
+        secrets.remove(id).ok_or(WriteFailure::Rejected)?;
+        if self.lose_delete_reply {
+            return Err(WriteFailure::Uncertain);
+        }
+        Ok(())
     }
 }
 
@@ -166,7 +178,7 @@ impl VaultBackend for FailingBackend {
         Err(WriteFailure::Rejected)
     }
 
-    fn delete(&self, _id: &str) -> Result<()> {
-        Err(anyhow!("backend exploded"))
+    fn delete(&self, _id: &str) -> Result<(), WriteFailure> {
+        Err(WriteFailure::Rejected)
     }
 }

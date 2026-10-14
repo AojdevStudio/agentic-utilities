@@ -78,17 +78,16 @@ fn only_the_daemon_backend_spawns_bws() {
                 .unwrap()
                 .to_string_lossy()
                 .into_owned();
-            let text = std::fs::read_to_string(&path).unwrap();
-            if relative.starts_with("broker/") {
+            if relative.starts_with("broker/") || relative == "cli_tests.rs" {
                 continue;
             }
-            // Split literals so this file does not match its own scan.
+            let text = std::fs::read_to_string(&path).unwrap();
             assert!(
-                !text.contains(concat!("Command", "::new")),
+                !text.contains("Command::new"),
                 "{relative} spawns a process"
             );
             assert!(
-                !text.contains(concat!("arb", "oard")),
+                !text.contains("arboard"),
                 "{relative} touches the clipboard"
             );
         }

@@ -7,6 +7,7 @@ use super::backend::BWS_TIMEOUT;
 use super::client::Client;
 use super::meta::ProjectMeta;
 use super::operation::{Operation, Outcome, Refusal};
+use super::paths::Build;
 use super::peercred::read_peer_credentials;
 use super::protocol::{
     read_frame, write_frame, write_frame_with_rights, Frame, RequestFrame, ResponseFrame,
@@ -55,12 +56,11 @@ impl Client {
         }
     }
 
-    /// Descriptors go only to a root daemon or to this user's own development daemon.
     fn verify_daemon(&mut self) -> Result<()> {
         let daemon = read_peer_credentials(self.stream_mut())?;
         // SAFETY: geteuid takes no arguments and cannot fail.
         let euid = unsafe { libc::geteuid() };
-        if daemon.uid != 0 && daemon.uid != euid {
+        if !trusts_daemon(daemon.uid, euid, Build::CURRENT) {
             bail!(
                 "refusing to pass a terminal to a daemon owned by uid {}",
                 daemon.uid
@@ -68,6 +68,12 @@ impl Client {
         }
         Ok(())
     }
+}
+
+/// Descriptors go only to a root daemon. Debug builds also trust this
+/// user's own development daemon.
+pub(crate) fn trusts_daemon(daemon_uid: u32, euid: u32, build: Build) -> bool {
+    daemon_uid == 0 || (build == Build::Debug && daemon_uid == euid)
 }
 
 /// Open the real terminal device behind stdin, stdout, or stderr for the

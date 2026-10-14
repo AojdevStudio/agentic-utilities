@@ -135,7 +135,7 @@ fn oversized_bws_output_is_refused_without_bytes_in_error() {
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     let backend = backend::BwsBackend::new(script, secrecy::SecretString::from("t"));
     let error = backend
-        .run_bws_capped(&["secret", "list"], 1024)
+        .run_bws_with_deadline(&["secret", "list"], 1024, backend::BWS_TIMEOUT)
         .unwrap_err();
     let text = format!("{error:#}");
     assert!(text.contains("size limit"), "unexpected error: {text}");

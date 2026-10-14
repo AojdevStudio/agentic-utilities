@@ -5,7 +5,6 @@
 use super::console::{escape, Console, Interrupt};
 use super::identity::{AccountDb, SystemAccounts};
 use super::operation::Refusal;
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// How long the daemon waits for a human at one prompt.
@@ -28,9 +27,6 @@ pub(crate) trait Authenticator: Send + Sync {
     fn verify(&self, account: &str, password: &[u8]) -> Result<Verdict, String>;
 }
 
-/// Proof that one request was approved just now. Only [`approve`] makes one.
-pub(crate) struct Approved(());
-
 /// What the human approves. Shown before the password prompt.
 pub(crate) struct ApprovalRequest<'a> {
     pub verb: &'a str,
@@ -43,11 +39,10 @@ pub(crate) struct ApprovalRequest<'a> {
 
 /// Ask for the peer account's password on the checked terminal and verify it.
 pub(crate) fn approve(
-    console: &mut Console,
+    console: &mut Console<'_>,
     request: &ApprovalRequest<'_>,
     auth: &dyn Authenticator,
-    socket: &UnixStream,
-) -> Result<Approved, Refusal> {
+) -> Result<(), Refusal> {
     auth.available()
         .map_err(|reason| Refusal::ApprovalUnavailable { reason })?;
     let account = match SystemAccounts.by_uid(request.uid) {
@@ -66,21 +61,31 @@ pub(crate) fn approve(
         escape(request.id.as_bytes()),
         request.pid,
     );
-    console.say(&banner).map_err(|_| Refusal::TerminalFailed)?;
+    console.say(&banner).map_err(terminal_refusal)?;
     let prompt = format!("Password for {}: ", escape(account.as_bytes()));
-    let password = console
-        .read_hidden(&prompt, MAX_PASSWORD, socket)
-        .map_err(|interrupt| match interrupt {
-            Interrupt::TooLong => Refusal::ApprovalDenied,
-            _ => Refusal::ApprovalCancelled,
-        })?;
+    let password =
+        console
+            .read_hidden(&prompt, MAX_PASSWORD)
+            .map_err(|interrupt| match interrupt {
+                Interrupt::TooLong => Refusal::ApprovalDenied,
+                _ => Refusal::ApprovalCancelled,
+            })?;
     match auth.verify(&account, &password) {
-        Ok(Verdict::Approved) => Ok(Approved(())),
+        Ok(Verdict::Approved) => Ok(()),
         Ok(Verdict::Denied) => {
             let _ = console.say("hush: approval denied\r\n");
             Err(Refusal::ApprovalDenied)
         }
         Err(reason) => Err(Refusal::ApprovalUnavailable { reason }),
+    }
+}
+
+/// A client that left or a human who never answered cancels the request.
+/// Any other terminal failure is reported as a broken terminal.
+pub(crate) fn terminal_refusal(interrupt: Interrupt) -> Refusal {
+    match interrupt {
+        Interrupt::Disconnected | Interrupt::TimedOut => Refusal::ApprovalCancelled,
+        _ => Refusal::TerminalFailed,
     }
 }
 

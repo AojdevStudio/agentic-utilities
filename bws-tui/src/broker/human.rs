@@ -3,13 +3,14 @@
 //! password approval on the checked terminal. Add needs none and never
 //! overwrites. Values reach only the terminal or the vault.
 
-use super::approve::{approve, platform_authenticator, ApprovalRequest, Authenticator};
+use super::approve::Authenticator;
+use super::approve::{approve, platform_authenticator, terminal_refusal, ApprovalRequest};
 use super::audit::{AuditLog, HumanAudit};
 use super::backend::VaultBackend;
-use super::console::{escape, Interrupt, MAX_OSC52_VALUE};
+use super::console::{escape, MAX_OSC52_VALUE};
 use super::fdpass::RightsViolation;
 use super::meta::SecretRef;
-use super::mutate::{add, edit, invalid, resolve, resolve_project, vault_failed};
+use super::mutate::{add, edit, invalid, resolve, resolve_project, vault_failed, write_refusal};
 use super::operation::{DescriptorProblem, Operation, Outcome, Refusal, SecretSelector};
 use super::operation::{ValueChange, ValueSource};
 use super::peercred::PeerCredentials;
@@ -62,8 +63,8 @@ pub(crate) fn serve_human(
     }
 }
 
-/// What an approved operation does once the human has approved it.
-enum Approved {
+/// What a reveal, copy, delete, or edit does once the human has approved it.
+enum Action {
     Reveal,
     Copy,
     Delete,
@@ -80,9 +81,8 @@ struct Context<'a> {
     audit: &'a dyn AuditLog,
     config: &'a HumanConfig,
     peer: PeerCredentials,
-    socket: &'a UnixStream,
     verb: &'static str,
-    slots: Slots,
+    slots: Slots<'a>,
 }
 
 impl Context<'_> {
@@ -120,9 +120,8 @@ fn handle(
         audit,
         config,
         peer,
-        socket,
         verb: op.verb(),
-        slots: Slots::bind(op.contract().roles, fds, peer)?,
+        slots: Slots::bind(op.roles(), fds, peer, socket)?,
     };
     match op {
         Operation::Add {
@@ -131,9 +130,9 @@ fn handle(
             note,
             value,
         } => add_secret(&mut context, &project, key, note, value),
-        Operation::Reveal { secret } => approved(&mut context, &secret, Approved::Reveal),
-        Operation::Copy { secret } => approved(&mut context, &secret, Approved::Copy),
-        Operation::Delete { secret } => approved(&mut context, &secret, Approved::Delete),
+        Operation::Reveal { secret } => approved(&mut context, &secret, Action::Reveal),
+        Operation::Copy { secret } => approved(&mut context, &secret, Action::Copy),
+        Operation::Delete { secret } => approved(&mut context, &secret, Action::Delete),
         Operation::Edit {
             new_key: None,
             note: None,
@@ -146,7 +145,7 @@ fn handle(
             note,
             value,
         } => {
-            let edit = Approved::Edit {
+            let edit = Action::Edit {
                 new_key,
                 note,
                 value,
@@ -167,7 +166,7 @@ fn add_secret(
     let project = resolve_project(context.backend, project)?;
     context.record(&key, Some(&project.name), None)?;
     let prompt = format!("Value for {} (input hidden): ", escape(key.as_bytes()));
-    let value = context.slots.read_value(source, &prompt, context.socket)?;
+    let value = context.slots.read_value(source, &prompt)?;
     add(
         context.backend,
         &context.config.mutation,
@@ -182,10 +181,9 @@ fn add_secret(
 fn approved(
     context: &mut Context<'_>,
     secret: &SecretSelector,
-    action: Approved,
+    action: Action,
 ) -> Result<Outcome, Refusal> {
-    let (backend, verb, peer, socket) =
-        (context.backend, context.verb, context.peer, context.socket);
+    let (backend, verb, peer) = (context.backend, context.verb, context.peer);
     let meta = resolve(backend, secret, verb)?;
     context.record(&meta.key, meta.project.as_deref(), Some(&meta.id))?;
     let request = ApprovalRequest {
@@ -196,20 +194,15 @@ fn approved(
         uid: peer.uid,
         pid: peer.pid,
     };
-    approve(
-        context.slots.console()?,
-        &request,
-        &*context.config.auth,
-        socket,
-    )?;
+    approve(context.slots.console()?, &request, &*context.config.auth)?;
     match action {
-        Approved::Reveal | Approved::Copy => {
+        Action::Reveal | Action::Copy => {
             let value = backend
                 .fetch(&SecretRef::Id(meta.id.clone()))
                 .map_err(|_| vault_failed(verb))?;
             let console = context.slots.console()?;
             check_terminal(console.fd(), peer).map_err(descriptors)?;
-            if matches!(action, Approved::Copy) {
+            if matches!(action, Action::Copy) {
                 if value.expose_bytes().len() > MAX_OSC52_VALUE {
                     return Err(invalid(
                         "the value is larger than the 128 KiB clipboard limit",
@@ -217,27 +210,26 @@ fn approved(
                 }
                 console
                     .osc52(value.expose_bytes())
-                    .map_err(|_| Refusal::TerminalFailed)?;
+                    .map_err(terminal_refusal)?;
                 return Ok(Outcome::CopySent { key: meta.key });
             }
             let project = meta.project.as_deref().unwrap_or("no project");
             let title = format!("{} ({project})", meta.key);
-            match console.show_value(&title, value.expose_bytes(), socket) {
-                Ok(()) => Ok(Outcome::Revealed { key: meta.key }),
-                Err(Interrupt::Disconnected | Interrupt::TimedOut) => {
-                    Err(Refusal::ApprovalCancelled)
-                }
-                Err(_) => Err(Refusal::TerminalFailed),
-            }
+            console
+                .show_value(&title, value.expose_bytes())
+                .map_err(terminal_refusal)?;
+            Ok(Outcome::Revealed { key: meta.key })
         }
-        Approved::Delete => {
-            backend.delete(&meta.id).map_err(|_| vault_failed(verb))?;
+        Action::Delete => {
+            backend
+                .delete(&meta.id)
+                .map_err(|failure| write_refusal(failure, verb))?;
             Ok(Outcome::Deleted {
                 id: meta.id,
                 key: meta.key,
             })
         }
-        Approved::Edit {
+        Action::Edit {
             new_key,
             note,
             value,
@@ -247,7 +239,7 @@ fn approved(
                 ValueChange::Replace(source) => {
                     let name = escape(meta.key.as_bytes());
                     let prompt = format!("New value for {name} (input hidden): ");
-                    Some(context.slots.read_value(source, &prompt, socket)?)
+                    Some(context.slots.read_value(source, &prompt)?)
                 }
             };
             let lock = &context.config.mutation;

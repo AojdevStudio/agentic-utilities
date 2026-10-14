@@ -3,31 +3,22 @@
 //! control injection, and OSC 52. Only a checked terminal becomes a `Console`.
 
 use super::approve::APPROVAL_TIMEOUT;
+pub(crate) use super::fdio::Interrupt;
+use super::fdio::Passed;
 use base64::Engine;
-use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Largest value written to the terminal clipboard.
 pub(crate) const MAX_OSC52_VALUE: usize = 128 * 1024;
 
-/// Why a hidden read stopped without a line.
-#[derive(Debug)]
-pub(crate) enum Interrupt {
-    /// Ctrl-C, Ctrl-D on an empty line, or a terminal hangup.
-    Cancelled,
-    /// The client hung up or sent data mid-prompt.
-    Disconnected,
-    TimedOut,
-    TooLong,
-    Io,
-}
-
-pub(crate) struct Console {
-    tty: File,
+pub(crate) struct Console<'a> {
+    tty: Passed,
+    socket: &'a UnixStream,
+    timeout: Duration,
 }
 
 /// Restores the saved terminal mode on every exit path.
@@ -44,12 +35,21 @@ impl Drop for ModeGuard {
     }
 }
 
-impl Console {
-    /// Wrap a descriptor that already passed `check_terminal`.
-    pub(crate) fn new(fd: OwnedFd) -> Self {
-        Self {
-            tty: File::from(fd),
-        }
+impl<'a> Console<'a> {
+    /// Wrap a descriptor that already passed `check_terminal`. Activity on
+    /// `socket` cancels any wait.
+    pub(crate) fn new(fd: OwnedFd, socket: &'a UnixStream) -> io::Result<Self> {
+        Ok(Self {
+            tty: Passed::new(fd)?,
+            socket,
+            timeout: APPROVAL_TIMEOUT,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     pub(crate) fn fd(&self) -> BorrowedFd<'_> {
@@ -57,9 +57,9 @@ impl Console {
     }
 
     /// Write daemon text. Names from the vault are escaped first.
-    pub(crate) fn say(&mut self, text: &str) -> io::Result<()> {
-        self.tty.write_all(text.as_bytes())?;
-        self.tty.flush()
+    pub(crate) fn say(&mut self, text: &str) -> Result<(), Interrupt> {
+        let deadline = Instant::now() + self.timeout;
+        self.tty.write_all(text.as_bytes(), self.socket, deadline)
     }
 
     /// Read one line with echo, line editing, and signals off. Bytes are kept
@@ -68,29 +68,26 @@ impl Console {
         &mut self,
         prompt: &str,
         limit: usize,
-        socket: &UnixStream,
     ) -> Result<Zeroizing<Vec<u8>>, Interrupt> {
         let _mode = self.hidden_mode().map_err(|_| Interrupt::Io)?;
         // SAFETY: discards typeahead queued before the prompt appeared.
-        unsafe { libc::tcflush(self.tty.as_raw_fd(), libc::TCIFLUSH) };
-        self.say(prompt).map_err(|_| Interrupt::Io)?;
+        if unsafe { libc::tcflush(self.tty.as_fd().as_raw_fd(), libc::TCIFLUSH) } != 0 {
+            return Err(Interrupt::Io);
+        }
+        self.say(prompt)?;
         let mut line = Zeroizing::new(Vec::with_capacity(limit));
-        let result = self.collect(&mut line, limit, socket);
-        let _ = self.say("\r\n");
-        result.map(|()| line)
+        let result = self.collect(&mut line, limit);
+        let ended = self.say("\r\n");
+        result?;
+        ended?;
+        Ok(line)
     }
 
-    fn collect(
-        &mut self,
-        line: &mut Vec<u8>,
-        limit: usize,
-        socket: &UnixStream,
-    ) -> Result<(), Interrupt> {
-        let deadline = Instant::now() + APPROVAL_TIMEOUT;
+    fn collect(&mut self, line: &mut Vec<u8>, limit: usize) -> Result<(), Interrupt> {
+        let deadline = Instant::now() + self.timeout;
         let mut chunk = Zeroizing::new([0u8; 256]);
         loop {
-            wait_readable(self.fd(), socket, deadline)?;
-            let read = self.tty.read(&mut chunk[..]).map_err(|_| Interrupt::Io)?;
+            let read = self.tty.read(&mut chunk[..], self.socket, deadline)?;
             if read == 0 {
                 return Err(Interrupt::Cancelled);
             }
@@ -114,7 +111,7 @@ impl Console {
     }
 
     fn hidden_mode(&self) -> io::Result<ModeGuard> {
-        let fd = self.tty.as_raw_fd();
+        let fd = self.tty.as_fd().as_raw_fd();
         // SAFETY: zeroed termios is a valid out buffer for tcgetattr.
         let mut saved: libc::termios = unsafe { std::mem::zeroed() };
         // SAFETY: tcgetattr writes into a valid buffer.
@@ -135,13 +132,8 @@ impl Console {
     }
 
     /// Show a value on its own screen, wait for Enter, then clear it, so the
-    /// value never stays in scrollback.
-    pub(crate) fn show_value(
-        &mut self,
-        title: &str,
-        value: &[u8],
-        socket: &UnixStream,
-    ) -> Result<(), Interrupt> {
+    /// value never stays in scrollback. The clear runs on every path.
+    pub(crate) fn show_value(&mut self, title: &str, value: &[u8]) -> Result<(), Interrupt> {
         // Reserved up front so the buffer never reallocates and leaves a copy behind.
         let room = 64 + MAX_ESCAPE_GROWTH * (title.len() + value.len());
         let mut screen = Zeroizing::new(String::with_capacity(room));
@@ -150,73 +142,26 @@ impl Console {
         screen.push_str("\r\n\r\n");
         escape_into(&mut screen, value);
         screen.push_str("\r\n\r\n");
-        self.say(&screen).map_err(|_| Interrupt::Io)?;
-        let waited = self.read_hidden("(press Enter to hide)", 0, socket);
-        let _ = self.say("\x1b[2J\x1b[?1049l");
-        match waited {
-            Ok(_) | Err(Interrupt::TooLong) | Err(Interrupt::Cancelled) => Ok(()),
-            Err(interrupt) => Err(interrupt),
-        }
+        let shown =
+            self.say(&screen)
+                .and_then(|()| match self.read_hidden("(press Enter to hide)", 0) {
+                    Ok(_) | Err(Interrupt::TooLong) | Err(Interrupt::Cancelled) => Ok(()),
+                    Err(interrupt) => Err(interrupt),
+                });
+        let cleared = self.say("\x1b[2J\x1b[?1049l");
+        shown.and(cleared)
     }
 
     /// Send a bounded OSC 52 clipboard write. The terminal cannot confirm it.
-    pub(crate) fn osc52(&mut self, value: &[u8]) -> io::Result<()> {
+    pub(crate) fn osc52(&mut self, value: &[u8]) -> Result<(), Interrupt> {
         if value.len() > MAX_OSC52_VALUE {
-            return Err(io::Error::other(
-                "value exceeds the 128 KiB clipboard limit",
-            ));
+            return Err(Interrupt::TooLong);
         }
         let mut sequence = Zeroizing::new(String::with_capacity(16 + value.len().div_ceil(3) * 4));
         sequence.push_str("\x1b]52;c;");
         base64::engine::general_purpose::STANDARD.encode_string(value, &mut sequence);
         sequence.push('\x07');
         self.say(&sequence)
-    }
-}
-
-/// Wait until the terminal has input. Socket activity mid-prompt means the
-/// client hung up or broke protocol, so the prompt is abandoned.
-fn wait_readable(
-    tty: BorrowedFd<'_>,
-    socket: &UnixStream,
-    deadline: Instant,
-) -> Result<(), Interrupt> {
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Err(Interrupt::TimedOut);
-        }
-        let mut fds = [
-            libc::pollfd {
-                fd: tty.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: socket.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
-        let millis = left.as_millis().min(i32::MAX as u128) as i32;
-        // SAFETY: two valid pollfd entries.
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, millis) };
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(Interrupt::Io);
-        }
-        if fds[1].revents != 0 {
-            return Err(Interrupt::Disconnected);
-        }
-        if fds[0].revents & libc::POLLIN != 0 {
-            return Ok(());
-        }
-        if fds[0].revents != 0 {
-            return Err(Interrupt::Cancelled);
-        }
     }
 }
 

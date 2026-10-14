@@ -70,37 +70,31 @@ pub(crate) enum FdRole {
     ValueInput,
 }
 
-/// Descriptor roles and approval for one operation. Every policy decision
-/// about a variant lives in [`Operation::contract`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Contract {
-    pub roles: &'static [FdRole],
-    pub approval: bool,
-}
-
 impl Operation {
-    pub(crate) fn contract(&self) -> Contract {
+    /// The descriptors this operation takes, in the order the client sends them.
+    pub(crate) fn roles(&self) -> &'static [FdRole] {
         use FdRole::{Terminal, ValueInput};
-        let (roles, approval): (&'static [FdRole], bool) = match self {
+        match self {
             Self::Add {
                 value: ValueSource::InputFd,
                 ..
-            } => (&[ValueInput], false),
+            } => &[ValueInput],
             Self::Add {
                 value: ValueSource::TtyPrompt,
                 ..
-            } => (&[Terminal], false),
-            Self::Reveal { .. } | Self::Copy { .. } | Self::Delete { .. } => (&[Terminal], true),
-            Self::Edit {
+            }
+            | Self::Reveal { .. }
+            | Self::Copy { .. }
+            | Self::Delete { .. }
+            | Self::Edit {
                 value: ValueChange::Keep | ValueChange::Replace(ValueSource::TtyPrompt),
                 ..
-            } => (&[Terminal], true),
+            } => &[Terminal],
             Self::Edit {
                 value: ValueChange::Replace(ValueSource::InputFd),
                 ..
-            } => (&[Terminal, ValueInput], true),
-        };
-        Contract { roles, approval }
+            } => &[Terminal, ValueInput],
+        }
     }
 
     /// The audit and banner verb.
@@ -141,7 +135,8 @@ pub(crate) enum Outcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DescriptorProblem {
-    /// Rights arrived truncated, after the first byte, or as a foreign control message.
+    /// More rights than any operation takes, rights after the first byte,
+    /// or a foreign control message.
     Malformed,
     WrongCount {
         expected: u8,
@@ -189,6 +184,10 @@ pub(crate) enum Refusal {
     InvalidValue {
         reason: String,
     },
+    /// The provider trims keys, so a key it would change is refused.
+    InvalidKey {
+        key: String,
+    },
     VaultFailed {
         operation: String,
     },
@@ -224,6 +223,10 @@ impl fmt::Display for Refusal {
             Self::ApprovalCancelled => write!(f, "approval cancelled"),
             Self::ApprovalUnavailable { reason } => write!(f, "approval unavailable: {reason}"),
             Self::InvalidValue { reason } => write!(f, "invalid value: {reason}"),
+            Self::InvalidKey { key } => write!(
+                f,
+                "invalid key {key:?}. Keys cannot be empty or start or end with whitespace"
+            ),
             Self::VaultFailed { operation } => write!(f, "vault {operation} failed"),
             Self::WriteUncertain { operation } => write!(
                 f,

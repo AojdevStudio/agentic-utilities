@@ -44,7 +44,7 @@ pub(super) struct StepResult {
 }
 
 /// A new pty pair whose descriptors close on exec. Returns the master and slave path.
-fn open_pty() -> (File, CString) {
+pub(super) fn open_pty() -> (File, CString) {
     // SAFETY: posix_openpt returns a new descriptor or -1.
     let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | cloexec()) };
     assert!(master >= 0, "posix_openpt failed");

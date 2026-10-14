@@ -4,14 +4,13 @@
 //! outside this daemon (the web vault, another machine) are not covered, and
 //! an uncertain write is reported, never retried or rolled back.
 
-use super::approve::APPROVAL_TIMEOUT;
 use super::backend::VaultBackend;
+use super::fdio::{Interrupt, Passed};
 use super::material::SecretMaterial;
 use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
 use super::operation::{Outcome, Refusal, SecretSelector};
-use std::fs::File;
-use std::io::Read;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
 use std::time::Instant;
 use zeroize::Zeroizing;
@@ -25,7 +24,7 @@ pub(crate) fn vault_failed(operation: &str) -> Refusal {
     }
 }
 
-fn write_refusal(failure: WriteFailure, operation: &str) -> Refusal {
+pub(crate) fn write_refusal(failure: WriteFailure, operation: &str) -> Refusal {
     match failure {
         WriteFailure::Rejected => vault_failed(operation),
         WriteFailure::Uncertain => Refusal::WriteUncertain {
@@ -85,27 +84,26 @@ pub(crate) fn resolve_project(
     }
 }
 
-/// Read a passed pipe or file to end of file, bounded in size and time.
-pub(crate) fn read_input(fd: OwnedFd) -> Result<SecretMaterial, Refusal> {
-    let deadline = Instant::now() + APPROVAL_TIMEOUT;
-    let mut input = File::from(fd);
+/// Read a passed pipe or file to end of file, bounded in size and time. A
+/// client hangup stops the read.
+pub(crate) fn read_input(
+    fd: OwnedFd,
+    socket: &UnixStream,
+    deadline: Instant,
+) -> Result<SecretMaterial, Refusal> {
+    let unreadable = || invalid("the value input could not be read");
+    let mut input = Passed::new(fd).map_err(|_| unreadable())?;
     let mut value = Zeroizing::new(Vec::with_capacity(MAX_VALUE + 1));
     let mut chunk = Zeroizing::new([0u8; 8192]);
     loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        let mut poll = libc::pollfd {
-            fd: input.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
+        let read = match input.read(&mut chunk[..], socket, deadline) {
+            Ok(read) => read,
+            Err(Interrupt::TimedOut) => {
+                return Err(invalid("the value input did not finish in time"))
+            }
+            Err(Interrupt::Disconnected) => return Err(Refusal::ApprovalCancelled),
+            Err(_) => return Err(unreadable()),
         };
-        let millis = left.as_millis().min(i32::MAX as u128) as i32;
-        // SAFETY: one valid pollfd.
-        if left.is_zero() || unsafe { libc::poll(&mut poll, 1, millis) } == 0 {
-            return Err(invalid("the value input did not finish in time"));
-        }
-        let read = input
-            .read(&mut chunk[..])
-            .map_err(|_| invalid("the value input could not be read"))?;
         if read == 0 {
             return material(value);
         }
@@ -116,13 +114,25 @@ pub(crate) fn read_input(fd: OwnedFd) -> Result<SecretMaterial, Refusal> {
     }
 }
 
-/// Copy into an exact-size buffer so the boxed value never reallocates; the
-/// read buffer zeroes itself on drop.
-pub(crate) fn material(value: Zeroizing<Vec<u8>>) -> Result<SecretMaterial, Refusal> {
+/// The SDK takes values as text, so a non-UTF-8 value is refused here
+/// before any vault call.
+pub(crate) fn material(mut value: Zeroizing<Vec<u8>>) -> Result<SecretMaterial, Refusal> {
     if value.is_empty() {
         return Err(invalid("the value is empty"));
     }
-    Ok(SecretMaterial::new(value.to_vec()))
+    if std::str::from_utf8(&value).is_err() {
+        return Err(invalid("the value is not UTF-8 text"));
+    }
+    Ok(SecretMaterial::new(std::mem::take(&mut *value)))
+}
+
+/// The provider trims keys with the same rule as `str::trim`. A key it would
+/// change or empty is refused, so a write never lands under another name.
+fn checked_key(key: &str) -> Result<(), Refusal> {
+    if key.is_empty() || key.trim() != key {
+        return Err(Refusal::InvalidKey { key: key.into() });
+    }
+    Ok(())
 }
 
 pub(crate) fn invalid(reason: &str) -> Refusal {
@@ -140,6 +150,7 @@ pub(crate) fn add(
     note: Option<String>,
     value: &SecretMaterial,
 ) -> Result<Outcome, Refusal> {
+    checked_key(&key)?;
     let _guard = lock.lock().map_err(|_| vault_failed("add"))?;
     let catalog = backend.catalog().map_err(|_| vault_failed("add"))?;
     let same = |m: &&SecretMeta| m.key == key && m.project_id.as_deref() == Some(&project.id);
@@ -179,6 +190,7 @@ pub(crate) fn edit(
         });
     };
     let key = new_key.unwrap_or_else(|| current.key.clone());
+    checked_key(&key)?;
     let clash = |m: &&SecretMeta| m.key == key && m.project_id == current.project_id;
     if let Some(other) = catalog.iter().filter(|m| m.id != current.id).find(clash) {
         return Err(Refusal::AlreadyExists {

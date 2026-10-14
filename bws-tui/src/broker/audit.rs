@@ -15,7 +15,8 @@ pub(crate) trait AuditLog: Send + Sync {
     fn record_catalog(&self, peer: PeerCredentials, project: Option<&str>) -> Result<()>;
     /// Written after resolution and before any fetch, so refused runs are recorded too.
     fn record_run(&self, peer: PeerCredentials, run: &RunAudit<'_>) -> Result<()>;
-    /// Written after resolution and before approval, disclosure, or any write.
+    /// Written after resolution and before approval, disclosure, or any write,
+    /// so a line records an attempt, not a completed operation.
     fn record_human(&self, peer: PeerCredentials, human: &HumanAudit<'_>) -> Result<()>;
 }
 

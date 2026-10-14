@@ -7,8 +7,13 @@ use super::material::SecretMaterial;
 use super::meta::{NewSecret, SecretUpdate, WriteFailure};
 use super::sdk::SdkWriter;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use bitwarden::secrets_manager::secrets::SecretGetRequest;
+use bitwarden::secrets_manager::{
+    AccessTokenLoginRequest, ClientSettings, DeviceType, SecretsManagerClient,
+};
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -74,6 +79,43 @@ impl Cloud {
     }
 }
 
+/// Open what one write sent. A second SDK client reads the captured
+/// ciphertexts back through a mock `GET` and decrypts key, value, and note.
+fn sent_plaintext(cloud: &Cloud, body: &str) -> (String, String, String) {
+    let sent: Value = serde_json::from_str(body).unwrap();
+    let mut echoed = secret_body();
+    for field in ["key", "value", "note"] {
+        echoed[field] = sent[field].clone();
+    }
+    cloud.mount("GET", &format!("/api/secrets/{SECRET}"), 200, echoed);
+    let uri = cloud.server.uri();
+    let client = {
+        let _context = cloud.runtime.enter();
+        SecretsManagerClient::new(Some(ClientSettings {
+            identity_url: format!("{uri}/identity"),
+            api_url: format!("{uri}/api"),
+            user_agent: "hush test".into(),
+            device_type: DeviceType::SDK,
+            device_identifier: None,
+            bitwarden_client_version: None,
+            bitwarden_package_type: None,
+        }))
+    };
+    let login = AccessTokenLoginRequest {
+        access_token: TOKEN.into(),
+        state_file: None,
+    };
+    cloud
+        .runtime
+        .block_on(client.auth().login_access_token(&login))
+        .unwrap();
+    let get = SecretGetRequest {
+        id: Uuid::parse_str(SECRET).unwrap(),
+    };
+    let secret = cloud.runtime.block_on(client.secrets().get(&get)).unwrap();
+    (secret.key, secret.value, secret.note)
+}
+
 fn secret_body() -> Value {
     json!({
         "id": SECRET, "organizationId": ORG, "key": ENC, "value": ENC, "note": ENC,
@@ -89,8 +131,8 @@ fn value() -> SecretMaterial {
 fn new_secret() -> NewSecret {
     NewSecret {
         project_id: PROJECT.into(),
-        key: "TEST".into(),
-        note: String::new(),
+        key: "FRESH_KEY".into(),
+        note: "fresh note".into(),
     }
 }
 
@@ -108,6 +150,11 @@ fn create_sends_one_encrypted_request() {
     assert!(
         !writes[0].1.contains(VALUE),
         "the value left the daemon unencrypted"
+    );
+    let sent = sent_plaintext(&cloud, &writes[0].1);
+    assert_eq!(
+        sent,
+        ("FRESH_KEY".into(), VALUE.into(), "fresh note".into())
     );
 }
 
@@ -128,6 +175,8 @@ fn update_writes_the_full_record_once() {
     assert_eq!(writes.len(), 1, "{writes:?}");
     assert_eq!(writes[0].0, format!("PUT {route}"));
     assert!(!writes[0].1.contains(VALUE));
+    let sent = sent_plaintext(&cloud, &writes[0].1);
+    assert_eq!(sent, ("TEST".into(), VALUE.into(), "rotated".into()));
 }
 
 #[test]

@@ -179,3 +179,13 @@ fn a_fifo_at_the_policy_path_is_refused_without_blocking() {
     let refused = rx.recv_timeout(std::time::Duration::from_secs(5));
     assert_eq!(refused, Ok(true), "policy load blocked or accepted a FIFO");
 }
+
+#[test]
+fn a_chatty_descendant_cannot_hold_the_run_open() {
+    let dir = tempdir("chatty");
+    let mut stream = raw_run(&dir, "(while :; do echo tick; sleep 0.1; done) & exit 0");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(read_to_exit(&mut stream).1));
+    let outcome = rx.recv_timeout(std::time::Duration::from_secs(15));
+    assert_eq!(outcome, Ok(RunOutcome::Exited(0)), "run never ended");
+}

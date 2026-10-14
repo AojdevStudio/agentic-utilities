@@ -19,10 +19,11 @@ use anyhow::Result;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// Once the child exits, the pipes may stay idle this long before the
-/// supervisor kills the group, and again before it stops the readers.
+/// Descendants get this long after the child exits before the group is
+/// killed. Readers stop after twice this much time in which the client kept
+/// up, so a slow client never loses output that was already written.
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(20);
 /// Encoded frames waiting for a slow client. Past this, output readers stall.
@@ -42,6 +43,7 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
         mask_values,
         short_keys,
     } = prepared;
+    let client_stream = stream.try_clone()?;
     let child = spawn(&plan);
     drop(plan);
     let child = match child {
@@ -68,7 +70,8 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
         exited: None,
         exit_queued: false,
         credit: 0,
-        idle: Duration::ZERO,
+        unpressured: Duration::ZERO,
+        last_tick: Instant::now(),
         group_killed: false,
     };
     drop(mask_values);
@@ -101,7 +104,7 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     ));
     workers.push(spawn_waiter(child.pid, control_tx.clone()));
     workers.extend(spawn_client_reader(
-        stream.try_clone()?,
+        client_stream,
         child.stdin,
         control_tx,
         Cancel::clone(&cancel),
@@ -127,12 +130,13 @@ struct Supervisor {
     outgoing: Vec<u8>,
     maskers: [Masker; 2],
     open: [bool; 2],
-    exited: Option<RunOutcome>,
+    /// The exit status and when the child exited.
+    exited: Option<(RunOutcome, Instant)>,
     exit_queued: bool,
     credit: usize,
-    /// Time the pipes sat idle since the child exited, counted only while
-    /// the supervisor was ready to take output.
-    idle: Duration,
+    /// Time since exit in which outgoing stayed under the cap.
+    unpressured: Duration,
+    last_tick: Instant,
     group_killed: bool,
 }
 
@@ -154,22 +158,23 @@ impl Supervisor {
                 self.queue(ResponseFrame::RunStdinCredit { bytes });
                 self.credit = 0;
             }
-            if let Some(outcome) = self.exited {
+            let now = Instant::now();
+            if self.exited.is_some() && self.outgoing.len() < OUTGOING_CAP {
+                self.unpressured += now - self.last_tick;
+            }
+            self.last_tick = now;
+            if let Some((outcome, exited_at)) = self.exited {
                 if self.open == [false, false] {
                     if !self.exit_queued {
                         self.queue(ResponseFrame::RunExit { outcome });
                         self.exit_queued = true;
                     }
-                } else if self.idle >= DRAIN_AFTER_EXIT {
-                    // A descendant holds a pipe. Kill the group first; if a
-                    // process outside it still holds one, stop the readers.
-                    if self.group_killed {
-                        self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                    } else {
-                        kill_group(self.pid, libc::SIGKILL);
-                        self.group_killed = true;
-                    }
-                    self.idle = Duration::ZERO;
+                } else if !self.group_killed && now - exited_at >= DRAIN_AFTER_EXIT {
+                    kill_group(self.pid, libc::SIGKILL);
+                    self.group_killed = true;
+                } else if self.group_killed && self.unpressured >= 2 * DRAIN_AFTER_EXIT {
+                    // A process outside the group still holds a pipe.
+                    self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
             }
             if !self.flush(stream) {
@@ -181,12 +186,10 @@ impl Supervisor {
             if self.open != [false, false] && self.outgoing.len() < OUTGOING_CAP {
                 match output.recv_timeout(TICK) {
                     Ok(Output::Chunk(kind, chunk)) => {
-                        self.idle = Duration::ZERO;
                         let masked = self.maskers[index(kind)].push(&chunk);
                         self.queue_output(kind, masked);
                     }
                     Ok(Output::Eof(kind)) => self.close_stream(kind),
-                    Err(RecvTimeoutError::Timeout) if self.exited.is_some() => self.idle += TICK,
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => self.open = [false, false],
                 }
@@ -209,7 +212,10 @@ impl Supervisor {
     /// False when the client is gone.
     fn handle(&mut self, event: Control) -> bool {
         match event {
-            Control::Exited(outcome) => self.exited = Some(outcome),
+            Control::Exited(outcome) => {
+                self.exited = Some((outcome, Instant::now()));
+                self.last_tick = Instant::now();
+            }
             Control::Signal(signal) => kill_group(self.pid, signal.number()),
             Control::StdinConsumed(bytes) => self.credit += bytes,
             Control::ClientGone => return false,

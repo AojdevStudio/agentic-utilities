@@ -80,7 +80,9 @@ pub(super) fn spawn_delivery(
     cancel: Cancel,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
-        write_cancellable(&pipe, &value, &cancel);
+        if set_nonblocking(&pipe) {
+            write_cancellable(&pipe, &value, &cancel);
+        }
     })
 }
 

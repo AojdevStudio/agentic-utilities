@@ -216,7 +216,7 @@ A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-bro
 - picks the run identity: the caller's uid and gid from the kernel, or the dedicated `hushrun` account when `/etc/hush/hushd.toml` lists a bound key under `require_hushrun` (no such account means the run is refused). Root is never a run identity,
 - builds the child environment from scratch: the bindings plus `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `TERM`, `TZ`, and `TMPDIR` from the caller. `BWS_*`, `LD_*`, and `DYLD_*` never reach a child,
 - drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory,
-- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child's process group.
+- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child's process group, and anything the child leaves running in its group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory.
 
 Masking is best effort. A command that prints its own secret in a transformed form (for example base64) can still leak that value.
 

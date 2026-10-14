@@ -136,11 +136,14 @@ fn saturated_listener_socket_is_never_unlinked() {
     let socket = dir.join("hush.sock");
     let listener = server::bind_listener(&socket).unwrap();
 
-    let mut kept = Vec::new();
+    // Each enqueued connection holds its slot after the client closes, so the
+    // helper closes every stream as soon as the kernel enqueues it. Both
+    // platforms bound the queue (somaxconn on Linux, sonewconn on macOS), so
+    // the filler stops at the first refusal and asserts it happened.
     let mut saturated = false;
-    for _ in 0..500 {
+    for _ in 0..65536 {
         match connect_with_deadline(&socket, 200) {
-            Ok(stream) => kept.push(stream),
+            Ok(_stream) => {}
             Err(ConnectMode::RefusedOrFull) => {
                 saturated = true;
                 break;
@@ -150,9 +153,7 @@ fn saturated_listener_socket_is_never_unlinked() {
             }
         }
     }
-    if !saturated {
-        eprintln!("queue did not saturate; platform-dependent, asserts continue");
-    }
+    assert!(saturated, "the accept queue did not fill within the bound");
 
     // The duplicate bind must be refused and the socket kept, saturated or not.
     let second = server::bind_listener(&socket);
@@ -162,9 +163,7 @@ fn saturated_listener_socket_is_never_unlinked() {
         "socket file was removed while the listener is still bound"
     );
 
-    // Drain: closed clients free their slots, then the listener is reachable.
-    // Dead entries only leave when the listener accepts them, so accept first.
-    drop(kept);
+    // Drain: dead entries only leave when the listener accepts them.
     std::thread::sleep(std::time::Duration::from_millis(100));
     listener.set_nonblocking(true).unwrap();
     let mut reconnected = false;

@@ -195,3 +195,94 @@ fn missing_socket_and_plain_file_report_unavailable() {
     let outcome = client::Client::try_connect_to(&plain).unwrap();
     assert!(matches!(outcome, ConnectOutcome::Unavailable));
 }
+
+#[test]
+fn audit_file_is_created_private_and_escapes_newlines() {
+    let dir = tempdir("audit-private");
+    let path = dir.join("audit.log");
+    {
+        use audit::AuditLog as _;
+        let log = audit::FileAuditLog::open(&path).unwrap();
+        log.record_catalog(
+            super::peercred::PeerCredentials {
+                uid: 501,
+                gid: 20,
+                pid: 4242,
+            },
+            Some("evil\nuid=0 gid=0 pid=1 bogus"),
+        )
+        .unwrap();
+    }
+    let metadata = fs::metadata(&path).unwrap();
+    assert_eq!(metadata.mode() & 0o777, 0o600);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("project=evil\\nuid=0 gid=0 pid=1 bogus"),
+        "project filter was not escaped: {text}"
+    );
+    assert_eq!(text.lines().count(), 1);
+}
+
+#[test]
+fn audit_log_refuses_world_readable_file() {
+    let dir = tempdir("audit-loose");
+    let path = dir.join("audit.log");
+    fs::write(&path, "seed\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(audit::FileAuditLog::open(&path).is_err());
+}
+
+#[test]
+fn socket_directory_symlink_is_refused() {
+    let dir = tempdir("socket-dir-symlink");
+    let real = dir.join("real");
+    fs::create_dir_all(&real).unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+    let linked = dir.join("linked");
+    std::os::unix::fs::symlink(&real, &linked).unwrap();
+    let error = server::prepare_socket_dir(&linked).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("symlink"),
+        "unexpected refusal: {error:#}"
+    );
+}
+
+#[test]
+fn live_daemon_socket_is_never_unlinked() {
+    let dir = tempdir("live-socket");
+    let socket = dir.join("hush.sock");
+    let _audit: Arc<dyn audit::AuditLog> =
+        Arc::new(audit::FileAuditLog::open(&dir.join("audit.log")).unwrap());
+    let _backend: Arc<dyn VaultBackend> = Arc::new(fake_backend());
+    let listener = server::bind_listener(&socket).unwrap();
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    let server_thread = std::thread::spawn(move || {
+        while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = listener.accept();
+        }
+    });
+    let second = server::bind_listener(&socket);
+    assert!(second.is_err(), "bind over a live socket should refuse");
+    stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+    server_thread.join().unwrap();
+    assert!(
+        fs::symlink_metadata(&socket).is_ok(),
+        "live socket was removed"
+    );
+    // A stale socket (no listener) still clears.
+    std::fs::remove_file(&socket).unwrap();
+    fs::write(&socket, "not a socket").unwrap();
+}
+
+#[test]
+fn client_timeout_covers_the_daemon_catalog_budget() {
+    let budget = backend::MAX_BWS_OUTPUT;
+    assert_eq!(budget, 16 * 1024 * 1024);
+    let daemon_bws_deadline = backend::BWS_TIMEOUT;
+    let client = client::CLIENT_TIMEOUT;
+    assert!(
+        client >= daemon_bws_deadline * 2,
+        "client timeout {client:?} is shorter than two daemon bws deadlines"
+    );
+}

@@ -3,7 +3,7 @@
 use super::daemon::{serve_connection_guarded, ServeConfig};
 use anyhow::{bail, Context, Result};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
 /// Socket directory mode. Any local user must traverse the directory to reach the socket.
@@ -20,6 +20,13 @@ pub(crate) fn bind_listener(socket: &Path) -> Result<UnixListener> {
         if !parent.as_os_str().is_empty() {
             prepare_socket_dir(parent)?;
         }
+    }
+    // A live daemon answers; only a stale socket from a crashed daemon is removed.
+    if let Ok(_live) = UnixStream::connect(socket) {
+        bail!(
+            "another daemon is already listening at {}",
+            socket.display()
+        );
     }
     if let Ok(metadata) = std::fs::symlink_metadata(socket) {
         if !metadata.file_type().is_socket() {
@@ -90,9 +97,15 @@ fn prepare_socket_dir_as(parent: &Path, euid: u32) -> Result<()> {
                 })
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let metadata = std::fs::metadata(parent).with_context(|| {
+            let metadata = std::fs::symlink_metadata(parent).with_context(|| {
                 format!("failed to inspect socket directory at {}", parent.display())
             })?;
+            if metadata.file_type().is_symlink() {
+                bail!(
+                    "socket directory must not be a symlink at {}",
+                    parent.display()
+                );
+            }
             if !metadata.is_dir() {
                 bail!(
                     "socket parent path must be a directory at {}",

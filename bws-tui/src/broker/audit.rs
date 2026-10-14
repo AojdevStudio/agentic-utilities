@@ -1,9 +1,10 @@
 //! Daemon-owned audit log. Names only, never values or tokens.
 
 use super::peercred::PeerCredentials;
-use anyhow::{Context, Result};
-use std::fs::OpenOptions;
+use anyhow::{bail, Context, Result};
+use std::fs::{OpenOptions, Permissions};
 use std::io::Write;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -26,12 +27,46 @@ impl FileAuditLog {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
+            .mode(0o600)
             .open(path)
             .with_context(|| format!("failed to open daemon audit log at {}", path.display()))?;
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("failed to inspect daemon audit log at {}", path.display()))?;
+        // SAFETY: geteuid takes no arguments and cannot fail.
+        let euid = unsafe { libc::geteuid() };
+        if metadata.uid() != euid {
+            bail!("daemon audit log must be owned by the daemon user");
+        }
+        if metadata.mode() & 0o077 != 0 {
+            bail!("daemon audit log must not be group or world readable or writable");
+        }
+        // A created file can still lose bits to umask; pin 0600 for every daemon run.
+        file.set_permissions(Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to secure daemon audit log at {}", path.display()))?;
         Ok(Self {
             file: Mutex::new(file),
         })
     }
+}
+
+/// Escape client-controlled text so one record stays exactly one line.
+/// Newlines, carriage returns, other control bytes, and backslash become
+/// escapes, so injected lines cannot look like daemon-authored records.
+fn sanitize(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl AuditLog for FileAuditLog {
@@ -42,7 +77,7 @@ impl AuditLog for FileAuditLog {
             peer.uid,
             peer.gid,
             peer.pid,
-            project.unwrap_or("-"),
+            sanitize(project.unwrap_or("-")),
         );
         let mut file = self
             .file

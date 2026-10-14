@@ -48,7 +48,7 @@ CLI usage:
 ```bash
 hush list [--json]                                   # metadata only
 hush run --secret CLOUDFLARE_API_TOKEN -- wrangler deploy
-hush run --secret "Cloudflare Admin=CF_ADMIN" --fd GH_TOKEN -- ./deploy.sh
+hush run --secret "<KEY_NAME>=<ENV_NAME>" --fd <OTHER_KEY> -- ./deploy.sh
 hush reveal --key CLOUDFLARE_API_TOKEN               # human only, real TTY, approval
 ```
 

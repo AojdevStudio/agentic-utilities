@@ -205,7 +205,7 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 
 ### Broker daemon (in progress)
 
-A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by the daemon user.
+A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by root. The debug-only `--dev-same-user` flag relaxes ownership to the daemon user for same-user development.
 
 ### Known upstream limit: argv exposure
 

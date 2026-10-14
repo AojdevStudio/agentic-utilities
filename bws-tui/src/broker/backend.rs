@@ -2,7 +2,7 @@
 
 use super::material::SecretMaterial;
 use super::meta::{SecretMeta, SecretRef};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 #[cfg(test)]
@@ -11,6 +11,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+use zeroize::{Zeroize, Zeroizing};
 
 /// Hard cap on bws stdout. `bws secret list` returns every value at once.
 pub(crate) const MAX_BWS_OUTPUT: usize = 16 * 1024 * 1024;
@@ -37,7 +38,8 @@ struct BwsProject {
 struct BwsSecret {
     id: String,
     key: String,
-    value: String,
+    /// Values zeroize on drop even inside the wire struct.
+    value: SecretString,
     #[serde(default)]
     note: String,
     project_id: Option<String>,
@@ -77,22 +79,23 @@ impl BwsBackend {
         Self { bws_path, token }
     }
 
-    fn run_bws(&self, args: &[&str]) -> Result<String> {
+    fn run_bws(&self, args: &[&str]) -> Result<Zeroizing<String>> {
         self.run_bws_capped(args, MAX_BWS_OUTPUT)
     }
 
     /// Run bws with a byte cap on stdout. Stderr is discarded.
-    pub(crate) fn run_bws_capped(&self, args: &[&str], cap: usize) -> Result<String> {
+    pub(crate) fn run_bws_capped(&self, args: &[&str], cap: usize) -> Result<Zeroizing<String>> {
         self.run_bws_with_deadline(args, cap, BWS_TIMEOUT)
     }
 
     /// Run bws with a byte cap on stdout and a hard deadline. Stderr is discarded.
+    /// The output holds secret values, so the returned string zeroizes on drop.
     pub(crate) fn run_bws_with_deadline(
         &self,
         args: &[&str],
         cap: usize,
         timeout: Duration,
-    ) -> Result<String> {
+    ) -> Result<Zeroizing<String>> {
         let deadline = Instant::now()
             .checked_add(timeout)
             .context("failed to run bws")?;
@@ -118,7 +121,15 @@ impl BwsBackend {
             let name = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
             return Err(anyhow!("bws {name} failed ({status})"));
         }
-        Ok(String::from_utf8(std::mem::take(&mut bytes))?)
+        let text = match String::from_utf8(std::mem::take(&mut bytes)) {
+            Ok(text) => text,
+            Err(error) => {
+                let mut raw = error.into_bytes();
+                raw.zeroize();
+                bail!("bws produced invalid UTF-8");
+            }
+        };
+        Ok(Zeroizing::new(text))
     }
 }
 
@@ -216,7 +227,8 @@ impl VaultBackend for BwsBackend {
     fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
         let SecretRef::Id(id) = secret;
         let wire: BwsSecret = serde_json::from_str(&self.run_bws(&["secret", "get", id])?)?;
-        Ok(SecretMaterial::new(wire.value.into_bytes()))
+        let bytes = wire.value.expose_secret().as_bytes().to_vec();
+        Ok(SecretMaterial::new(bytes))
     }
 }
 

@@ -1,5 +1,6 @@
 //! Broker client. Holds no token and never receives secret bytes.
 
+use super::backend::BWS_TIMEOUT;
 use super::meta::SecretMeta;
 use super::paths::default_socket_path;
 use super::protocol::{read_frame, write_frame, Frame, RequestFrame, ResponseFrame};
@@ -8,6 +9,11 @@ use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// One catalog round trip costs up to two daemon `bws` calls at the daemon
+/// deadline each, plus protocol overhead. The client never times out earlier.
+pub(crate) const CLIENT_TIMEOUT: Duration =
+    Duration::from_millis(2 * BWS_TIMEOUT.as_millis() as u64 + 10_000);
 
 /// Result of probing for a daemon. Only `Unavailable` may fall back.
 pub(crate) enum ConnectOutcome {
@@ -51,8 +57,8 @@ impl Client {
         }
         match UnixStream::connect(path) {
             Ok(stream) => {
-                stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-                stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+                stream.set_read_timeout(Some(CLIENT_TIMEOUT))?;
+                stream.set_write_timeout(Some(CLIENT_TIMEOUT))?;
                 Ok(ConnectOutcome::Connected(Self::from_stream(stream)?))
             }
             Err(error)

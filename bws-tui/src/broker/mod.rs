@@ -36,4 +36,10 @@ mod fix_tests;
 #[cfg(test)]
 mod round2_tests;
 #[cfg(test)]
+mod run_harness;
+#[cfg(test)]
+mod run_tests;
+#[cfg(test)]
+mod run_unit_tests;
+#[cfg(test)]
 mod tests;

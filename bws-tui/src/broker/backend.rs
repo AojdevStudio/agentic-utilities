@@ -1,12 +1,11 @@
 //! Vault access. The `bws` wire structs stay private to this module.
 
 use super::material::SecretMaterial;
-use super::meta::{SecretMeta, SecretRef};
+use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
+use super::sdk::SdkWriter;
 use anyhow::{anyhow, bail, Context, Result};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-#[cfg(test)]
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -20,10 +19,22 @@ pub(crate) const MAX_BWS_OUTPUT: usize = 16 * 1024 * 1024;
 pub(crate) const BWS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The daemon's only path to stored values. `catalog` never returns values.
-#[allow(dead_code)]
+/// Writes take values as [`SecretMaterial`] and never put them in argv.
 pub(crate) trait VaultBackend: Send + Sync {
     fn catalog(&self) -> Result<Vec<SecretMeta>>;
     fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial>;
+    fn projects(&self) -> Result<Vec<ProjectMeta>>;
+    fn create(
+        &self,
+        secret: &NewSecret,
+        value: &SecretMaterial,
+    ) -> Result<SecretMeta, WriteFailure>;
+    fn update(
+        &self,
+        secret: &SecretUpdate,
+        value: &SecretMaterial,
+    ) -> Result<SecretMeta, WriteFailure>;
+    fn delete(&self, id: &str) -> Result<()>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +42,15 @@ pub(crate) trait VaultBackend: Send + Sync {
 struct BwsProject {
     id: String,
     name: String,
+}
+
+impl From<BwsProject> for ProjectMeta {
+    fn from(project: BwsProject) -> Self {
+        Self {
+            id: project.id,
+            name: project.name,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,15 +88,23 @@ fn drop_value(secret: BwsSecret, projects: &[BwsProject]) -> SecretMeta {
     }
 }
 
-/// Real backend. Shells out to `bws` by absolute path with a cleared environment.
+/// Real backend. Reads and id-only deletes shell out to `bws` by absolute path
+/// with a cleared environment. `bws` takes write values in argv, so value
+/// writes go through the Bitwarden SDK instead.
 pub(crate) struct BwsBackend {
     bws_path: PathBuf,
     token: SecretString,
+    writer: SdkWriter,
 }
 
 impl BwsBackend {
     pub(crate) fn new(bws_path: PathBuf, token: SecretString) -> Self {
-        Self { bws_path, token }
+        let writer = SdkWriter::cloud(token.clone());
+        Self {
+            bws_path,
+            token,
+            writer,
+        }
     }
 
     fn run_bws(&self, args: &[&str]) -> Result<Zeroizing<String>> {
@@ -232,54 +260,30 @@ impl VaultBackend for BwsBackend {
         let bytes = wire.value.expose_secret().as_bytes().to_vec();
         Ok(SecretMaterial::new(bytes))
     }
-}
 
-/// In-memory backend for tests. Values live only in this struct and leave
-/// exclusively through [`VaultBackend::fetch`].
-#[cfg(test)]
-pub(crate) struct FakeBackend {
-    secrets: HashMap<String, (SecretMeta, String)>,
-}
-
-#[cfg(test)]
-impl FakeBackend {
-    pub(crate) fn new(secrets: HashMap<String, (SecretMeta, String)>) -> Self {
-        Self { secrets }
-    }
-}
-
-/// Catalog always fails. Tests use it to prove connected errors propagate.
-#[cfg(test)]
-pub(crate) struct FailingBackend;
-
-#[cfg(test)]
-impl VaultBackend for FailingBackend {
-    fn catalog(&self) -> Result<Vec<SecretMeta>> {
-        Err(anyhow!("backend exploded"))
+    fn projects(&self) -> Result<Vec<ProjectMeta>> {
+        let projects: Vec<BwsProject> = serde_json::from_str(&self.run_bws(&["project", "list"])?)?;
+        Ok(projects.into_iter().map(ProjectMeta::from).collect())
     }
 
-    fn fetch(&self, _secret: &SecretRef) -> Result<SecretMaterial> {
-        Err(anyhow!("backend exploded"))
-    }
-}
-
-#[cfg(test)]
-impl VaultBackend for FakeBackend {
-    fn catalog(&self) -> Result<Vec<SecretMeta>> {
-        let mut metas: Vec<SecretMeta> = self
-            .secrets
-            .values()
-            .map(|(meta, _)| meta.clone())
-            .collect();
-        metas.sort_by(|left, right| left.key.cmp(&right.key));
-        Ok(metas)
+    fn create(
+        &self,
+        secret: &NewSecret,
+        value: &SecretMaterial,
+    ) -> Result<SecretMeta, WriteFailure> {
+        self.writer.create(secret, value)
     }
 
-    fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
-        let SecretRef::Id(id) = secret else {
-            bail!("backends fetch only resolved secret ids");
-        };
-        let (_, value) = self.secrets.get(id).context("unknown secret id")?;
-        Ok(SecretMaterial::new(value.as_bytes().to_vec()))
+    fn update(
+        &self,
+        secret: &SecretUpdate,
+        value: &SecretMaterial,
+    ) -> Result<SecretMeta, WriteFailure> {
+        self.writer.update(secret, value)
+    }
+
+    fn delete(&self, id: &str) -> Result<()> {
+        self.run_bws(&["secret", "delete", id])?;
+        Ok(())
     }
 }

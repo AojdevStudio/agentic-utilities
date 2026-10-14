@@ -177,6 +177,7 @@ pub(crate) fn run_server(
     audit: std::sync::Arc<dyn super::audit::AuditLog>,
     config: ServeConfig,
     run: std::sync::Arc<super::run_prepare::RunConfig>,
+    human: std::sync::Arc<super::human::HumanConfig>,
 ) -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let active = std::sync::Arc::new(AtomicUsize::new(0));
@@ -197,9 +198,11 @@ pub(crate) fn run_server(
         let audit = std::sync::Arc::clone(&audit);
         let active = std::sync::Arc::clone(&active);
         let run = std::sync::Arc::clone(&run);
+        let human = std::sync::Arc::clone(&human);
         std::thread::spawn(move || {
             let _slot = ConnectionSlot(active);
-            if let Err(error) = serve_connection_guarded(stream, &*backend, &*audit, config, &run) {
+            let served = serve_connection_guarded(stream, &*backend, &*audit, config, &run, &human);
+            if let Err(error) = served {
                 eprintln!("connection failed: {error}");
             }
         });

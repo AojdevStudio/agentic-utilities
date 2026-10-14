@@ -1,7 +1,7 @@
 use super::{events, App};
 use anyhow::{anyhow, bail, Context, Result};
 use crossterm::{
-    execute,
+    cursor, execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -56,7 +56,7 @@ pub(super) fn run(app: &mut App) -> Result<()> {
         bail!(
             "hush's interactive TUI needs a terminal session (no TTY found). \
              Run `hush` from an interactive terminal, or use the script-friendly \
-             subcommands: `hush list`, `hush get --key <KEY>`, `hush exec --key <KEY> -- <cmd>`"
+             subcommands: `hush list`, `hush run --secret <KEY> -- <cmd>`"
         );
     }
     let mut guard = TerminalGuard::default();
@@ -67,6 +67,24 @@ pub(super) fn run(app: &mut App) -> Result<()> {
     let event = events::event_loop(&mut terminal, app);
     let (raw, screen) = guard.restore(terminal.backend_mut());
     finish_terminal(event, raw, screen)
+}
+
+/// Hand the terminal to the daemon for `work`, then take it back. Raw mode
+/// and the alternate screen are off while the daemon prompts or discloses,
+/// and the TUI redraws from scratch after.
+pub(super) fn suspended<T>(
+    term: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    work: impl FnOnce() -> T,
+) -> Result<T> {
+    disable_raw_mode().context("failed to restore terminal input mode")?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show)
+        .context("failed to leave alternate terminal screen")?;
+    let result = work();
+    execute!(term.backend_mut(), EnterAlternateScreen)
+        .context("failed to enter alternate terminal screen")?;
+    enable_raw_mode().context("failed to enable terminal input mode")?;
+    term.clear()?;
+    Ok(result)
 }
 
 /// The TUI needs either side attached to a terminal; crossterm opens /dev/tty

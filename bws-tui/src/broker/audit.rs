@@ -15,6 +15,16 @@ pub(crate) trait AuditLog: Send + Sync {
     fn record_catalog(&self, peer: PeerCredentials, project: Option<&str>) -> Result<()>;
     /// Written after resolution and before any fetch, so refused runs are recorded too.
     fn record_run(&self, peer: PeerCredentials, run: &RunAudit<'_>) -> Result<()>;
+    /// Written after resolution and before approval, disclosure, or any write.
+    fn record_human(&self, peer: PeerCredentials, human: &HumanAudit<'_>) -> Result<()>;
+}
+
+/// One human request: the operation and the secret it names.
+pub(crate) struct HumanAudit<'a> {
+    pub verb: &'a str,
+    pub key: &'a str,
+    pub project: Option<&'a str>,
+    pub id: Option<&'a str>,
 }
 
 /// One run request. `secrets` pairs each requested key with its resolved id, if any.
@@ -124,6 +134,22 @@ impl AuditLog for FileAuditLog {
                 sanitize(run.program),
                 secrets.join(",")
             ),
+        )
+    }
+
+    fn record_human(&self, peer: PeerCredentials, human: &HumanAudit<'_>) -> Result<()> {
+        self.append("human", peer, &Self::human_line(human))
+    }
+}
+
+impl FileAuditLog {
+    pub(crate) fn human_line(human: &HumanAudit<'_>) -> String {
+        format!(
+            "op={} key={} project={} id={}",
+            human.verb,
+            sanitize(human.key),
+            sanitize(human.project.unwrap_or("-")),
+            sanitize(human.id.unwrap_or("new")),
         )
     }
 }

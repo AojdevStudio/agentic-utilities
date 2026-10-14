@@ -26,7 +26,7 @@ Sol's broker design is the base. Wonder Full's child-run design replaces Sol's s
 - Linux: root systemd service. Token is a systemd credential (`LoadCredentialEncrypted=` where systemd is 250 or newer, otherwise a root-only `LoadCredential=` file).
 - macOS: root LaunchDaemon. Token is a root-only file `/var/db/hush/token`, mode 0600, directory 0700. (Sol proposed a System Keychain item. A root-only file gives the same protection against a non-root agent and does not need a signed binary. Keychain can come later.)
 - The daemon refuses to start if the token file is not owned by root with mode 0600.
-- The daemon runs `bws` by absolute path with a cleared environment plus `BWS_ACCESS_TOKEN`. The `bws` child runs as root, so non-root processes cannot read its argv or env through `/proc` or `ps -E`.
+- The daemon runs `bws` by absolute path with a cleared environment plus `BWS_ACCESS_TOKEN`. The `bws` child runs as root, so non-root processes cannot read its environment. They can still read its argv on Linux unless `/proc` is mounted with `hidepid`, so `bws` gets only ids and metadata in argv. Values are written through the Bitwarden SDK instead (see PR 3 decisions).
 
 ### Client surface
 
@@ -95,6 +95,8 @@ struct RunSpec { bindings: Vec<Binding>, program: OsString, args: Vec<OsString>,
 
 Approval checks the account password of the socket's peer uid: PAM on Linux, OpenDirectory on macOS. Agents do not know the password. Touch ID can replace this later. Edit, delete, and TUI copy go through the same approval.
 
+Add policy (decided 2026-10-14): daemon-backed add does not require password approval. Add must fail if the key already exists in the resolved project. Overwriting a value counts as an edit, and an edit needs approval.
+
 ### Ownership
 
 - The daemon owns the token, the catalog, the audit log, and every secret value.
@@ -109,6 +111,19 @@ Approval checks the account password of the socket's peer uid: PAM on Linux, Ope
 4. `hush-broker/4-install`: `hush install` and `hush status` for Linux (systemd unit, credential, `hushrun` user, socket dir) and macOS (LaunchDaemon, token file, `hushrun` user), plus docs. Installing on a machine stays a human step with `sudo`.
 
 Outside this stack: EnvSync stops writing secret values, shells stop sourcing them, services move to `hush run`, and each machine gets the daemon. Those changes live in other repos and on the machines.
+
+## PR 3 decisions
+
+These record how `hush-broker/3-human` implements the human surface. They refine the sections above.
+
+- **Typed operations.** One private enum carries `Add`, `Reveal`, `Copy`, `Edit`, and `Delete` beside the unchanged run frames. Replies carry metadata or a typed refusal. No frame type can hold a value or a password. One exhaustive match per operation names its descriptor roles and whether it needs approval. The client calls `Client::operate(op, fds)` and `Client::projects()`, which replace the sketched `reveal_to_tty`.
+- **Descriptor framing.** Descriptors travel with `SCM_RIGHTS` on the first byte of a request frame only. Missing, extra, truncated, late, or foreign control data is refused, and every received descriptor is closed. Received descriptors are close-on-exec at once and never reach a run or `bws` child.
+- **Terminal checks.** The daemon requires a read-write terminal owned by the peer uid. It must be the peer's controlling terminal, and the peer must be in its foreground process group. A process cannot query those facts on a terminal that is not its own, so the daemon reads them from the kernel's record of the peer process (`/proc/<pid>/stat` on Linux, `proc_pidinfo` on macOS). It checks again just before disclosure. The client passes the real terminal device behind stdin, stdout, or stderr, because a `/dev/tty` descriptor reports the `/dev/tty` node, not the user's own terminal. `hush reveal` refuses redirected stdout before connecting.
+- **Approval.** Reveal, copy, edit, and delete each need a fresh password check. Nothing is cached. The password prompt runs on the passed terminal with echo, line editing, and signals off. Typeahead is flushed first, and the terminal mode is restored on every path. Ctrl-C, a closed terminal, a client disconnect, or a timeout cancels it. The password stays in a bounded zeroizing buffer. Linux uses PAM service `hush` with `pam_authenticate` then `pam_acct_mgmt`, and a missing service file is refused before any prompt. macOS uses OpenDirectory. Installing the PAM service file is PR 4 work.
+- **Writes.** One daemon mutation lock covers the fresh duplicate lookup and the single create, and also rename collisions on edit. It is never held while a human types. Creates and value edits go through the Bitwarden SDK at the version the iOS bridge already pins. Reads, the catalog, and id-only deletes stay on `bws`. A write whose outcome is unknown is reported as uncertain and is never retried. A writer outside this daemon can still create a duplicate key at the same moment, and the daemon does not delete anything to undo that.
+- **Copy.** After approval, the daemon writes a bounded OSC 52 sequence to the passed terminal and replies that the copy was sent. Terminals cannot confirm delivery, so `hush` promises no delivery and no clearing. This replaces the earlier native clipboard copy.
+- **Reveal.** The daemon shows the value on the terminal's alternate screen until Enter, then clears it. Control characters in stored values are escaped so a value cannot drive the terminal.
+- **Removals.** The client loses `bws` access, `hush get`, `hush sync`, the user metadata cache code, the old `exec` module, value-bearing structs, its own audit log, and clipboard handling. A missing daemon is a hard error for every command. Existing cache and audit files on disk are left alone.
 
 ## Alternatives considered
 

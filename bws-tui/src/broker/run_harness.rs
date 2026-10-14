@@ -48,7 +48,8 @@ pub(super) fn daemon_socket(dir: &Path, run: RunConfig) -> PathBuf {
     let audit = audit::FileAuditLog::open(&dir.join("audit.log")).unwrap();
     std::thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
-        let _ = daemon::serve_connection_with(stream, &backend(), &audit, &run);
+        let human = human::HumanConfig::default();
+        let _ = daemon::serve_connection_with(stream, &backend(), &audit, &run, &human);
     });
     socket
 }

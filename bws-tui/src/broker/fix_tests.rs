@@ -109,7 +109,8 @@ fn stalled_client_does_not_block_second_client() {
         max_connections: 32,
     };
     let _server = std::thread::spawn(move || {
-        let _ = server::run_server(listener, backend, audit, config, Default::default());
+        let (run, human) = Default::default();
+        let _ = server::run_server(listener, backend, audit, config, run, human);
     });
     let mut stalled = UnixStream::connect(&socket).unwrap();
     stalled.write_all(&[1u8, 0u8]).unwrap();
@@ -171,16 +172,11 @@ fn connected_daemon_error_propagates_as_error() {
     let socket = dir.join("hush.sock");
     let audit_path = dir.join("audit.log");
     let audit: Arc<dyn audit::AuditLog> = Arc::new(audit::FileAuditLog::open(&audit_path).unwrap());
-    let backend: Arc<dyn VaultBackend> = Arc::new(backend::FailingBackend);
+    let backend: Arc<dyn VaultBackend> = Arc::new(fake_backend::FailingBackend);
     let listener = server::bind_listener(&socket).unwrap();
     let _server = std::thread::spawn(move || {
-        let _ = server::run_server(
-            listener,
-            backend,
-            audit,
-            daemon::ServeConfig::default(),
-            Default::default(),
-        );
+        let (config, run, human) = Default::default();
+        let _ = server::run_server(listener, backend, audit, config, run, human);
     });
     let outcome = client::Client::try_connect_to(&socket).unwrap();
     let ConnectOutcome::Connected(mut connected) = outcome else {

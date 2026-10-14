@@ -1,0 +1,31 @@
+[package]
+name = "hush-bridge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+publish = false
+description = "Narrow C bridge from the Hush iOS app to the Bitwarden Secrets Manager SDK"
+license = "MIT"
+
+[lib]
+name = "hush_bridge"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+bitwarden = "=2.1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time", "net"] }
+uuid = { version = "1", features = ["serde"] }
+zeroize = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+base64 = "0.22"
+wiremock = "0.6"
+
+# Panics must unwind so catch_unwind can stop them at the C boundary.
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"

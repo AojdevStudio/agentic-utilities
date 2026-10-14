@@ -230,7 +230,7 @@ async function tavilyPost(path: string, body: Json) {
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
-    name: "web_search",
+    name: "agentic_utilities_web_search",
     label: "Web Search",
     description:
       "Search the public web. Uses Brave Search by default, with optional Google Custom Search fallback/backend when Google CSE credentials are configured.",

@@ -8,6 +8,7 @@ Keep this as the human-readable record of what lives in the package.
 | `agentic-utilities` | Agent Skills CLI Repository | `skills.sh.json`, `skills/README.md`, `skills/**/SKILL.md` | active | skills.sh-compatible repository page grouping and portable Agent Skills inventory; inspect with `bunx skills add . --list`. |
 | `aoj-stars` (`stars`) | Bun CLI Package | `stars/` | active | Standalone GitHub star CLI with verified identity, batch stars, ledger, review queue, and follow-up actions. |
 | `bws-tui` (`hush`) | Rust CLI Crate | `bws-tui/` | active | Interactive TUI and agent-native CLI wrapper around the Bitwarden Secrets Manager `bws` CLI; published on crates.io as `bws-tui`. |
+| `hush-ios` | Native iOS App | `hush-ios/` | experimental | SwiftUI iPhone and iPad companion for Bitwarden Secrets Manager, distributed through internal TestFlight. |
 | `html-docs` | Codex Plugin | `codex/plugins/html-docs/.codex-plugin/plugin.json` | experimental | Converts Markdown plans, reports, PR writeups, research notes, and general docs into standalone adjacent HTML artifacts. |
 | `adversarial-review` | Extension | `extensions/adversarial-review.ts` | active | Runs adversarial implementation review workflows from Pi as extension tools/commands. |
 | `anti-hedging` | Extension | `extensions/anti-hedging.ts` | active | Injects concise anti-hedging response guidance for sharper agent answers. |
@@ -18,7 +19,7 @@ Keep this as the human-readable record of what lives in the package.
 | `interactive-artifacts` | Extension | `extensions/interactive-artifacts/index.ts` | active | Publishes browser-based interactive concept explainer artifacts from Pi. |
 | `question` | Extension | `extensions/question/index.ts` | active | Adds bounded legacy `AskUserQuestion`/`AskBatchQuestions` tools plus the namespaced `agentic_utilities_ask_user_question` TUI, which retains the rpiv parameter contract without colliding with upstream. |
 | `todos` | Extension | `extensions/todos.ts` | active | Manages file-backed todos for agent task tracking. |
-| `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search, fetch, and related browser-grade research tools. |
+| `web-tools` | Extension | `extensions/web-tools.ts` | active | Adds web search as `agentic_utilities_web_search` (namespaced so it does not collide with `pi-web-access` `web_search`), fetch, and related browser-grade research tools. |
 | `adversarial-review` | Skill | `skills/adversarial-review/SKILL.md` | active | Deep implementation review skill for bug hunting and ship-readiness checks. |
 | `art` | Skill | `skills/art/SKILL.md` | active | Creates visual assets, diagrams, infographics, thumbnails, icons, comics, and art direction. |
 | `awesome-readme` | Skill | `skills/awesome-readme/SKILL.md` | active | Creates, improves, and reviews GitHub README files with a story-first structure. |

@@ -75,3 +75,11 @@ Use the repo's canonical labels: `needs-triage`, `needs-info`, `ready-for-agent`
 ### Project context docs
 
 This is a single-context repo with root `CONTEXT.md` and `docs/adr/`; product/design docs are absent until needed. See `docs/agents/domain.md`.
+
+<!-- pr-kit:start -->
+## Pull requests
+
+- Open every PR with the `open-pr` skill and land it with the `land-pr` skill. Both live in `.claude/skills/`.
+- The PR body has five fixed sections: Problem, Change, Proof, Review, Merge danger. Merge danger names the door and the blast radius.
+- The open-pr gate and the `pr-kit` CI check refuse a body that breaks the contract. Fix the body. Never route around either.
+<!-- pr-kit:end -->

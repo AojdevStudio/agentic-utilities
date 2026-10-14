@@ -42,7 +42,7 @@
     ]
   },
   "scripts": {
-    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
+    "check": "bun run lint && bun scripts/validate-lockfile.mjs && bun run check:bws-tui && bun run check:hush-ios-bridge && bun run typecheck && bun run test && bun run validate:plugins && bun scripts/validate-package-contents.mjs && bun run validate:skills && bun scripts/list-resources.mjs",
     "list": "bun scripts/list-resources.mjs",
     "check:bws-tui": "cargo fmt --manifest-path bws-tui/Cargo.toml -- --check && cargo test --manifest-path bws-tui/Cargo.toml && cargo clippy --manifest-path bws-tui/Cargo.toml -- -D warnings",
     "validate:plugins": "bun scripts/validate-plugin-ports.mjs && bun scripts/validate-codex-plugins.mjs",
@@ -54,13 +54,14 @@
     "lint": "biome lint .",
     "lint:fix": "biome check --write .",
     "prepare": "husky",
-    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs scripts/validate-lockfile.test.mjs scripts/sync-public.test.mjs && bun test skills/pr-review-queue/ && bun run test:herdr-fleet && bun run test:stars",
+    "test": "node extensions/autopilot/v2-smoke-test.mjs && node extensions/question/question-smoke-test.mjs && node extensions/conditional-hooks/smoke-test.mjs && node scripts/lib/frontmatter-test.mjs && node scripts/lib/bundle-refs-test.mjs && node scripts/cli-entrypoint-test.mjs && python3 skills/diataxis-docs-site/tests/test_create_site.py && bun test scripts/lib/package-links.test.mjs scripts/validate-lockfile.test.mjs scripts/sync-public.test.mjs && bun test ./.claude/skills/land-pr/merge.test.ts ./.claude/skills/open-pr/command.test.ts && bun test skills/pr-review-queue/ && bun run test:herdr-fleet && bun run test:stars",
     "test:stars": "bun test stars/test/",
     "test:herdr-fleet": "bun skills/herdr-fleet/scripts/resolve-project-key.mjs --self-test && bun skills/herdr-fleet/scripts/watch-fleet.mjs --self-test && bun skills/herdr-fleet/scripts/consume-events.mjs --self-test && bun test skills/herdr-fleet/skill-content.test.mjs skills/herdr-fleet/scripts/fleet-state.test.mjs skills/herdr-fleet/scripts/review-thread-gate.test.mjs",
     "typecheck": "tsc --noEmit",
     "validate:skills": "bun scripts/validate-agent-skills.mjs",
     "sync:public": "bun scripts/sync-public.mjs",
-    "sync:public:check": "bun scripts/sync-public.mjs --check"
+    "sync:public:check": "bun scripts/sync-public.mjs --check",
+    "check:hush-ios-bridge": "cargo fmt --manifest-path hush-ios/Bridge/Cargo.toml -- --check && cargo test --locked --manifest-path hush-ios/Bridge/Cargo.toml && cargo clippy --locked --manifest-path hush-ios/Bridge/Cargo.toml -- -D warnings"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",

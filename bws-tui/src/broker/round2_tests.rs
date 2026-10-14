@@ -107,3 +107,14 @@ fn bws_hanging_after_little_output_is_killed_at_deadline() {
         "error carried output bytes: {text}"
     );
 }
+
+#[test]
+fn liveness_probe_reads_a_missing_path_as_stale() {
+    let dir = tempdir("liveness-missing");
+    let outcome = server::socket_has_liveness(&dir.join("absent.sock"));
+    assert!(matches!(outcome, Ok(server::Liveness::Stale)));
+    let plain = dir.join("plain.sock");
+    fs::write(&plain, "not a socket").unwrap();
+    let outcome = server::socket_has_liveness(&plain);
+    assert!(matches!(outcome, Ok(server::Liveness::Stale)));
+}

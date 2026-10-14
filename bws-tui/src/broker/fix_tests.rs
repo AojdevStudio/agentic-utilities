@@ -265,6 +265,9 @@ fn live_daemon_socket_is_never_unlinked() {
     let second = server::bind_listener(&socket);
     assert!(second.is_err(), "bind over a live socket should refuse");
     stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Wake the blocking accept so the join cannot hang; failure is expected
+    // when the thread has already exited its loop.
+    let _ = UnixStream::connect(&socket);
     server_thread.join().unwrap();
     assert!(
         fs::symlink_metadata(&socket).is_ok(),

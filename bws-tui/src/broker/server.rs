@@ -2,8 +2,9 @@
 
 use super::daemon::{serve_connection_guarded, ServeConfig};
 use anyhow::{bail, Context, Result};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixListener;
 use std::path::Path;
 
 /// Socket directory mode. Any local user must traverse the directory to reach the socket.
@@ -14,6 +15,116 @@ pub(crate) const SOCKET_DIR_MODE: u32 = 0o755;
 /// Connection alone grants nothing. Policy uses kernel peer credentials on each connection.
 pub(crate) const SOCKET_MODE: u32 = 0o666;
 
+/// Whether an existing socket path has a listening daemon.
+pub(crate) enum Liveness {
+    /// Something answered or accepted the connect attempt.
+    Live,
+    /// Nothing is bound there; the path is safe to remove.
+    Stale,
+}
+
+/// Deadline for the one liveness probe at daemon start.
+const LIVENESS_PROBE_TIMEOUT_MS: i32 = 500;
+
+/// Probe an existing socket path without blocking on a broken or backed-up
+/// listener. `connect` runs nonblocking and completion is polled. A refusal
+/// means the path is stale. Establishing a connection means it is live.
+/// The probe cannot settle a connection that started but stayed pending, so
+/// that case is unclear and the caller must not unlink anything.
+pub(crate) fn socket_has_liveness(socket: &Path) -> Result<Liveness> {
+    /// One probe result on the socket path.
+    enum Probe {
+        Live,
+        Stale,
+        Unclear(std::io::Error),
+    }
+
+    /// The probe connect runs nonblocking, so a dead or backed-up listener
+    /// cannot stall the bind. Completion is polled within the deadline.
+    fn probe(socket: &Path) -> Probe {
+        // SAFETY: fd is closed on every path, and the sockaddr is built from
+        // a zeroed struct plus checked path bytes. The path slice's only
+        // cast is repr-identical bytes to i8 for the kernel struct.
+        #[allow(unnecessary_transmutes)]
+        unsafe {
+            let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+            if fd < 0 {
+                return Probe::Unclear(std::io::Error::last_os_error());
+            }
+            let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+            if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+                libc::close(fd);
+                return Probe::Unclear(std::io::Error::last_os_error());
+            }
+            let mut addr: libc::sockaddr_un = std::mem::zeroed();
+            addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+            let bytes = socket.as_os_str().as_bytes();
+            if bytes.len() >= addr.sun_path.len() {
+                libc::close(fd);
+                return Probe::Unclear(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "socket path too long",
+                ));
+            }
+            addr.sun_path[..bytes.len()]
+                .copy_from_slice(std::mem::transmute::<&[u8], &[i8]>(bytes));
+            let connected = libc::connect(
+                fd,
+                &addr as *const libc::sockaddr_un as *const libc::sockaddr,
+                std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
+            );
+            if connected == 0 {
+                libc::close(fd);
+                return Probe::Live;
+            }
+            let error = std::io::Error::last_os_error();
+            match error.raw_os_error() {
+                // Nothing bound, or it refused: the path is stale.
+                Some(libc::ECONNREFUSED | libc::ENOENT | libc::ENOTSOCK) => {
+                    libc::close(fd);
+                    Probe::Stale
+                }
+                // A full pending queue still proves a listener exists.
+                Some(libc::EAGAIN) => {
+                    libc::close(fd);
+                    Probe::Live
+                }
+                Some(libc::EINPROGRESS) => {
+                    let mut pollfd = libc::pollfd {
+                        fd,
+                        events: libc::POLLHUP,
+                        revents: 0,
+                    };
+                    let waited = libc::poll(&mut pollfd, 1, LIVENESS_PROBE_TIMEOUT_MS);
+                    let outcome = if waited == 0 {
+                        Probe::Live
+                    } else if waited < 0 || pollfd.revents & libc::POLLERR != 0 {
+                        Probe::Stale
+                    } else {
+                        Probe::Live
+                    };
+                    libc::close(fd);
+                    outcome
+                }
+                _ => {
+                    libc::close(fd);
+                    Probe::Unclear(error)
+                }
+            }
+        }
+    }
+
+    match probe(socket) {
+        Probe::Live => Ok(Liveness::Live),
+        Probe::Stale => Ok(Liveness::Stale),
+        Probe::Unclear(error) => bail!(
+            "socket liveness probe could not decide at {} ({}). The socket is left in place",
+            socket.display(),
+            error
+        ),
+    }
+}
+
 /// Bind `socket` with explicit directory and socket modes.
 pub(crate) fn bind_listener(socket: &Path) -> Result<UnixListener> {
     if let Some(parent) = socket.parent() {
@@ -22,11 +133,14 @@ pub(crate) fn bind_listener(socket: &Path) -> Result<UnixListener> {
         }
     }
     // A live daemon answers; only a stale socket from a crashed daemon is removed.
-    if let Ok(_live) = UnixStream::connect(socket) {
-        bail!(
+    // The probe runs with a deadline, so a hung listener cannot stall the bind.
+    match socket_has_liveness(socket) {
+        Ok(Liveness::Live) => bail!(
             "another daemon is already listening at {}",
             socket.display()
-        );
+        ),
+        Ok(Liveness::Stale) => {}
+        Err(error) => return Err(error),
     }
     if let Ok(metadata) = std::fs::symlink_metadata(socket) {
         if !metadata.file_type().is_socket() {

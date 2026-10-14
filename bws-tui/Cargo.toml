@@ -18,10 +18,14 @@ ratatui = "0.29"
 crossterm = "0.28"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-secrecy = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
 zeroize = "1"
 anyhow = "1"
 humantime = "2"
 clap = { version = "4", features = ["derive"] }
 arboard = "3"
 base64 = "0.22"
+libc = "0.2"
+
+[dev-dependencies]
+static_assertions = "1"

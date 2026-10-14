@@ -9,6 +9,6 @@ if [ -f .gitleaks.local.toml ]; then
   gitleaks protect --staged --redact --no-banner --config=.gitleaks.local.toml
 fi
 
-npm exec lint-staged
-npm run typecheck
-npm test
+bunx lint-staged
+bun run typecheck
+bun run test

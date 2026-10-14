@@ -5,6 +5,7 @@
 pub(crate) mod audit;
 pub(crate) mod backend;
 pub(crate) mod client;
+pub(crate) mod client_run;
 pub(crate) mod daemon;
 pub(crate) mod hardening;
 pub(crate) mod identity;
@@ -25,6 +26,7 @@ pub(crate) mod token;
 #[cfg(test)]
 pub(crate) use backend::{FakeBackend, VaultBackend};
 pub(crate) use client::{Client, ConnectOutcome};
+pub(crate) use client_run::RunInputs;
 pub(crate) use paths::default_socket_path;
 #[cfg(test)]
 pub(crate) use protocol::{Frame, RequestFrame, ResponseFrame};

@@ -2,9 +2,12 @@ mod audit;
 mod broker;
 mod bws;
 mod commands;
+// The old in-client exec path. `hush exec` now runs through the broker; PR 3 deletes this.
+#[allow(dead_code)]
 mod exec;
 mod index;
 mod retrieve;
+mod run_cmd;
 mod tui;
 
 use anyhow::Result;

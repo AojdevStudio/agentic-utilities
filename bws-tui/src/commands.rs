@@ -1,7 +1,9 @@
-use crate::{audit, bws, exec, retrieve, stdin_value};
+use crate::broker::runspec::Delivery;
+use crate::{audit, bws, retrieve, run_cmd, stdin_value};
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
+use std::ffi::OsString;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -34,7 +36,22 @@ pub(crate) enum Cmd {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Run a command with secrets injected as env vars (values never printed).
+    /// Run a command with secrets delivered by the broker daemon. Output is masked.
+    #[command(group(clap::ArgGroup::new("bindings").required(true).multiple(true).args(["secrets", "fds"])))]
+    Run {
+        /// Secret into the child's environment: KEY, or KEY=ENVNAME to remap. Repeatable.
+        #[arg(long = "secret")]
+        secrets: Vec<String>,
+        /// Secret through a pipe: KEY or KEY=ENVNAME. The child reads fd ENVNAME_FD. Repeatable.
+        #[arg(long = "fd")]
+        fds: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        /// Command to run, after `--`.
+        #[arg(last = true, required = true)]
+        cmd: Vec<OsString>,
+    },
+    /// Alias of `run --secret` for one release. Same daemon code path.
     Exec {
         /// Secret to inject: KEY, or KEY=ENVNAME to remap. Repeatable.
         #[arg(long = "key", required = true)]
@@ -189,7 +206,24 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
         } => add(key, project, value, note),
         Cmd::List { project, json } => retrieve::list(project.as_deref(), json),
         Cmd::Get { key, project } => retrieve::get(&key, project.as_deref()),
-        Cmd::Exec { keys, project, cmd } => exec::run(&keys, project.as_deref(), &cmd),
+        Cmd::Run {
+            secrets,
+            fds,
+            project,
+            cmd,
+        } => run_cmd::run_flags(
+            &[
+                (&secrets, "--secret", Delivery::Env),
+                (&fds, "--fd", Delivery::Fd),
+            ],
+            project,
+            cmd,
+        ),
+        Cmd::Exec { keys, project, cmd } => run_cmd::run_flags(
+            &[(&keys, "--key", Delivery::Env)],
+            project,
+            cmd.into_iter().map(OsString::from).collect(),
+        ),
         Cmd::Sync => retrieve::sync(),
         Cmd::Edit {
             key,

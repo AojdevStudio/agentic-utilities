@@ -29,9 +29,10 @@ impl Policy {
     /// A missing file is the empty policy. An existing file a caller could edit is refused.
     pub(crate) fn load(path: &Path, dev_same_user: bool) -> Result<Self> {
         // One descriptor is checked and read, so the file cannot be swapped in between.
+        // O_NONBLOCK keeps a FIFO at this path from blocking the open.
         let mut file = match OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(path)
         {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

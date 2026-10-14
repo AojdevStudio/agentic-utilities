@@ -116,3 +116,66 @@ fn fd_close_bound_covers_descriptors_above_the_soft_limit() {
     assert_eq!(close_bound(256, Some(9)), 256);
     assert_eq!(close_bound(u64::MAX, None), 1 << 20);
 }
+
+/// Send a run on a raw socket, so the test controls exactly when it reads.
+fn raw_run(dir: &std::path::Path, script: &str) -> std::os::unix::net::UnixStream {
+    use super::protocol::{write_frame, Frame, RequestFrame};
+    let socket = daemon_socket(dir, RunConfig::default());
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    let spec = sh(vec![binding("TOKEN", "TOKEN", Delivery::Env)], script, dir);
+    let spec = super::client_run::to_wire(spec).unwrap();
+    write_frame(&mut stream, &Frame::Request(RequestFrame::Run { spec })).unwrap();
+    write_frame(&mut stream, &Frame::Request(RequestFrame::RunStdinEof)).unwrap();
+    stream
+}
+
+/// Read frames until the exit. Returns the stdout byte count and the outcome.
+fn read_to_exit(stream: &mut std::os::unix::net::UnixStream) -> (usize, RunOutcome) {
+    use super::protocol::{read_frame, Frame, ResponseFrame};
+    let mut out = 0;
+    loop {
+        match read_frame(stream).unwrap() {
+            Frame::Response(ResponseFrame::RunOutput { data, .. }) => out += data.0.len(),
+            Frame::Response(ResponseFrame::RunExit { outcome }) => return (out, outcome),
+            Frame::Response(ResponseFrame::Error { message, .. }) => panic!("{message}"),
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn a_paused_client_loses_no_output() {
+    let dir = tempdir("paused");
+    let mut stream = raw_run(&dir, "head -c 524288 /dev/zero; exit 0");
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    assert_eq!(read_to_exit(&mut stream), (524_288, RunOutcome::Exited(0)));
+}
+
+#[test]
+fn a_signal_arrives_while_the_client_is_not_reading_output() {
+    use super::protocol::{write_frame, Frame, RequestFrame};
+    let dir = tempdir("unread");
+    let mut stream = raw_run(
+        &dir,
+        "trap 'exit 45' TERM; while :; do echo FAKE-run-value-0001; done",
+    );
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    let signal = RequestFrame::RunSignal {
+        signal: ForwardSignal::Term,
+    };
+    write_frame(&mut stream, &Frame::Request(signal)).unwrap();
+    assert_eq!(read_to_exit(&mut stream).1, RunOutcome::Exited(45));
+}
+
+#[test]
+fn a_fifo_at_the_policy_path_is_refused_without_blocking() {
+    let dir = tempdir("fifo");
+    let path = dir.join("hushd.toml");
+    let c_path = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: mkfifo reads one valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(super::policy::Policy::load(&path, true).is_err()));
+    let refused = rx.recv_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(refused, Ok(true), "policy load blocked or accepted a FIFO");
+}

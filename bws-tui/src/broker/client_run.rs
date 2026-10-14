@@ -67,7 +67,7 @@ impl Client {
     }
 }
 
-fn to_wire(spec: RunSpec) -> Result<WireRunSpec> {
+pub(super) fn to_wire(spec: RunSpec) -> Result<WireRunSpec> {
     let bindings = spec
         .bindings
         .into_iter()

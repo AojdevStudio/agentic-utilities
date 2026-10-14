@@ -109,7 +109,7 @@ fn stalled_client_does_not_block_second_client() {
         max_connections: 32,
     };
     let _server = std::thread::spawn(move || {
-        let _ = server::run_server(listener, backend, audit, config);
+        let _ = server::run_server(listener, backend, audit, config, Default::default());
     });
     let mut stalled = UnixStream::connect(&socket).unwrap();
     stalled.write_all(&[1u8, 0u8]).unwrap();
@@ -174,7 +174,13 @@ fn connected_daemon_error_propagates_as_error() {
     let backend: Arc<dyn VaultBackend> = Arc::new(backend::FailingBackend);
     let listener = server::bind_listener(&socket).unwrap();
     let _server = std::thread::spawn(move || {
-        let _ = server::run_server(listener, backend, audit, daemon::ServeConfig::default());
+        let _ = server::run_server(
+            listener,
+            backend,
+            audit,
+            daemon::ServeConfig::default(),
+            Default::default(),
+        );
     });
     let outcome = client::Client::try_connect_to(&socket).unwrap();
     let ConnectOutcome::Connected(mut connected) = outcome else {

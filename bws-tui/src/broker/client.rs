@@ -89,7 +89,11 @@ impl Client {
         match read_frame(&mut self.stream)? {
             Frame::Response(ResponseFrame::Catalog { entries }) => Ok(entries),
             Frame::Response(ResponseFrame::Error { message, .. }) => bail!("{message}"),
-            Frame::Request(_) => bail!("unexpected frame from daemon"),
+            _ => bail!("unexpected frame from daemon"),
         }
+    }
+
+    pub(super) fn stream_mut(&mut self) -> &mut UnixStream {
+        &mut self.stream
     }
 }

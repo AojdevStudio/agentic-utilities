@@ -7,12 +7,19 @@ pub(crate) mod backend;
 pub(crate) mod client;
 pub(crate) mod daemon;
 pub(crate) mod hardening;
+pub(crate) mod identity;
+pub(crate) mod mask;
 pub(crate) mod material;
 pub(crate) mod meta;
 pub(crate) mod paths;
 pub(crate) mod peercred;
+pub(crate) mod policy;
 mod protocol;
+pub(crate) mod run_loop;
+pub(crate) mod run_prepare;
+pub(crate) mod runspec;
 pub(crate) mod server;
+pub(crate) mod spawn;
 pub(crate) mod token;
 
 #[cfg(test)]

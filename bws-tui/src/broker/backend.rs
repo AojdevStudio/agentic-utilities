@@ -225,7 +225,9 @@ impl VaultBackend for BwsBackend {
     }
 
     fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
-        let SecretRef::Id(id) = secret;
+        let SecretRef::Id(id) = secret else {
+            bail!("backends fetch only resolved secret ids");
+        };
         let wire: BwsSecret = serde_json::from_str(&self.run_bws(&["secret", "get", id])?)?;
         let bytes = wire.value.expose_secret().as_bytes().to_vec();
         Ok(SecretMaterial::new(bytes))
@@ -274,7 +276,9 @@ impl VaultBackend for FakeBackend {
     }
 
     fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
-        let SecretRef::Id(id) = secret;
+        let SecretRef::Id(id) = secret else {
+            bail!("backends fetch only resolved secret ids");
+        };
         let (_, value) = self.secrets.get(id).context("unknown secret id")?;
         Ok(SecretMaterial::new(value.as_bytes().to_vec()))
     }

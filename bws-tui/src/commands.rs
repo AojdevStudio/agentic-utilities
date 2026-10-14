@@ -83,6 +83,9 @@ pub(crate) enum Cmd {
         audit_log: Option<PathBuf>,
         #[arg(long)]
         bws_path: Option<PathBuf>,
+        /// Run policy file. Defaults to /etc/hush/hushd.toml.
+        #[arg(long)]
+        policy: Option<PathBuf>,
         /// Debug builds only. Allow token and bws owned by the daemon user.
         /// Release builds omit this flag so a non-root daemon always refuses to start.
         #[cfg(debug_assertions)]
@@ -210,12 +213,14 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user,
         } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
             socket: socket.unwrap_or_else(crate::broker::default_socket_path),
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user,
         }),
         #[cfg(not(debug_assertions))]
@@ -224,11 +229,13 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             token_file,
             audit_log,
             bws_path,
+            policy,
         } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
             socket: socket.unwrap_or_else(crate::broker::default_socket_path),
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user: false,
         }),
     }

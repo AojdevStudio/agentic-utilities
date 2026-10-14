@@ -4,8 +4,10 @@
 //! then the JSON payload. No frame variant can hold secret material.
 
 use super::meta::SecretMeta;
+use super::runspec::{Delivery, EnvName, ForwardSignal, RunOutcome, StreamKind};
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
+use base64::Engine;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::{Read, Write};
 
 /// Current wire protocol version.
@@ -16,14 +18,82 @@ pub(crate) const MAX_PAYLOAD: usize = 1 << 20;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum RequestFrame {
-    Catalog { project: Option<String> },
+    Catalog {
+        project: Option<String>,
+    },
+    /// Starts a child. The connection then carries only run frames until exit.
+    Run {
+        spec: WireRunSpec,
+    },
+    RunStdin {
+        data: WireBytes,
+    },
+    RunStdinEof,
+    RunSignal {
+        signal: ForwardSignal,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum ResponseFrame {
-    Catalog { entries: Vec<SecretMeta> },
-    Error { code: String, message: String },
+    Catalog {
+        entries: Vec<SecretMeta>,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
+    /// Child output after masking. Raw child bytes never cross the socket.
+    RunOutput {
+        stream: StreamKind,
+        data: WireBytes,
+    },
+    RunNotice {
+        message: String,
+    },
+    RunExit {
+        outcome: RunOutcome,
+    },
+}
+
+/// A run request on the wire. Every field is a name or client context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WireRunSpec {
+    pub bindings: Vec<WireBinding>,
+    pub program: WireBytes,
+    pub args: Vec<WireBytes>,
+    pub cwd: WireBytes,
+    pub env: Vec<(EnvName, WireBytes)>,
+}
+
+/// One binding on the wire: a key name, never a value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WireBinding {
+    pub key: String,
+    pub project: Option<String>,
+    pub env: EnvName,
+    pub delivery: Delivery,
+}
+
+/// Raw bytes as base64 text, for paths, argv, and masked output.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct WireBytes(pub Vec<u8>);
+
+impl Serialize for WireBytes {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for WireBytes {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(text)
+            .map(WireBytes)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// One frame on the wire. Every payload is metadata. Values never appear here.

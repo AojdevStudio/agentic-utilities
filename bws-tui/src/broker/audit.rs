@@ -1,6 +1,7 @@
 //! Daemon-owned audit log. Names only, never values or tokens.
 
 use super::peercred::PeerCredentials;
+use super::runspec::RunAs;
 use anyhow::{bail, Context, Result};
 use std::fs::{OpenOptions, Permissions};
 use std::io::Write;
@@ -9,9 +10,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-/// The daemon records every catalog request with kernel peer identity.
+/// The daemon records every request with kernel peer identity.
 pub(crate) trait AuditLog: Send + Sync {
     fn record_catalog(&self, peer: PeerCredentials, project: Option<&str>) -> Result<()>;
+    /// Written after resolution and before any fetch, so refused runs are recorded too.
+    fn record_run(&self, peer: PeerCredentials, run: &RunAudit<'_>) -> Result<()>;
+}
+
+/// One run request. `secrets` pairs each requested key with its resolved id, if any.
+pub(crate) struct RunAudit<'a> {
+    pub program: &'a str,
+    pub run_as: RunAs,
+    pub secrets: Vec<(&'a str, Option<&'a str>)>,
 }
 
 /// Append-only file log. The daemon owns this file, not the client audit log.
@@ -69,15 +79,14 @@ fn sanitize(value: &str) -> String {
     out
 }
 
-impl AuditLog for FileAuditLog {
-    fn record_catalog(&self, peer: PeerCredentials, project: Option<&str>) -> Result<()> {
+impl FileAuditLog {
+    fn append(&self, verb: &str, peer: PeerCredentials, detail: &str) -> Result<()> {
         let line = format!(
-            "{} catalog uid={} gid={} pid={} project={}\n",
+            "{} {verb} uid={} gid={} pid={} {detail}\n",
             humantime::format_rfc3339_seconds(SystemTime::now()),
             peer.uid,
             peer.gid,
             peer.pid,
-            sanitize(project.unwrap_or("-")),
         );
         let mut file = self
             .file
@@ -85,6 +94,37 @@ impl AuditLog for FileAuditLog {
             .map_err(|_| anyhow::anyhow!("audit log lock poisoned"))?;
         file.write_all(line.as_bytes())?;
         Ok(())
+    }
+}
+
+impl AuditLog for FileAuditLog {
+    fn record_catalog(&self, peer: PeerCredentials, project: Option<&str>) -> Result<()> {
+        self.append(
+            "catalog",
+            peer,
+            &format!("project={}", sanitize(project.unwrap_or("-"))),
+        )
+    }
+
+    fn record_run(&self, peer: PeerCredentials, run: &RunAudit<'_>) -> Result<()> {
+        let secrets: Vec<String> = run
+            .secrets
+            .iter()
+            .map(|(key, id)| format!("{}={}", sanitize(key), sanitize(id.unwrap_or("unresolved"))))
+            .collect();
+        let run_as = match run.run_as {
+            RunAs::Requester => "requester",
+            RunAs::HushRun => "hushrun",
+        };
+        self.append(
+            "run",
+            peer,
+            &format!(
+                "run_as={run_as} program={} secrets={}",
+                sanitize(run.program),
+                secrets.join(",")
+            ),
+        )
     }
 }
 

@@ -176,6 +176,7 @@ pub(crate) fn run_server(
     backend: std::sync::Arc<dyn super::backend::VaultBackend>,
     audit: std::sync::Arc<dyn super::audit::AuditLog>,
     config: ServeConfig,
+    run: std::sync::Arc<super::run_prepare::RunConfig>,
 ) -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let active = std::sync::Arc::new(AtomicUsize::new(0));
@@ -195,9 +196,10 @@ pub(crate) fn run_server(
         let backend = std::sync::Arc::clone(&backend);
         let audit = std::sync::Arc::clone(&audit);
         let active = std::sync::Arc::clone(&active);
+        let run = std::sync::Arc::clone(&run);
         std::thread::spawn(move || {
             let _slot = ConnectionSlot(active);
-            if let Err(error) = serve_connection_guarded(stream, &*backend, &*audit, config) {
+            if let Err(error) = serve_connection_guarded(stream, &*backend, &*audit, config, &run) {
                 eprintln!("connection failed: {error}");
             }
         });

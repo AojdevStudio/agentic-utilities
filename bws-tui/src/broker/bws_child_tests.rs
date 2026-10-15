@@ -109,7 +109,8 @@ fn a_client_that_leaves_after_bws_closes_its_output_is_not_kept_waiting() {
     let backend = script(&dir, &body);
 
     let (read, late) = call_then_leave(&closed, |control| backend.projects(control));
-    let late = late.expect("bws never closed its output");
+    let late =
+        late.unwrap_or_else(|| panic!("bws never closed its output, the read ended {read:?}"));
     let error = read.expect_err("a cancelled read returned data");
     assert!(
         format!("{error:#}").contains("the client left"),
@@ -121,7 +122,8 @@ fn a_client_that_leaves_after_bws_closes_its_output_is_not_kept_waiting() {
     let (delete, late) = call_then_leave(&closed, |control| {
         backend.delete("s1", &mut WriteAttempt::new(control))
     });
-    let late = late.expect("bws never closed its output");
+    let late =
+        late.unwrap_or_else(|| panic!("bws never closed its output, the delete ended {delete:?}"));
     assert_eq!(delete, Err(WriteFailure::Uncertain));
     assert!(late < LEAVE_BOUND, "the delete held the worker {late:?}");
     assert_eq!(backend.busy_children(), 0, "the stopped bws was not reaped");

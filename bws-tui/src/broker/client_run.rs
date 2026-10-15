@@ -189,10 +189,19 @@ impl StdinWorker {
     fn spawn(self, stdin: Option<Box<dyn Read + Send>>) {
         std::thread::spawn(move || {
             if let Err(failure) = self.forward(stdin) {
-                self.completion.fail(failure);
-                let _ = self.abort.shutdown(Shutdown::Both);
+                self.failed(failure);
             }
         });
+    }
+
+    fn failed(&self, failure: InputFailure) {
+        let direction = match &failure {
+            InputFailure::Read(_) => Shutdown::Both,
+            InputFailure::Send(_) => Shutdown::Write,
+        };
+        self.completion.fail(failure);
+        // macOS discards queued replies on read shutdown while still connected.
+        let _ = self.abort.shutdown(direction);
     }
 
     /// Send stdin within the credit window, then end of input.

@@ -72,13 +72,13 @@ fn an_oversized_path_search_is_refused_and_the_daemon_keeps_serving() {
     let dir = tempdir("path-budget");
     let mut deep = dir.clone();
     for level in 0..5 {
-        deep.push(format!("{level}{}", "d".repeat(200)));
+        deep.push(format!("{level}{}", "d".repeat(100)));
     }
     std::fs::create_dir_all(&deep).unwrap();
     let socket = serving(&dir);
     let run = |spec: RunSpec, sink: &mut Capture| Client::connect_to(&socket)?.run(spec, sink);
 
-    let empty_entries = ":".repeat(2047);
+    let empty_entries = ":".repeat(4095);
     let spec = searching("tool", empty_entries, &deep);
     assert_refused(&run(spec, &mut Capture::default()).unwrap_err());
 

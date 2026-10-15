@@ -7,7 +7,7 @@ use super::fdpass_tests::pipe;
 use super::fields::MAX_VALUE;
 use super::input_pump::{read_input, InputStop};
 use super::pty_harness::open_pty;
-use super::request::RequestControl;
+use super::request::{RequestControl, CLEANUP_BUDGET};
 use super::spawn_fd::FdCeiling;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -176,4 +176,90 @@ fn copy_writes_at_most_128_kib() {
     let screen = drained.recv_timeout(BOUND).unwrap();
     assert_eq!(screen.len(), expected);
     assert!(screen.starts_with(b"\x1b]52;c;") && screen.ends_with(b"\x07"));
+}
+
+fn shows(screen: &[u8], text: &[u8]) -> bool {
+    screen.windows(text.len()).any(|window| window == text)
+}
+
+/// Answers the `first: ` prompt. Once `pause_at` shows, it suspends output,
+/// lets the client leave, and resumes 100 ms later, inside one cleanup
+/// budget. Returns everything the terminal showed until the console closed.
+fn leave_while_paused(
+    mut master: File,
+    flow: OwnedFd,
+    client: UnixStream,
+    pause_at: &'static [u8],
+) -> Receiver<Vec<u8>> {
+    worker(move || {
+        let (mut screen, mut chunk, mut answered) = (Vec::new(), [0u8; 8192], false);
+        while !shows(&screen, pause_at) {
+            let read = master.read(&mut chunk).unwrap();
+            screen.extend_from_slice(&chunk[..read]);
+            if !answered && shows(&screen, b"first: ") {
+                master.write_all(b"x\r").unwrap();
+                answered = true;
+            }
+        }
+        // SAFETY: tcflow on a terminal this test owns.
+        assert_eq!(unsafe { libc::tcflow(flow.as_raw_fd(), libc::TCOOFF) }, 0);
+        drop(client);
+        std::thread::sleep(Duration::from_millis(100));
+        // SAFETY: tcflow on a terminal this test owns.
+        assert_eq!(unsafe { libc::tcflow(flow.as_raw_fd(), libc::TCOON) }, 0);
+        drop(flow);
+        while let Ok(read @ 1..) = master.read(&mut chunk) {
+            screen.extend_from_slice(&chunk[..read]);
+        }
+        screen
+    })
+}
+
+/// A request that answered a prompt, read a value, and then worked past one
+/// cleanup budget still gets a full budget once its teardown starts.
+fn after_a_slow_step<T>(
+    pause_at: &'static [u8],
+    end: impl FnOnce(&mut Console) -> T,
+) -> (T, Vec<u8>) {
+    let (master, slave) = pty();
+    let flow = slave.try_clone().unwrap();
+    let (socket, client) = UnixStream::pair().unwrap();
+    let screen = leave_while_paused(master, flow, client, pause_at);
+    let control = RequestControl::until(&socket, BOUND);
+    let mut console = Console::new(slave, &control);
+    console.read_hidden("first: ", 16).unwrap();
+    let (reader, mut writer) = pipe();
+    writer.write_all(b"FAKE-value-0001").unwrap();
+    drop(writer);
+    let (children, ceiling) = (Children::new(1), FdCeiling::establish().unwrap());
+    assert!(read_input(reader.into(), &control, &children, ceiling).is_ok());
+    std::thread::sleep(CLEANUP_BUDGET + Duration::from_millis(100));
+    let ended = end(&mut console);
+    drop(console);
+    (ended, screen.recv_timeout(BOUND).unwrap())
+}
+
+#[test]
+fn a_reveal_cut_short_after_a_slow_step_is_still_cleared() {
+    let (shown, screen) = after_a_slow_step(b"(press Enter to hide)", |console| {
+        console.show_value("FAKE title", b"FAKE-value-0002")
+    });
+    assert_eq!(shown, Err(Interrupt::Disconnected));
+    assert!(
+        shows(&screen, b"\x1b[2J\x1b[?1049l"),
+        "the reveal was left on screen"
+    );
+}
+
+#[test]
+fn a_copy_cut_short_after_a_slow_step_is_still_cancelled() {
+    let (copied, screen) = after_a_slow_step(b"\x1b]52;c;", |console| {
+        console.osc52(&vec![b'a'; MAX_OSC52_VALUE])
+    });
+    assert_eq!(copied, Err(Interrupt::Disconnected));
+    let start = screen.windows(7).position(|w| w == b"\x1b]52;c;").unwrap();
+    assert!(
+        screen[start..].contains(&0x18),
+        "the cut-short copy was never cancelled"
+    );
 }

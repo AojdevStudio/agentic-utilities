@@ -2,12 +2,15 @@
 //! timed-out call leaves no reader behind, and on macOS no stray daemon
 //! descriptor reaches the child.
 
-use super::backend::BwsBackend;
+use super::backend::{BwsBackend, VaultBackend};
+use super::meta::WriteFailure;
+use super::request::{RequestControl, WriteAttempt};
 use super::run_harness::tempdir;
 use secrecy::SecretString;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn script(dir: &Path, body: &str) -> BwsBackend {
     let path = dir.join("bws");
@@ -61,4 +64,46 @@ fn a_bws_child_inherits_no_stray_descriptor() {
     unsafe { libc::close(stray) };
     assert_eq!(listed.unwrap().as_str(), "[]");
     assert!(!marker.exists(), "fd {stray} reached the bws child");
+}
+
+/// One cleanup budget plus scheduling slack.
+const LEAVE_BOUND: Duration = Duration::from_millis(500);
+
+/// After `bws` closes its output it is still the request's child. A client
+/// that leaves before it exits is not kept waiting, and a delete that may have
+/// run is uncertain.
+#[test]
+fn a_client_that_leaves_after_bws_closes_its_output_is_not_kept_waiting() {
+    let dir = tempdir("bws-eof-leave");
+    let closed = dir.join("closed-output");
+    let body = format!("exec 1>&-\n: > '{}'\nexec sleep 2\n", closed.display());
+    let backend = script(&dir, &body);
+    let leave_once_closed = |client: UnixStream| {
+        let closed = closed.clone();
+        std::thread::spawn(move || {
+            while !closed.exists() {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            drop(client);
+            Instant::now()
+        })
+    };
+
+    let (socket, client) = UnixStream::pair().unwrap();
+    let left = leave_once_closed(client);
+    let control = RequestControl::until(&socket, Duration::from_secs(5));
+    let read = backend.projects(&control);
+    let late = left.join().unwrap().elapsed();
+    assert!(read.is_err(), "a cancelled read returned data");
+    assert!(late < LEAVE_BOUND, "the read held the worker {late:?}");
+
+    std::fs::remove_file(&closed).unwrap();
+    let (socket, client) = UnixStream::pair().unwrap();
+    let left = leave_once_closed(client);
+    let control = RequestControl::until(&socket, Duration::from_secs(5));
+    let delete = backend.delete("s1", &mut WriteAttempt::new(&control));
+    let late = left.join().unwrap().elapsed();
+    assert_eq!(delete, Err(WriteFailure::Uncertain));
+    assert!(late < LEAVE_BOUND, "the delete held the worker {late:?}");
+    assert_eq!(backend.busy_children(), 0, "the stopped bws was not reaped");
 }

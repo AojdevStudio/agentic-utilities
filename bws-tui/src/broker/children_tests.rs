@@ -105,3 +105,67 @@ fn a_value_input_child_holds_no_other_daemon_descriptor() {
         "the stopped child was not reaped within the cleanup budget"
     );
 }
+
+/// This test binary's own `pipe` and `pipe2` can pause one thread right after
+/// the syscall, before any later flag change.
+#[cfg(target_os = "linux")]
+mod pipe_window {
+    use std::cell::Cell;
+    use std::sync::mpsc::{Receiver, Sender};
+
+    thread_local! {
+        static PAUSE: Cell<Option<(Sender<()>, Receiver<()>)>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn pause_next_pipe(created: Sender<()>, release: Receiver<()>) {
+        PAUSE.set(Some((created, release)));
+    }
+
+    unsafe fn paused(fds: *mut libc::c_int, flags: libc::c_int) -> libc::c_int {
+        let made = libc::syscall(libc::SYS_pipe2, fds, flags) as libc::c_int;
+        if let Some((created, release)) = PAUSE.try_with(Cell::take).ok().flatten() {
+            created.send(()).unwrap();
+            release.recv().unwrap();
+        }
+        made
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn pipe(fds: *mut libc::c_int) -> libc::c_int {
+        paused(fds, 0)
+    }
+
+    #[no_mangle]
+    unsafe extern "C" fn pipe2(fds: *mut libc::c_int, flags: libc::c_int) -> libc::c_int {
+        paused(fds, flags)
+    }
+}
+
+/// An exec that starts while the daemon creates its private value pipe must
+/// not get the writer, or the complete value never reaches end of file.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_exec_during_value_pipe_creation_cannot_hold_its_writer() {
+    use super::run_harness::tempdir;
+    use std::sync::mpsc::channel;
+    let dir = tempdir("value-pipe-window");
+    let path = dir.join("value");
+    std::fs::write(&path, b"FAKE-pipe-0001").unwrap();
+    let input = OwnedFd::from(File::open(&path).unwrap());
+    let (socket, _client) = UnixStream::pair().unwrap();
+    let (created_tx, created) = channel();
+    let (release, release_rx) = channel();
+    let reader = std::thread::spawn(move || {
+        let control = RequestControl::until(&socket, Duration::from_millis(500));
+        let (table, ceiling) = (Children::new(1), FdCeiling::establish().unwrap());
+        pipe_window::pause_next_pipe(created_tx, release_rx);
+        read_input(input, &control, &table, ceiling).map(|value| value.len())
+    });
+    created.recv_timeout(Duration::from_secs(5)).unwrap();
+    let mut exec = Command::new("sleep").arg("2").spawn().unwrap();
+    release.send(()).unwrap();
+    let read = reader.join().unwrap();
+    exec.kill().unwrap();
+    exec.wait().unwrap();
+    assert_eq!(read, Ok(14), "a concurrent exec held the value pipe writer");
+}

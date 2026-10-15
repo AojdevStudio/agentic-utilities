@@ -110,6 +110,8 @@ impl SdkWriter {
 
     /// Log in with the daemon token. A failed login wrote nothing. A login
     /// the client abandoned, or that outlived the request, is `Stopped`.
+    /// Name lookups are tasks on this runtime, so dropping it after a stop
+    /// leaves none behind and waits for none.
     fn connect(
         &self,
         control: &RequestControl<'_>,

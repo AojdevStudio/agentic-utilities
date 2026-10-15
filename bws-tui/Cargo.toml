@@ -26,6 +26,10 @@ clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
 # The daemon writes values through the SDK because `bws` takes them in argv.
 bitwarden = "=2.1.0"
+# The SDK's own HTTP client, with the async resolver. Name lookups then run as
+# tasks on each write's runtime instead of a blocking getaddrinfo thread that
+# dropping the runtime must wait for. Feature only, at the locked version.
+reqwest = { version = "0.12.28", default-features = false, features = ["hickory-dns"] }
 tokio = { version = "1", features = ["rt", "time", "net"] }
 uuid = "1"
 libc = "0.2"

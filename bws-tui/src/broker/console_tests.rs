@@ -184,7 +184,9 @@ fn shows(screen: &[u8], text: &[u8]) -> bool {
 
 /// Answers the `first: ` prompt. Once `pause_at` shows, it suspends output,
 /// lets the client leave, and resumes 100 ms later, inside one cleanup
-/// budget. Returns everything the terminal showed until the console closed.
+/// budget. Returns everything the terminal showed until output went quiet.
+/// macOS discards unread output when the last non-blocking slave closes, so
+/// `flow` stays open until the screen is read.
 fn leave_while_paused(
     mut master: File,
     flow: OwnedFd,
@@ -207,10 +209,19 @@ fn leave_while_paused(
         std::thread::sleep(Duration::from_millis(100));
         // SAFETY: tcflow on a terminal this test owns.
         assert_eq!(unsafe { libc::tcflow(flow.as_raw_fd(), libc::TCOON) }, 0);
-        drop(flow);
-        while let Ok(read @ 1..) = master.read(&mut chunk) {
-            screen.extend_from_slice(&chunk[..read]);
+        let mut ready = libc::pollfd {
+            fd: master.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd entry.
+        while unsafe { libc::poll(&mut ready, 1, 300) } == 1 {
+            match master.read(&mut chunk) {
+                Ok(read @ 1..) => screen.extend_from_slice(&chunk[..read]),
+                _ => break,
+            }
         }
+        drop(flow);
         screen
     })
 }

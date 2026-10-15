@@ -8,7 +8,6 @@ use super::fdpass_tests::{pipe, writers_closed};
 use super::input_pump::{read_input, InputStop};
 use super::request::{Interrupt, RequestControl};
 use super::spawn_fd::FdCeiling;
-use std::fs::File;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::Command;
@@ -133,6 +132,7 @@ mod pipe_window {
 #[test]
 fn an_exec_during_value_pipe_creation_cannot_hold_its_writer() {
     use super::run_harness::tempdir;
+    use std::fs::File;
     use std::sync::mpsc::channel;
     let dir = tempdir("value-pipe-window");
     let path = dir.join("value");

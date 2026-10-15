@@ -22,7 +22,6 @@ pub(crate) struct Console<'a> {
 }
 
 /// The terminal mode saved before hidden input. `restore` reports failure.
-/// Drop restores only on a path that skipped `restore`, such as a panic.
 struct ModeGuard {
     fd: RawFd,
     saved: libc::termios,
@@ -31,11 +30,11 @@ struct ModeGuard {
 
 impl ModeGuard {
     fn restore(mut self) -> io::Result<()> {
-        self.restored = true;
         // SAFETY: restores a termios read from this same, still open descriptor.
         if unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved) } != 0 {
             return Err(io::Error::last_os_error());
         }
+        self.restored = true;
         Ok(())
     }
 }
@@ -47,6 +46,12 @@ impl Drop for ModeGuard {
             unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved) };
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum InputMode {
+    Capture(usize),
+    Discard,
 }
 
 impl<'a> Console<'a> {
@@ -84,9 +89,21 @@ impl<'a> Console<'a> {
         prompt: &str,
         limit: usize,
     ) -> Result<Zeroizing<Vec<u8>>, Interrupt> {
+        self.read_prompt(prompt, InputMode::Capture(limit))
+    }
+
+    fn read_prompt(
+        &mut self,
+        prompt: &str,
+        input: InputMode,
+    ) -> Result<Zeroizing<Vec<u8>>, Interrupt> {
         let mode = self.hidden_mode().map_err(|_| Interrupt::Io)?;
-        let mut line = Zeroizing::new(Vec::with_capacity(limit));
-        let result = self.prompt_and_collect(prompt, &mut line, limit);
+        let capacity = match input {
+            InputMode::Capture(limit) => limit,
+            InputMode::Discard => 0,
+        };
+        let mut line = Zeroizing::new(Vec::with_capacity(capacity));
+        let result = self.prompt_and_collect(prompt, &mut line, input);
         let ended = match result {
             Ok(()) => self.say("\r\n"),
             Err(_) => self.cleanup("\r\n"),
@@ -102,17 +119,17 @@ impl<'a> Console<'a> {
         &mut self,
         prompt: &str,
         line: &mut Vec<u8>,
-        limit: usize,
+        input: InputMode,
     ) -> Result<(), Interrupt> {
         // SAFETY: discards typeahead queued before the prompt appeared.
         if unsafe { libc::tcflush(self.tty.as_fd().as_raw_fd(), libc::TCIFLUSH) } != 0 {
             return Err(Interrupt::Io);
         }
         self.say(prompt)?;
-        self.collect(line, limit)
+        self.collect(line, input)
     }
 
-    fn collect(&mut self, line: &mut Vec<u8>, limit: usize) -> Result<(), Interrupt> {
+    fn collect(&mut self, line: &mut Vec<u8>, input: InputMode) -> Result<(), Interrupt> {
         let mut chunk = Zeroizing::new([0u8; 256]);
         loop {
             let read = self.tty.read(&mut chunk[..], self.control)?;
@@ -131,8 +148,13 @@ impl<'a> Console<'a> {
                         }
                     }
                     0x15 => line.zeroize(),
-                    _ if line.len() == limit => return Err(Interrupt::TooLong),
-                    _ => line.push(byte),
+                    _ => match input {
+                        InputMode::Capture(limit) if line.len() == limit => {
+                            return Err(Interrupt::TooLong);
+                        }
+                        InputMode::Capture(_) => line.push(byte),
+                        InputMode::Discard => {}
+                    },
                 }
             }
         }
@@ -175,12 +197,12 @@ impl<'a> Console<'a> {
         screen.push_str("\r\n\r\n");
         escape_into(&mut screen, value);
         screen.push_str("\r\n\r\n");
-        let shown =
-            self.say(&screen)
-                .and_then(|()| match self.read_hidden("(press Enter to hide)", 0) {
-                    Ok(_) | Err(Interrupt::TooLong) | Err(Interrupt::Cancelled) => Ok(()),
-                    Err(interrupt) => Err(interrupt),
-                });
+        let shown = self.say(&screen).and_then(|()| {
+            match self.read_prompt("(press Enter to hide)", InputMode::Discard) {
+                Ok(_) | Err(Interrupt::Cancelled) => Ok(()),
+                Err(interrupt) => Err(interrupt),
+            }
+        });
         let cleared = self.cleanup("\x1b[2J\x1b[?1049l");
         shown.and(cleared)
     }

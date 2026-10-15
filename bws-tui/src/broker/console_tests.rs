@@ -274,3 +274,6 @@ fn a_copy_cut_short_after_a_slow_step_is_still_cancelled() {
         "the cut-short copy was never cancelled"
     );
 }
+
+#[path = "console_input_tests.rs"]
+mod input;

@@ -75,6 +75,8 @@ mod console_tests;
 #[cfg(test)]
 mod daemon_harness;
 #[cfg(test)]
+mod delete_tests;
+#[cfg(test)]
 mod fdpass_tests;
 #[cfg(test)]
 mod fix_tests;

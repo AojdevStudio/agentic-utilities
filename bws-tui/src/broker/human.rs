@@ -17,12 +17,12 @@ use super::console::{escape, MAX_OSC52_VALUE};
 use super::fdpass::RightsViolation;
 use super::fields::{check_proposed, invalid};
 use super::meta::SecretRef;
-use super::mutate::{add, edit, live, read_failed, resolve, resolve_project, write_refusal};
+use super::mutate::{add, delete, edit, live, read_failed, resolve, resolve_project};
 use super::operation::{DescriptorProblem, Operation, Outcome, Refusal, SecretSelector};
 use super::operation::{ValueChange, ValueSource};
 use super::peercred::PeerCredentials;
 use super::protocol::ResponseFrame;
-use super::request::{RequestControl, WriteAttempt};
+use super::request::RequestControl;
 use super::slots::{descriptors, Readers, Slots};
 use super::spawn_fd::FdCeiling;
 use std::os::fd::OwnedFd;
@@ -258,16 +258,7 @@ fn approved(
                 .map_err(terminal_refusal)?;
             Ok(Outcome::Revealed { key: meta.key })
         }
-        Action::Delete => {
-            let mut attempt = WriteAttempt::new(control);
-            backend
-                .delete(&meta.id, &mut attempt)
-                .map_err(|failure| write_refusal(failure, verb))?;
-            Ok(Outcome::Deleted {
-                id: meta.id,
-                key: meta.key,
-            })
-        }
+        Action::Delete => delete(backend, &context.config.mutation, control, &meta),
         Action::Edit {
             new_key,
             note,

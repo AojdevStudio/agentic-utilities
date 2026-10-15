@@ -1,8 +1,10 @@
-//! Resolution and daemon writes. One mutation lock covers the fresh duplicate
-//! lookup and the single write, so two daemon writers never both create one
-//! key. The lock is never held while a human types, and a client that leaves
-//! while waiting for it stops waiting. Writers outside this daemon (the web
-//! vault, another machine) are not covered, and an uncertain write is
+//! Resolution and daemon writes. One mutation lock covers the fresh lookup and
+//! the single write, so two daemon writers never both create one key and a
+//! delete never removes a secret renamed or moved after approval. The lock is
+//! never held while a human types, and a client that leaves while waiting for
+//! it stops waiting. Writers outside this daemon (the web vault, another
+//! machine) can still change a secret between that lookup and the write,
+//! because the provider delete takes only ids. An uncertain write is
 //! reported, never retried or rolled back.
 
 use super::backend::VaultBackend;
@@ -216,4 +218,38 @@ pub(crate) fn edit(
         .map_err(|failure| write_refusal(failure, "edit"))?;
     meta.project = current.project.clone();
     Ok(Outcome::Edited { meta })
+}
+
+/// Delete the approved secret once, only while the vault still shows the id,
+/// key, and project the human approved. Anything else is refused as missing.
+pub(crate) fn delete(
+    backend: &dyn VaultBackend,
+    lock: &Mutex<()>,
+    control: &RequestControl<'_>,
+    approved: &SecretMeta,
+) -> Result<Outcome, Refusal> {
+    let _guard = admit(lock, control, "delete")?;
+    let catalog = backend
+        .catalog(control)
+        .map_err(|_| read_failed(control, "delete"))?;
+    live(control)?;
+    let same = |m: &SecretMeta| {
+        m.id == approved.id
+            && m.key == approved.key
+            && m.project_id == approved.project_id
+            && m.project == approved.project
+    };
+    if !catalog.iter().any(same) {
+        return Err(Refusal::NotFound {
+            key: approved.key.clone(),
+        });
+    }
+    let mut attempt = WriteAttempt::new(control);
+    backend
+        .delete(&approved.id, &mut attempt)
+        .map_err(|failure| write_refusal(failure, "delete"))?;
+    Ok(Outcome::Deleted {
+        id: approved.id.clone(),
+        key: approved.key.clone(),
+    })
 }

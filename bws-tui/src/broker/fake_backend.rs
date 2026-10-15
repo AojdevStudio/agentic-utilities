@@ -70,6 +70,14 @@ impl FakeBackend {
         secrets.get(id).map(|(_, value)| value.clone())
     }
 
+    /// Change the vault as an outside writer would. No daemon write is counted.
+    pub(crate) fn outside_write(
+        &self,
+        change: impl FnOnce(&mut HashMap<String, (SecretMeta, Vec<u8>)>),
+    ) {
+        change(&mut self.secrets.lock().unwrap());
+    }
+
     fn record_write(&self) {
         self.writes.fetch_add(1, Ordering::SeqCst);
         std::thread::sleep(self.write_delay);

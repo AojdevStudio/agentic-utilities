@@ -88,6 +88,12 @@ pub(crate) enum Cmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Install the root broker service. Run a root-owned hush with sudo.
+    /// A new install reads the BWS token from a pipe or a hidden prompt.
+    Install,
+    /// Show whether the broker service is installed, enabled, running, and
+    /// reachable. Needs no daemon, reads no token, and never contacts BWS.
+    Status,
     /// Run the broker daemon. Hidden. See docs/adr/0002-hush-broker.md.
     #[command(hide = true)]
     Daemon {
@@ -155,6 +161,8 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             note,
         }),
         Cmd::Delete { key, project, yes } => human_cmd::delete(key, project, yes),
+        Cmd::Install => crate::install::install(),
+        Cmd::Status => crate::install::status(),
         #[cfg(debug_assertions)]
         Cmd::Daemon {
             socket,

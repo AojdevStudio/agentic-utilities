@@ -11,7 +11,7 @@ mod children;
 pub(crate) mod client;
 pub(crate) mod client_human;
 pub(crate) mod client_run;
-mod console;
+pub(crate) mod console;
 pub(crate) mod daemon;
 #[cfg(test)]
 mod fake_backend;
@@ -30,12 +30,12 @@ mod mutate;
 mod opendirectory;
 pub(crate) mod operation;
 #[cfg(target_os = "linux")]
-mod pam;
+pub(crate) mod pam;
 pub(crate) mod paths;
 pub(crate) mod peercred;
 pub(crate) mod policy;
 mod protocol;
-mod request;
+pub(crate) mod request;
 pub(crate) mod run_io;
 pub(crate) mod run_loop;
 mod run_output;

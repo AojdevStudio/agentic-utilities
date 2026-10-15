@@ -160,6 +160,12 @@ pub(crate) fn default_audit_path() -> PathBuf {
     if let Some(path) = std::env::var_os("HUSH_AUDIT_LOG") {
         return PathBuf::from(path);
     }
+    fixed_audit_path()
+}
+
+/// The platform audit location, without the environment override. The
+/// installed service passes it explicitly so it never inherits one.
+pub(crate) fn fixed_audit_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         PathBuf::from("/var/db/hush/audit.log")

@@ -7,7 +7,7 @@ use super::approve::{Authenticator, Verdict};
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::path::{Path, PathBuf};
 
-const SERVICE: &str = "hush";
+pub(crate) const SERVICE: &str = "hush";
 /// Where Linux-PAM looks for a service file without an explicit confdir.
 const SYSTEM_DIRS: [&str; 2] = ["/etc/pam.d", "/usr/lib/pam.d"];
 

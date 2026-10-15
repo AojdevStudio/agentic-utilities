@@ -1,6 +1,7 @@
 mod broker;
 mod commands;
 mod human_cmd;
+mod install;
 mod run_cmd;
 mod tui;
 

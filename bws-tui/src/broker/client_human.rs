@@ -19,8 +19,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::time::Duration;
 
-/// One operation can wait on an approval prompt, a value prompt, a reveal
-/// screen, and several vault calls. The client never gives up earlier.
+/// A backstop far past the daemon's own bound. The daemon ends each human
+/// request at its single 120 second deadline, except while a native password
+/// check runs, so its reply normally arrives long before this.
 pub(crate) const HUMAN_TIMEOUT: Duration =
     Duration::from_secs(3 * APPROVAL_TIMEOUT.as_secs() + 4 * BWS_TIMEOUT.as_secs());
 

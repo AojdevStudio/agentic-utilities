@@ -27,13 +27,16 @@ fn sleeper() -> libc::pid_t {
 fn a_full_table_refuses_at_once_and_admits_after_a_reap() {
     let table = Children::new(2);
     let mut first = table.reserve().unwrap().started(sleeper());
-    let _second = table.reserve().unwrap().started(sleeper());
+    let mut second = table.reserve().unwrap().started(sleeper());
     let asked = Instant::now();
     assert!(table.reserve().is_none(), "a third child was admitted");
     assert!(asked.elapsed() < Duration::from_millis(100));
     let status = first.stop(Instant::now() + Duration::from_secs(2));
     assert!(status.is_some_and(|status| !exited_cleanly(status)));
     assert!(table.reserve().is_some(), "a reaped child kept its slot");
+    assert!(second
+        .stop(Instant::now() + Duration::from_secs(2))
+        .is_some());
 }
 
 #[test]

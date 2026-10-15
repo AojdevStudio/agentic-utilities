@@ -153,10 +153,11 @@ pub(super) fn secret_body() -> Value {
     })
 }
 
-/// A write outside any human request: no client to watch, no request
-/// deadline. Each control is leaked, which a test process can afford.
-pub(super) fn detached() -> WriteAttempt<'static> {
-    WriteAttempt::new(Box::leak(Box::new(RequestControl::detached())))
+/// Run one write outside any human request: no client to watch, no request
+/// deadline.
+pub(super) fn detached<T>(write: impl FnOnce(&mut WriteAttempt<'_>) -> T) -> T {
+    let control = RequestControl::detached();
+    write(&mut WriteAttempt::new(&control))
 }
 
 fn value() -> SecretMaterial {
@@ -176,10 +177,7 @@ fn create_sends_one_encrypted_request() {
     let cloud = Cloud::start();
     let route = format!("/api/organizations/{ORG}/secrets");
     cloud.mount("POST", &route, 200, secret_body());
-    let meta = cloud
-        .writer()
-        .create(&new_secret(), &value(), &mut detached())
-        .unwrap();
+    let meta = detached(|attempt| cloud.writer().create(&new_secret(), &value(), attempt)).unwrap();
     assert_eq!((meta.id.as_str(), meta.key.as_str()), (SECRET, "TEST"));
     assert_eq!(meta.project_id.as_deref(), Some(PROJECT));
     let writes = cloud.writes();
@@ -207,10 +205,7 @@ fn update_writes_the_full_record_once() {
         key: "TEST".into(),
         note: "rotated".into(),
     };
-    let meta = cloud
-        .writer()
-        .update(&update, &value(), &mut detached())
-        .unwrap();
+    let meta = detached(|attempt| cloud.writer().update(&update, &value(), attempt)).unwrap();
     assert_eq!(meta.id, SECRET);
     let writes = cloud.writes();
     assert_eq!(writes.len(), 1, "{writes:?}");
@@ -226,20 +221,14 @@ fn failures_say_whether_anything_may_have_been_written() {
     let route = format!("/api/organizations/{ORG}/secrets");
     cloud.mount("POST", &route, 400, json!({"message": "rejected"}));
     assert_eq!(
-        cloud
-            .writer()
-            .create(&new_secret(), &value(), &mut detached())
-            .unwrap_err(),
+        detached(|attempt| cloud.writer().create(&new_secret(), &value(), attempt)).unwrap_err(),
         WriteFailure::Rejected
     );
 
     let cloud = Cloud::start();
     cloud.mount("POST", &route, 500, json!({"message": "server error"}));
     assert_eq!(
-        cloud
-            .writer()
-            .create(&new_secret(), &value(), &mut detached())
-            .unwrap_err(),
+        detached(|attempt| cloud.writer().create(&new_secret(), &value(), attempt)).unwrap_err(),
         WriteFailure::Uncertain
     );
 
@@ -250,9 +239,8 @@ fn failures_say_whether_anything_may_have_been_written() {
     let base = format!("http://{closed}");
     let token = SecretString::from(TOKEN.to_string());
     let unreachable = SdkWriter::new(token, &format!("{base}/identity"), &format!("{base}/api"));
-    let failure = unreachable
-        .create(&new_secret(), &value(), &mut detached())
-        .unwrap_err();
+    let failure =
+        detached(|attempt| unreachable.create(&new_secret(), &value(), attempt)).unwrap_err();
     assert_eq!(
         failure,
         WriteFailure::Rejected,

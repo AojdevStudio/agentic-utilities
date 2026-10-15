@@ -171,7 +171,7 @@ fn fields_the_sdk_would_refuse_never_reach_a_login() {
         (new("FRESH".into(), ""), SecretMaterial::new(Vec::new())),
     ];
     for (secret, value) in cases {
-        let refused = writer.create(&secret, &value, &mut detached());
+        let refused = detached(|attempt| writer.create(&secret, &value, attempt));
         assert_eq!(
             refused.unwrap_err(),
             WriteFailure::Rejected,
@@ -187,7 +187,7 @@ fn fields_the_sdk_would_refuse_never_reach_a_login() {
     };
     let kept = SecretMaterial::new("v".repeat(25_001).into_bytes());
     assert_eq!(
-        writer.update(&update, &kept, &mut detached()).unwrap_err(),
+        detached(|attempt| writer.update(&update, &kept, attempt)).unwrap_err(),
         WriteFailure::Rejected
     );
     assert_eq!(cloud.logins(), 0, "an invalid write logged in");

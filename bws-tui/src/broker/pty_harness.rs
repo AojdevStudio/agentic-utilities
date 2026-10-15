@@ -24,6 +24,9 @@ const HELPER_ENV: &str = "HUSH_PTY_HELPER_SPEC";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum Fd {
     Tty,
+    /// The terminal, while a helper thread keeps clearing O_NONBLOCK on the
+    /// client's open of it, as a hostile or careless client could.
+    TtyFlipper,
     Pipe(String),
     PipeWriter,
     DevNull,
@@ -212,6 +215,19 @@ fn helper_entry() {
         for fd in &step.fds {
             keep.push(match fd {
                 Fd::Tty => super::client_human::open_terminal().unwrap(),
+                Fd::TtyFlipper => {
+                    let tty = super::client_human::open_terminal().unwrap();
+                    let raw = std::os::fd::AsRawFd::as_raw_fd(&tty);
+                    std::thread::spawn(move || loop {
+                        // SAFETY: changes only status flags; the helper exits with the fd open.
+                        unsafe {
+                            let flags = libc::fcntl(raw, libc::F_GETFL);
+                            libc::fcntl(raw, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                    });
+                    tty
+                }
                 Fd::Pipe(content) => {
                     let (reader, mut writer) = pipe();
                     writer.write_all(content.as_bytes()).unwrap();

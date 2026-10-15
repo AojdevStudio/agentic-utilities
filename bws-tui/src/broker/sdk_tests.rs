@@ -13,13 +13,14 @@ use bitwarden::secrets_manager::{
 };
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use std::time::Duration;
 use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-const ORG: &str = "f4e44a7f-1190-432a-9d4a-af96013127cb";
+pub(super) const ORG: &str = "f4e44a7f-1190-432a-9d4a-af96013127cb";
 const SECRET: &str = "15744a66-341a-4c62-af50-af960166b6bc";
-const PROJECT: &str = "8d5a6b1e-2f3c-4a7d-9e0b-1c2d3e4f5a6b";
+pub(super) const PROJECT: &str = "8d5a6b1e-2f3c-4a7d-9e0b-1c2d3e4f5a6b";
 const TOKEN: &str = "0.ec2c1d46-6a4b-4751-a310-af9601317f2d.C2IgxjjLF7qSshsbwe8JGcbM075YXw:X8vbvA0bduihIDe/qrzIQQ==";
 const PAYLOAD: &str = "2.E9fE8+M/VWMfhhim1KlCbQ==|eLsHR484S/tJbIkM6spnG/HP65tj9A6Tba7kAAvUp+rYuQmGLixiOCfMsqt5OvBctDfvvr/AesBu7cZimPLyOEhqEAjn52jF0eaI38XZfeOG2VJl0LOf60Wkfh3ryAMvfvLj3G4ZCNYU8sNgoC2+IQ==|lNApuCQ4Pyakfo/wwuuajWNaEX/2MW8/3rjXB/V7n+k=";
 const ENC: &str = "2.pMS6/icTQABtulw52pq2lg==|XXbxKxDTh+mWiN1HjH2N1w==|Q6PkuT+KX/axrgN9ubD5Ajk2YNwxQkgs3WJM0S0wtG8=";
@@ -27,13 +28,18 @@ const DATE: &str = "2023-01-26T21:46:02.2182556Z";
 const VALUE: &str = "FAKE-sdk-value-0009";
 
 /// A mock cloud with a working login. The runtime only starts and inspects it.
-struct Cloud {
+pub(super) struct Cloud {
     runtime: tokio::runtime::Runtime,
     server: MockServer,
 }
 
 impl Cloud {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
+        Self::with_login_delay(Duration::ZERO)
+    }
+
+    /// A cloud whose login answers only after `delay`.
+    pub(super) fn with_login_delay(delay: Duration) -> Self {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -47,25 +53,47 @@ impl Cloud {
             "expires_in": 3600, "token_type": "Bearer", "scope": "api.secrets",
             "encrypted_payload": PAYLOAD,
         });
-        cloud.mount("POST", "/identity/connect/token", 200, login);
+        cloud.mount_delayed("POST", "/identity/connect/token", 200, login, delay);
         cloud
     }
 
     fn mount(&self, verb: &str, route: &str, status: u16, body: Value) {
+        self.mount_delayed(verb, route, status, body, Duration::ZERO);
+    }
+
+    pub(super) fn mount_delayed(
+        &self,
+        verb: &str,
+        route: &str,
+        status: u16,
+        body: Value,
+        delay: Duration,
+    ) {
+        let reply = ResponseTemplate::new(status).set_body_json(body);
         let mock = Mock::given(method(verb))
             .and(path(route))
-            .respond_with(ResponseTemplate::new(status).set_body_json(body));
+            .respond_with(reply.set_delay(delay));
         self.runtime.block_on(mock.mount(&self.server));
     }
 
-    fn writer(&self) -> SdkWriter {
+    /// How many login requests reached the cloud.
+    pub(super) fn logins(&self) -> usize {
+        let requests = self.runtime.block_on(self.server.received_requests());
+        let requests = requests.unwrap_or_default();
+        requests
+            .iter()
+            .filter(|r| r.url.path().starts_with("/identity"))
+            .count()
+    }
+
+    pub(super) fn writer(&self) -> SdkWriter {
         let uri = self.server.uri();
         let token = SecretString::from(TOKEN.to_string());
         SdkWriter::new(token, &format!("{uri}/identity"), &format!("{uri}/api"))
     }
 
     /// Every request after login, as "METHOD /path" plus its body.
-    fn writes(&self) -> Vec<(String, String)> {
+    pub(super) fn writes(&self) -> Vec<(String, String)> {
         let requests = self.runtime.block_on(self.server.received_requests());
         requests
             .unwrap_or_default()
@@ -116,7 +144,7 @@ fn sent_plaintext(cloud: &Cloud, body: &str) -> (String, String, String) {
     (secret.key, secret.value, secret.note)
 }
 
-fn secret_body() -> Value {
+pub(super) fn secret_body() -> Value {
     json!({
         "id": SECRET, "organizationId": ORG, "key": ENC, "value": ENC, "note": ENC,
         "creationDate": DATE, "revisionDate": DATE,

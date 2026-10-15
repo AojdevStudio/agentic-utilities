@@ -64,6 +64,26 @@ fn a_paused_terminal_times_out_instead_of_hanging() {
     assert!(started.elapsed() < BOUND, "took {:?}", started.elapsed());
 }
 
+/// A prompt does not restart the clock. The second wait ends at the deadline
+/// the request started with, not a fresh one.
+#[test]
+fn every_wait_in_a_request_shares_one_deadline() {
+    let (_master, slave) = pty();
+    let (socket, _client) = UnixStream::pair().unwrap();
+    let started = Instant::now();
+    let result = worker(move || {
+        let console = Console::new(slave, &socket).unwrap();
+        let mut console = console.with_timeout(Duration::from_millis(400));
+        console.say("first: ")?;
+        std::thread::sleep(Duration::from_millis(300));
+        console.read_hidden("second: ", 16).map(drop)
+    });
+    let reply = result.recv_timeout(BOUND).ok();
+    assert_eq!(reply, Some(Err(Interrupt::TimedOut)));
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_millis(600), "took {elapsed:?}");
+}
+
 #[test]
 fn a_client_hangup_cancels_a_blocked_terminal_write() {
     let (_master, slave) = paused_pty();

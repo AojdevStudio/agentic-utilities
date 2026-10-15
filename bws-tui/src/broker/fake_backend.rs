@@ -16,6 +16,7 @@ pub(crate) struct FakeBackend {
     fetches: AtomicUsize,
     writes: AtomicUsize,
     write_delay: Duration,
+    catalog_delay: Duration,
     lose_delete_reply: bool,
 }
 
@@ -31,6 +32,7 @@ impl FakeBackend {
             fetches: AtomicUsize::new(0),
             writes: AtomicUsize::new(0),
             write_delay: Duration::ZERO,
+            catalog_delay: Duration::ZERO,
             lose_delete_reply: false,
         }
     }
@@ -44,6 +46,12 @@ impl FakeBackend {
     /// Every write waits this long first, which widens race windows in tests.
     pub(crate) fn with_write_delay(mut self, delay: Duration) -> Self {
         self.write_delay = delay;
+        self
+    }
+
+    /// Every catalog read waits this long first, like a slow provider.
+    pub(crate) fn with_catalog_delay(mut self, delay: Duration) -> Self {
+        self.catalog_delay = delay;
         self
     }
 
@@ -77,6 +85,7 @@ impl FakeBackend {
 
 impl VaultBackend for FakeBackend {
     fn catalog(&self) -> Result<Vec<SecretMeta>> {
+        std::thread::sleep(self.catalog_delay);
         let secrets = self.secrets.lock().unwrap();
         let mut metas: Vec<SecretMeta> = secrets.values().map(|(meta, _)| meta.clone()).collect();
         metas.sort_by(|left, right| left.key.cmp(&right.key));

@@ -57,6 +57,12 @@ pub(crate) use protocol::{Frame, RequestFrame, ResponseFrame};
 #[cfg(test)]
 mod add_tests;
 #[cfg(test)]
+mod bws_child_tests;
+#[cfg(test)]
+mod cancel_harness;
+#[cfg(test)]
+mod cancel_tests;
+#[cfg(test)]
 mod console_tests;
 #[cfg(test)]
 mod daemon_harness;
@@ -87,10 +93,14 @@ mod run_tests;
 #[cfg(test)]
 mod run_unit_tests;
 #[cfg(test)]
+mod sdk_cancel_tests;
+#[cfg(test)]
 mod sdk_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod trust_tests;
+#[cfg(test)]
+mod tty_owner_tests;
 #[cfg(test)]
 mod write_tests;

@@ -7,11 +7,13 @@ use super::client::Client;
 use super::daemon_harness::{human_daemon, FakeAuth, PASSWORD};
 use super::fdpass_tests::pipe;
 use super::human_tests::{key, vault, VALUE};
-use super::meta::WriteFailure;
+use super::meta::{SecretMeta, WriteFailure};
 use super::operation::{Operation, Outcome, Refusal, ValueChange, ValueSource};
 use super::pty_harness::{Fd, Session, Step};
 use super::run_harness::tempdir;
+use super::FakeBackend;
 use secrecy::SecretString;
+use std::collections::HashMap;
 use std::io::Write;
 use std::os::fd::AsFd;
 use std::os::unix::fs::PermissionsExt;
@@ -112,6 +114,67 @@ fn rename_refuses_keys_the_provider_would_trim() {
         .map(|meta| meta.key)
         .collect();
     assert_eq!(keys, ["OTHER", "TOKEN"]);
+}
+
+/// The provider counts characters, so valid non-ASCII text at each limit is
+/// kept byte for byte.
+#[test]
+fn unicode_at_the_provider_limits_is_kept_exactly() {
+    let dir = tempdir("write-unicode");
+    let vault = vault();
+    let (socket, daemon) = human_daemon(&dir, vault.clone(), FakeAuth::panicking(), 1);
+    let (key, note, value) = ("ü".repeat(500), "ö".repeat(7000), "é".repeat(25_000));
+    let (reader, mut writer) = pipe();
+    let feeder = std::thread::spawn(move || writer.write_all(value.as_bytes()));
+    let op = Operation::Add {
+        project: "Test".into(),
+        key: key.clone(),
+        note: Some(note.clone()),
+        value: ValueSource::InputFd,
+    };
+    let mut client = Client::connect_to(&socket.to_path_buf()).unwrap();
+    let added = client.operate(op, &[reader.as_fd()]).unwrap();
+    feeder.join().unwrap().unwrap();
+    drop(client);
+    daemon.join().unwrap();
+    let Ok(Outcome::Added { meta }) = added else {
+        panic!("add failed: {added:?}");
+    };
+    assert_eq!((meta.key, meta.note), (key, note));
+    assert_eq!(
+        vault.stored(&meta.id).unwrap(),
+        "é".repeat(25_000).into_bytes()
+    );
+}
+
+/// An edit that keeps the stored value sends it again, so the stored value
+/// must also pass the provider limits before any write starts.
+#[test]
+fn a_kept_value_over_the_provider_limit_is_refused_before_writing() {
+    let dir = tempdir("write-kept-limit");
+    let meta = SecretMeta {
+        id: "s9".into(),
+        key: "LONG".into(),
+        project: Some("Test".into()),
+        project_id: Some("p1".into()),
+        note: String::new(),
+    };
+    let stored = ("s9".to_string(), (meta, "v".repeat(25_001)));
+    let vault = Arc::new(FakeBackend::new(HashMap::from([stored])));
+    let (socket, daemon) = human_daemon(&dir, vault.clone(), FakeAuth::new(), 1);
+    let edit = Operation::Edit {
+        secret: key("LONG"),
+        new_key: None,
+        note: Some("rotated".into()),
+        value: ValueChange::Keep,
+    };
+    let replies = approved_tty(&socket, vec![edit]);
+    daemon.join().unwrap();
+    assert!(
+        matches!(replies[..], [Err(Refusal::InvalidValue { .. })]),
+        "{replies:?}"
+    );
+    assert_eq!(vault.write_count(), 0);
 }
 
 #[test]

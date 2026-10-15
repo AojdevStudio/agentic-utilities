@@ -283,3 +283,6 @@ fn forward_signals(writer: Arc<Mutex<UnixStream>>, signals: Receiver<ForwardSign
         }
     });
 }
+
+#[cfg(test)]
+mod tests;

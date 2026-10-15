@@ -44,6 +44,9 @@ pub(crate) enum Cmd {
         fds: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
         /// Command to run, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<OsString>,
@@ -55,6 +58,9 @@ pub(crate) enum Cmd {
         keys: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
         /// Command to run, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
@@ -113,6 +119,7 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             secrets,
             fds,
             project,
+            no_stdin,
             cmd,
         } => run_cmd::run_flags(
             &[
@@ -120,11 +127,18 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
                 (&fds, "--fd", Delivery::Fd),
             ],
             project,
+            no_stdin,
             cmd,
         ),
-        Cmd::Exec { keys, project, cmd } => run_cmd::run_flags(
+        Cmd::Exec {
+            keys,
+            project,
+            no_stdin,
+            cmd,
+        } => run_cmd::run_flags(
             &[(&keys, "--key", Delivery::Env)],
             project,
+            no_stdin,
             cmd.into_iter().map(OsString::from).collect(),
         ),
         Cmd::Edit {

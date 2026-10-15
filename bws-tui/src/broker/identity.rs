@@ -2,7 +2,8 @@
 
 use super::peercred::PeerCredentials;
 use super::runspec::RunAs;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use std::collections::HashSet;
 use std::ffi::{CStr, CString};
 
 /// Name of the dedicated run account. `hush install` (PR 4) creates it.
@@ -39,7 +40,7 @@ pub(crate) fn resolve_identity(
             Some(account) => Identity {
                 uid: peer.uid,
                 gid: peer.gid,
-                groups: accounts.groups(&account)?,
+                groups: fit_groups(peer.gid, accounts.groups(&account)?, ngroups_max()?),
             },
             None => Identity {
                 uid: peer.uid,
@@ -65,6 +66,27 @@ but no such account exists on this machine. Refusing to run"
         bail!("hush run never runs a child as root. The request resolved to uid 0 or gid 0");
     }
     Ok(identity)
+}
+
+/// The run's primary gid first, then the other distinct groups in their
+/// discovered order, cut to what `setgroups` accepts. The account database's
+/// default gid can differ from the gid the run actually gets.
+fn fit_groups(primary: u32, discovered: Vec<u32>, limit: usize) -> Vec<u32> {
+    let mut seen = HashSet::from([primary]);
+    std::iter::once(primary)
+        .chain(discovered.into_iter().filter(|gid| seen.insert(*gid)))
+        .take(limit)
+        .collect()
+}
+
+/// The kernel's supplementary group limit. 16 on macOS, 65536 on Linux.
+fn ngroups_max() -> Result<usize> {
+    // SAFETY: sysconf reads one configuration value and has no side effects.
+    let limit = unsafe { libc::sysconf(libc::_SC_NGROUPS_MAX) };
+    usize::try_from(limit)
+        .ok()
+        .filter(|&limit| limit > 0)
+        .context("the system supplementary group limit is unavailable. Refusing to run")
 }
 
 pub(crate) struct SystemAccounts;

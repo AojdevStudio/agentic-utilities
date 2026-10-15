@@ -4,11 +4,12 @@
 use super::client_run::RunInputs;
 use super::run_harness::*;
 use super::run_io::STDIN_WINDOW;
-use super::run_prepare::{resolve_program, RunConfig};
+use super::run_prepare::RunConfig;
+use super::run_program::program_candidates;
 use super::runspec::{Delivery, ForwardSignal, RunOutcome};
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::ffi::OsStringExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -98,20 +99,17 @@ fn a_child_that_cannot_start_reports_the_daemon_error() {
 #[test]
 fn relative_and_empty_path_entries_resolve_against_the_request_cwd() {
     let dir = tempdir("path");
-    std::fs::create_dir_all(dir.join("bin")).unwrap();
-    for tool in [dir.join("bin/tool"), dir.join("here")] {
-        std::fs::write(&tool, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    let found = resolve_program(OsStr::new("tool"), &dir, Some(b"bin:/usr/bin")).unwrap();
-    assert_eq!(found, dir.join("bin/tool"));
-    let found = resolve_program(OsStr::new("here"), &dir, Some(b"/usr/bin::/bin")).unwrap();
-    assert_eq!(found, dir.join("here"));
+    let c = |path: &str| CString::new(path).unwrap();
+    let at = |name: &str| CString::new(dir.join(name).into_os_string().into_vec()).unwrap();
+    let found = program_candidates(OsStr::new("tool"), &dir, Some(b"bin:/usr/bin")).unwrap();
+    assert_eq!(found, [at("bin/tool"), c("/usr/bin/tool")]);
+    let found = program_candidates(OsStr::new("here"), &dir, Some(b"/usr/bin::/bin")).unwrap();
+    assert_eq!(found, [c("/usr/bin/here"), at("here"), c("/bin/here")]);
 }
 
 #[test]
 fn fd_close_bound_covers_descriptors_above_the_soft_limit() {
-    use super::spawn::close_bound;
+    use super::spawn_fd::close_bound;
     assert_eq!(close_bound(64, Some(100)), 101);
     assert_eq!(close_bound(256, Some(9)), 256);
     assert_eq!(close_bound(u64::MAX, None), 1 << 20);

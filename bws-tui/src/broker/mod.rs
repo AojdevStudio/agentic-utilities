@@ -32,12 +32,15 @@ pub(crate) mod policy;
 mod protocol;
 pub(crate) mod run_io;
 pub(crate) mod run_loop;
+mod run_output;
 pub(crate) mod run_prepare;
+mod run_program;
 pub(crate) mod runspec;
 mod sdk;
 pub(crate) mod server;
 mod slots;
 pub(crate) mod spawn;
+mod spawn_fd;
 pub(crate) mod token;
 mod tty;
 
@@ -68,9 +71,17 @@ mod pty_harness;
 #[cfg(test)]
 mod round2_tests;
 #[cfg(test)]
+mod run_boundary_tests;
+#[cfg(test)]
 mod run_flow_tests;
 #[cfg(test)]
 mod run_harness;
+#[cfg(test)]
+mod run_input_tests;
+#[cfg(test)]
+mod run_path_tests;
+#[cfg(test)]
+mod run_release_tests;
 #[cfg(test)]
 mod run_tests;
 #[cfg(test)]

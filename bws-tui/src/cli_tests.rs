@@ -116,3 +116,36 @@ fn rust_source_files_stay_within_the_repository_size_limit() {
         }
     }
 }
+
+#[test]
+fn run_and_exec_accept_the_no_stdin_flag() {
+    for args in [
+        ["hush", "run", "-n", "--secret", "TOKEN", "--", "cat"],
+        [
+            "hush",
+            "run",
+            "--no-stdin",
+            "--secret",
+            "TOKEN",
+            "--",
+            "cat",
+        ],
+        ["hush", "exec", "-n", "--key", "TOKEN", "--", "cat"],
+        ["hush", "exec", "--no-stdin", "--key", "TOKEN", "--", "cat"],
+    ] {
+        let no_stdin = match Cli::try_parse_from(args).map(|cli| cli.cmd) {
+            Ok(Some(Cmd::Run { no_stdin, .. } | Cmd::Exec { no_stdin, .. })) => no_stdin,
+            Ok(_) => panic!("{args:?}: parsed as another command"),
+            Err(error) => panic!("{args:?}: {error}"),
+        };
+        assert!(no_stdin, "{args:?}");
+    }
+    let cli = Cli::try_parse_from(["hush", "run", "--secret", "TOKEN", "--", "cat"]).unwrap();
+    assert!(matches!(
+        cli.cmd,
+        Some(Cmd::Run {
+            no_stdin: false,
+            ..
+        })
+    ));
+}

@@ -8,12 +8,17 @@ use super::protocol::{
     WireRunSpec,
 };
 use super::runspec::{ForwardSignal, OutputSink, RunOutcome, RunSpec, StreamKind};
-use anyhow::{bail, Result};
-use std::io::Read;
+use anyhow::{anyhow, bail, Result};
+use std::io::{ErrorKind, Read};
+use std::net::Shutdown;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
+mod completion;
+use completion::{Completion, InputFailure, ReportedRun};
 
 /// Optional live inputs for a run. Without stdin the child sees end of file at once.
 #[derive(Default)]
@@ -43,26 +48,49 @@ impl Client {
         });
         write_frame(stream, &request)?;
         let writer = Arc::new(Mutex::new(stream.try_clone()?));
+        // Workers hold clones of the socket. Shutting it down on every return lets
+        // the daemon see the client leave and stop the child.
+        let _shutdown = ShutdownOnDrop(stream.try_clone()?);
         let credit = Arc::new(Credit::default());
         let _close_credit = CloseOnDrop(Arc::clone(&credit));
-        forward_stdin(Arc::clone(&writer), inputs.stdin, Arc::clone(&credit));
+        let completion = Arc::new(Completion::default());
+        let stdin = StdinWorker {
+            writer: Arc::clone(&writer),
+            credit: Arc::clone(&credit),
+            completion: Arc::clone(&completion),
+            abort: stream.try_clone()?,
+        };
+        stdin.spawn(inputs.stdin);
         if let Some(signals) = inputs.signals {
             forward_signals(writer, signals);
         }
-        loop {
-            match read_frame(stream)? {
-                Frame::Response(ResponseFrame::RunOutput { stream: kind, data }) => match kind {
-                    StreamKind::Stdout => sink.stdout(&data.0)?,
-                    StreamKind::Stderr => sink.stderr(&data.0)?,
-                },
-                Frame::Response(ResponseFrame::RunNotice { message }) => sink.notice(&message)?,
-                Frame::Response(ResponseFrame::RunStdinCredit { bytes }) => {
-                    credit.grant(bytes as usize)
-                }
-                Frame::Response(ResponseFrame::RunExit { outcome }) => return Ok(outcome),
-                Frame::Response(ResponseFrame::Error { message, .. }) => bail!("{message}"),
-                _ => bail!("unexpected frame from daemon"),
+        completion.settle(relay(stream, sink, &credit))
+    }
+}
+
+/// Deliver output until the daemon reports the exit or the connection fails.
+fn relay(
+    stream: &mut UnixStream,
+    sink: &mut dyn OutputSink,
+    credit: &Credit,
+) -> Result<ReportedRun> {
+    loop {
+        match read_frame(stream)? {
+            Frame::Response(ResponseFrame::RunOutput { stream: kind, data }) => match kind {
+                StreamKind::Stdout => sink.stdout(&data.0)?,
+                StreamKind::Stderr => sink.stderr(&data.0)?,
+            },
+            Frame::Response(ResponseFrame::RunNotice { message }) => sink.notice(&message)?,
+            Frame::Response(ResponseFrame::RunStdinCredit { bytes }) => {
+                credit.grant(bytes as usize)
             }
+            Frame::Response(ResponseFrame::RunExit { outcome }) => {
+                return Ok(ReportedRun::Exit(outcome));
+            }
+            Frame::Response(ResponseFrame::Error { message, .. }) => {
+                return Ok(ReportedRun::Refused(message));
+            }
+            _ => bail!("unexpected frame from daemon"),
         }
     }
 }
@@ -95,11 +123,11 @@ pub(super) fn to_wire(spec: RunSpec) -> Result<WireRunSpec> {
     })
 }
 
-fn send(writer: &Mutex<UnixStream>, frame: RequestFrame) -> bool {
-    match writer.lock() {
-        Ok(mut stream) => write_frame(&mut *stream, &Frame::Request(frame)).is_ok(),
-        Err(_) => false,
-    }
+fn send(writer: &Mutex<UnixStream>, frame: RequestFrame) -> Result<()> {
+    let mut stream = writer
+        .lock()
+        .map_err(|_| anyhow!("the run connection lock is poisoned"))?;
+    write_frame(&mut *stream, &Frame::Request(frame))
 }
 
 /// Stdin bytes the daemon has agreed to take. The stdin thread waits for it.
@@ -144,38 +172,84 @@ impl Drop for CloseOnDrop {
     }
 }
 
-fn forward_stdin(
+/// A non-blocking stdin with no data yet is polled at this pace. The credit
+/// check before each read ends the worker once the run is over.
+const WOULD_BLOCK_RETRY: Duration = Duration::from_millis(20);
+
+struct StdinWorker {
     writer: Arc<Mutex<UnixStream>>,
-    stdin: Option<Box<dyn Read + Send>>,
     credit: Arc<Credit>,
-) {
-    std::thread::spawn(move || {
+    completion: Arc<Completion>,
+    /// Closes the connection after a failure without the writer lock, which a
+    /// blocked send may hold.
+    abort: UnixStream,
+}
+
+impl StdinWorker {
+    fn spawn(self, stdin: Option<Box<dyn Read + Send>>) {
+        std::thread::spawn(move || {
+            if let Err(failure) = self.forward(stdin) {
+                self.failed(failure);
+            }
+        });
+    }
+
+    fn failed(&self, failure: InputFailure) {
+        let direction = match &failure {
+            InputFailure::Read(_) => Shutdown::Both,
+            InputFailure::Send(_) => Shutdown::Write,
+        };
+        self.completion.fail(failure);
+        // macOS discards queued replies on read shutdown while still connected.
+        let _ = self.abort.shutdown(direction);
+    }
+
+    /// Send stdin within the credit window, then end of input.
+    fn forward(&self, stdin: Option<Box<dyn Read + Send>>) -> Result<(), InputFailure> {
         if let Some(mut stdin) = stdin {
             let mut buf = vec![0u8; 32 * 1024];
-            while let Some(available) = credit.wait() {
+            loop {
+                let Some(available) = self.credit.wait() else {
+                    return Ok(());
+                };
                 let limit = available.min(buf.len());
                 match stdin.read(&mut buf[..limit]) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
                     Ok(read) => {
-                        credit.spend(read);
+                        self.credit.spend(read);
                         let data = WireBytes(buf[..read].to_vec());
-                        if !send(&writer, RequestFrame::RunStdin { data }) {
-                            return;
-                        }
+                        send(&self.writer, RequestFrame::RunStdin { data })
+                            .map_err(InputFailure::Send)?;
                     }
+                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        std::thread::sleep(WOULD_BLOCK_RETRY)
+                    }
+                    Err(error) => return Err(InputFailure::Read(error)),
                 }
             }
         }
-        send(&writer, RequestFrame::RunStdinEof);
-    });
+        send(&self.writer, RequestFrame::RunStdinEof).map_err(InputFailure::Send)
+    }
+}
+
+struct ShutdownOnDrop(UnixStream);
+
+impl Drop for ShutdownOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(Shutdown::Both);
+    }
 }
 
 fn forward_signals(writer: Arc<Mutex<UnixStream>>, signals: Receiver<ForwardSignal>) {
     std::thread::spawn(move || {
         for signal in signals {
-            if !send(&writer, RequestFrame::RunSignal { signal }) {
+            if send(&writer, RequestFrame::RunSignal { signal }).is_err() {
                 return;
             }
         }
     });
 }
+
+#[cfg(test)]
+mod tests;

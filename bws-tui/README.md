@@ -175,15 +175,21 @@ The client sends names and passes its terminal or stdin to the daemon as open fi
 - **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment, and `hush` cannot see or undo that. Bitwarden trims keys, so a key with leading or trailing whitespace is refused instead of being saved under another name.
 - **Honest failures:** when a write's outcome is unknown, `hush` says so and does not retry. That includes a delete that may have reached the vault before it failed. Check `hush list` first.
 
+The daemon obtains metadata by listing the vault through bws. That listing carries values, which the daemon discards after parsing. The existing 16 MiB output cap can refuse a large vault. Changing that backend contract remains separate in [#80](https://github.com/AojdevStudio/agentic-utilities/issues/80).
+
 ### The daemon's run path
+
+The broker trusts every local non-root account to request any vault secret for a run. Kernel peer credentials identify the caller and select the run identity. They do not restrict which secrets that caller may use. Caller allowlisting is tracked separately in [#76](https://github.com/AojdevStudio/agentic-utilities/issues/76).
 
 `hush run` (and `hush exec`) go only through the daemon. For each run the daemon:
 
 - resolves every `--secret` / `--fd` key to one secret id through its catalog and writes an audit line before any fetch,
 - picks the run identity: the caller's uid and gid from the kernel, or the dedicated `hushrun` account when `/etc/hush/hushd.toml` lists a bound key under `require_hushrun` (no such account means the run is refused). Root is never a run identity,
 - builds the child environment from scratch: the bindings plus `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `TERM`, `TZ`, and `TMPDIR` from the caller. `BWS_*`, `LD_*`, and `DYLD_*` never reach a child,
-- drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory,
-- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child's process group, and anything the child leaves running in its group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory.
+- drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory. The supplementary groups start with the caller's gid and stop at the system limit (`NGROUPS_MAX`, 16 on macOS), so a macOS account in more groups runs without the rest. A bare program name searches the caller's `PATH` as the run identity, so an entry that identity cannot use does not hide a later one. The daemon builds every candidate path before the child starts and refuses a search whose candidates would need more than 1 MiB, the size of one request. Because the search runs only in the child, a mistyped program name fails after the daemon has fetched the bound values. The run then fails at exec, and no program receives them,
+- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child and its original process group, and anything the child leaves running in that group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory. A stdin read error fails the run and stops the child. A non-blocking stdin with no data yet is not an error. The client tries again every 20 ms until data arrives or the run ends.
+
+`hush run -n` (or `--no-stdin`, also on `exec`) never reads stdin, and the child gets end of input at once, like `ssh -n`. Use it inside a shell `while read` loop and for background runs, so the run does not consume input meant for something else.
 
 Masking is best effort. A command that prints its own secret in a transformed form (for example base64) can still leak that value.
 

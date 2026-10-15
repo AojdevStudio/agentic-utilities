@@ -88,7 +88,7 @@ pub(crate) fn prepare_run(
         .iter()
         .find(|(name, _)| name.as_str() == "PATH")
         .map(|(_, value)| value.0.as_slice());
-    let program_path = resolve_program(program, &cwd, path_var)?;
+    let candidates = program_candidates(program, &cwd, path_var)?;
     let switch = identity_switch(identity)?;
 
     let mut bound = Vec::with_capacity(spec.bindings.len());
@@ -134,7 +134,11 @@ pub(crate) fn prepare_run(
     }
     Ok(PreparedRun {
         plan: ChildPlan {
-            program: CString::new(program_path.as_os_str().as_bytes())?,
+            programs: candidates
+                .iter()
+                .map(|path| CString::new(path.as_os_str().as_bytes()))
+                .collect::<Result<_, _>>()
+                .context("PATH holds a NUL byte")?,
             argv,
             envp: child_env(&passthrough, bound),
             cwd: CString::new(spec.cwd.0)?,
@@ -243,29 +247,24 @@ pub(crate) fn decide_switch(euid: u32, identity: Identity) -> Result<Option<Iden
     }
 }
 
-/// A program with a slash resolves against `cwd`; a bare name searches the request PATH.
-/// Relative and empty PATH entries resolve against `cwd`, as they would in the caller's shell.
-pub(crate) fn resolve_program(
+/// A program with a slash resolves against `cwd`; a bare name yields one
+/// candidate per entry of the request PATH. Relative and empty entries resolve
+/// against `cwd`, as they would in the caller's shell. The child tries them in
+/// order after dropping to the run identity, so no access check happens here.
+pub(crate) fn program_candidates(
     program: &OsStr,
     cwd: &Path,
     path_var: Option<&[u8]>,
-) -> Result<PathBuf> {
+) -> Result<Vec<PathBuf>> {
     if program.is_empty() {
         bail!("no program given after --");
     }
     if program.as_bytes().contains(&b'/') {
-        return Ok(cwd.join(program));
+        return Ok(vec![cwd.join(program)]);
     }
     let search = path_var.unwrap_or(b"/usr/bin:/bin");
-    search
+    Ok(search
         .split(|&byte| byte == b':')
         .map(|dir| cwd.join(OsStr::from_bytes(dir)).join(program))
-        .find(|candidate| is_executable(candidate))
-        .ok_or_else(|| anyhow!("program not found on PATH: {}", program.to_string_lossy()))
-}
-
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .collect())
 }

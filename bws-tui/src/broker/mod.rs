@@ -23,6 +23,7 @@ pub(crate) mod run_prepare;
 pub(crate) mod runspec;
 pub(crate) mod server;
 pub(crate) mod spawn;
+mod spawn_fd;
 pub(crate) mod token;
 
 #[cfg(test)]

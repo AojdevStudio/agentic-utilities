@@ -5,9 +5,10 @@
 //! buffer before `fork`, zeroes the env buffers after, and runs only
 //! async-signal-safe calls in the child: new process group, stdio and
 //! delivery pipes, close every other fd, `setgroups`, `setgid`, `setuid`,
-//! `chdir`, then `execve`.
+//! `chdir`, then `execve` of each prepared program path in turn.
 
 use super::identity::Identity;
+use super::spawn_fd::{close_from, max_fd};
 use anyhow::{bail, Context, Result};
 use std::ffi::CString;
 use std::fs::File;
@@ -19,7 +20,8 @@ pub(crate) const FIRST_DELIVERY_FD: i32 = 3;
 pub(crate) const MAX_DELIVERY_FDS: usize = 32;
 
 pub(crate) struct ChildPlan {
-    pub program: CString,
+    /// Paths to try in order, like an `execvp` PATH search. Never empty.
+    pub programs: Vec<CString>,
     pub argv: Vec<CString>,
     pub envp: Vec<Zeroizing<Vec<u8>>>,
     pub cwd: CString,
@@ -65,6 +67,7 @@ pub(crate) fn spawn(plan: &ChildPlan) -> Result<SpawnedChild> {
         stderr_w.as_raw_fd(),
     ];
     sources.extend(delivery.iter().map(|(read, _)| read.as_raw_fd()));
+    let programs: Vec<*const libc::c_char> = plan.programs.iter().map(|p| p.as_ptr()).collect();
     let argv: Vec<*const libc::c_char> = plan
         .argv
         .iter()
@@ -89,7 +92,7 @@ pub(crate) fn spawn(plan: &ChildPlan) -> Result<SpawnedChild> {
         })
         .unwrap_or_default();
     let raw = RawChild {
-        program: plan.program.as_ptr(),
+        programs: &programs,
         argv: argv.as_ptr(),
         envp: envp.as_ptr(),
         cwd: plan.cwd.as_ptr(),
@@ -144,7 +147,7 @@ pub(crate) fn spawn(plan: &ChildPlan) -> Result<SpawnedChild> {
 }
 
 struct RawChild<'a> {
-    program: *const libc::c_char,
+    programs: &'a [*const libc::c_char],
     argv: *const *const libc::c_char,
     envp: *const *const libc::c_char,
     cwd: *const libc::c_char,
@@ -159,6 +162,10 @@ struct RawChild<'a> {
 impl RawChild<'_> {
     unsafe fn fail(&self, err: i32, stage: u8) -> ! {
         let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+        self.report(err, stage, errno)
+    }
+
+    unsafe fn report(&self, err: i32, stage: u8, errno: i32) -> ! {
         let mut report = [stage, 0, 0, 0, 0];
         report[1..].copy_from_slice(&errno.to_be_bytes());
         libc::write(err, report.as_ptr().cast(), report.len());
@@ -220,53 +227,24 @@ impl RawChild<'_> {
         if libc::chdir(self.cwd) != 0 {
             self.fail(err, 6);
         }
-        libc::execve(self.program, self.argv, self.envp);
-        self.fail(err, 7)
-    }
-}
-
-unsafe fn close_from(first: i32, keep: i32, max_fd: i32) {
-    #[cfg(target_os = "linux")]
-    {
-        let below = libc::syscall(libc::SYS_close_range, first as u32, (keep - 1) as u32, 0);
-        let above = libc::syscall(libc::SYS_close_range, (keep + 1) as u32, u32::MAX, 0);
-        if below == 0 && above == 0 {
-            return;
+        // Search as the run identity, so the kernel applies its own access
+        // rules. A path it may not use does not hide a later one.
+        let mut denied = false;
+        let mut errno = libc::ENOENT;
+        for &program in self.programs {
+            libc::execve(program, self.argv, self.envp);
+            errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            match errno {
+                libc::EACCES => denied = true,
+                libc::ENOENT | libc::ENOTDIR => {}
+                _ => break,
+            }
         }
-    }
-    for fd in first..max_fd {
-        if fd != keep {
-            libc::close(fd);
+        if denied && matches!(errno, libc::ENOENT | libc::ENOTDIR) {
+            errno = libc::EACCES;
         }
+        self.report(err, 7, errno)
     }
-}
-
-/// The close loop must reach every inherited fd, even one above a lowered soft limit.
-pub(crate) fn close_bound(soft_limit: u64, highest_open: Option<i32>) -> i32 {
-    let limit = soft_limit.min(1 << 20) as i32;
-    highest_open.map_or(limit, |fd| limit.max(fd + 1))
-}
-
-fn max_fd() -> i32 {
-    // SAFETY: getrlimit writes one rlimit through a valid pointer.
-    let mut limit: libc::rlimit = unsafe { std::mem::zeroed() };
-    let soft = match unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } {
-        0 => limit.rlim_cur,
-        _ => u64::MAX,
-    };
-    close_bound(soft, highest_open_fd())
-}
-
-fn highest_open_fd() -> Option<i32> {
-    let listing = if cfg!(target_os = "linux") {
-        "/proc/self/fd"
-    } else {
-        "/dev/fd"
-    };
-    std::fs::read_dir(listing)
-        .ok()?
-        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
-        .max()
 }
 
 fn cloexec_pipe() -> Result<(OwnedFd, OwnedFd)> {

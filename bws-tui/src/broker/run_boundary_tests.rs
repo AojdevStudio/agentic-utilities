@@ -77,6 +77,32 @@ fn path_search_skips_an_entry_the_run_identity_cannot_execute() {
     assert_eq!(sink.text(), "from-second\n");
 }
 
+#[test]
+fn a_denied_path_entry_is_reported_over_later_missing_ones() {
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipped: root executes any file with an execute bit");
+        return;
+    }
+    let dir = tempdir("path-denied");
+    std::fs::create_dir_all(dir.join("first")).unwrap();
+    let tool = dir.join("first/tool");
+    std::fs::write(&tool, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o001)).unwrap();
+    let mut spec = sh(vec![binding("TOKEN", "TOKEN", Delivery::Env)], "", &dir);
+    spec.program = "tool".into();
+    spec.args.clear();
+    spec.env_passthrough = vec![(
+        EnvName::try_from("PATH".to_string()).unwrap(),
+        "first:missing".into(),
+    )];
+    let error = daemon(&dir, RunConfig::default())
+        .run(spec, &mut Capture::default())
+        .unwrap_err();
+    let denied = std::io::Error::from_raw_os_error(libc::EACCES).to_string();
+    assert!(error.to_string().contains(&denied), "{error}");
+}
+
 /// One account whose database primary group differs from the peer's gid.
 struct Member(Vec<u32>);
 

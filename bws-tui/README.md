@@ -178,7 +178,7 @@ hush sync
 - **Metadata index.** `get` resolves key → id from a local index (`~/.cache/hush/index.json`, or under `$XDG_CACHE_HOME`) holding id/key/project/note — never values — then fetch exactly one secret. A stale id resyncs and retries once. `list` always queries live and refreshes the index as a side effect, so discovery is never answered from cache.
 - **Injection over printing.** `run` is the multi-secret path, and `exec --key` is now an alias of `run --secret` on the same code path. The broker daemon starts the child; the `hush` client never receives a value. Two bindings targeting the same env name refuse to run; `KEY=ENVNAME` remaps keys that are not valid env var names. `run` needs a reachable daemon and never falls back to fetching values in the client.
 - **No bulk export.** No command prints more than one value, in any output mode. `list --json` is discovery, not a dump — there is deliberately no way to script `hush` into exporting the vault.
-- **Audit trail.** Every verb appends a names-only line (`2026-08-18T23:46:52Z exec CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess. `run` and `exec` are audited by the daemon in its own log instead.
+- **Audit trail.** `get`, `add`, `edit`, `delete`, and `sync` append a names-only line (`2026-08-18T23:46:52Z get CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess. `run` and `exec` are audited by the daemon in its own log instead.
 
 ## How it works
 
@@ -203,7 +203,7 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 - **Sanitized failures:** failed `bws` operations report the operation and exit status, never the secret-bearing argv.
 - **Conditional native clipboard clear:** after 30 seconds, `hush` clears a native clipboard only if it still contains the value it copied. Your newer clipboard content is left alone. OSC 52 copies are not auto-cleared because the terminal cannot report whether the clipboard changed.
 - **Delete guard:** the TUI confirms deletion; scripts require `--yes`.
-- **Scoped reads:** `get` and the daemon's `run` fetch single secrets by id; only `list`/`sync` refreshes see the full metadata set, and nothing persists values.
+- **Scoped reads:** `get` fetches a single secret by id, and nothing persists values. To resolve `run` keys, the daemon lists the whole vault through `bws` (that listing carries every value), keeps only the metadata, and then fetches each bound secret by id. A vault whose listing passes the daemon's 16 MiB `bws` output limit makes every run fail.
 - **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.
 
 ### Broker daemon (in progress)
@@ -215,8 +215,10 @@ A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-bro
 - resolves every `--secret` / `--fd` key to one secret id through its catalog and writes an audit line before any fetch,
 - picks the run identity: the caller's uid and gid from the kernel, or the dedicated `hushrun` account when `/etc/hush/hushd.toml` lists a bound key under `require_hushrun` (no such account means the run is refused). Root is never a run identity,
 - builds the child environment from scratch: the bindings plus `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `TERM`, `TZ`, and `TMPDIR` from the caller. `BWS_*`, `LD_*`, and `DYLD_*` never reach a child,
-- drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory,
-- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child's process group, and anything the child leaves running in its group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory.
+- drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory. The supplementary groups start with the caller's gid and stop at the system limit (`NGROUPS_MAX`, 16 on macOS), so a macOS account in more groups runs without the rest. A bare program name searches the caller's `PATH` as the run identity, so an entry that identity cannot use does not hide a later one,
+- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child and its original process group, and anything the child leaves running in that group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory. A stdin read error fails the run and stops the child.
+
+`hush run -n` (or `--no-stdin`, also on `exec`) never reads stdin, and the child gets end of input at once, like `ssh -n`. Use it inside a shell `while read` loop and for background runs, so the run does not consume input meant for something else.
 
 Masking is best effort. A command that prints its own secret in a transformed form (for example base64) can still leak that value.
 

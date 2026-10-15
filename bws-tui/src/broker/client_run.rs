@@ -15,6 +15,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Optional live inputs for a run. Without stdin the child sees end of file at once.
 #[derive(Default)]
@@ -213,6 +214,10 @@ impl Drop for CloseOnDrop {
     }
 }
 
+/// A non-blocking stdin with no data yet is polled at this pace. The credit
+/// check before each read ends the worker once the run is over.
+const WOULD_BLOCK_RETRY: Duration = Duration::from_millis(20);
+
 struct StdinWorker {
     writer: Arc<Mutex<UnixStream>>,
     credit: Arc<Credit>,
@@ -250,6 +255,9 @@ impl StdinWorker {
                             .map_err(InputFailure::Send)?;
                     }
                     Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        std::thread::sleep(WOULD_BLOCK_RETRY)
+                    }
                     Err(error) => return Err(InputFailure::Read(error)),
                 }
             }

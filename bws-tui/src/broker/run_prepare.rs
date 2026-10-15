@@ -9,13 +9,14 @@ use super::meta::{SecretMeta, SecretRef};
 use super::peercred::PeerCredentials;
 use super::policy::Policy;
 use super::protocol::{WireBinding, WireRunSpec};
+use super::run_program::program_candidates;
 use super::runspec::{child_var, is_forbidden_env, is_passthrough_allowed, Delivery};
 use super::spawn::{ChildPlan, FIRST_DELIVERY_FD, MAX_DELIVERY_FDS};
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::{CString, OsStr};
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
@@ -88,7 +89,7 @@ pub(crate) fn prepare_run(
         .iter()
         .find(|(name, _)| name.as_str() == "PATH")
         .map(|(_, value)| value.0.as_slice());
-    let candidates = program_candidates(program, &cwd, path_var)?;
+    let programs = program_candidates(program, &cwd, path_var)?;
     let switch = identity_switch(identity)?;
 
     let mut bound = Vec::with_capacity(spec.bindings.len());
@@ -134,11 +135,7 @@ pub(crate) fn prepare_run(
     }
     Ok(PreparedRun {
         plan: ChildPlan {
-            programs: candidates
-                .iter()
-                .map(|path| CString::new(path.as_os_str().as_bytes()))
-                .collect::<Result<_, _>>()
-                .context("PATH holds a NUL byte")?,
+            programs,
             argv,
             envp: child_env(&passthrough, bound),
             cwd: CString::new(spec.cwd.0)?,
@@ -245,26 +242,4 @@ pub(crate) fn decide_switch(euid: u32, identity: Identity) -> Result<Option<Iden
             identity.uid
         )
     }
-}
-
-/// A program with a slash resolves against `cwd`; a bare name yields one
-/// candidate per entry of the request PATH. Relative and empty entries resolve
-/// against `cwd`, as they would in the caller's shell. The child tries them in
-/// order after dropping to the run identity, so no access check happens here.
-pub(crate) fn program_candidates(
-    program: &OsStr,
-    cwd: &Path,
-    path_var: Option<&[u8]>,
-) -> Result<Vec<PathBuf>> {
-    if program.is_empty() {
-        bail!("no program given after --");
-    }
-    if program.as_bytes().contains(&b'/') {
-        return Ok(vec![cwd.join(program)]);
-    }
-    let search = path_var.unwrap_or(b"/usr/bin:/bin");
-    Ok(search
-        .split(|&byte| byte == b':')
-        .map(|dir| cwd.join(OsStr::from_bytes(dir)).join(program))
-        .collect())
 }

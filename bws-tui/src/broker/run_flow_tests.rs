@@ -4,10 +4,12 @@
 use super::client_run::RunInputs;
 use super::run_harness::*;
 use super::run_io::STDIN_WINDOW;
-use super::run_prepare::{program_candidates, RunConfig};
+use super::run_prepare::RunConfig;
+use super::run_program::program_candidates;
 use super::runspec::{Delivery, ForwardSignal, RunOutcome};
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use std::io::Read;
+use std::os::unix::ffi::OsStringExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -97,13 +99,12 @@ fn a_child_that_cannot_start_reports_the_daemon_error() {
 #[test]
 fn relative_and_empty_path_entries_resolve_against_the_request_cwd() {
     let dir = tempdir("path");
+    let c = |path: &str| CString::new(path).unwrap();
+    let at = |name: &str| CString::new(dir.join(name).into_os_string().into_vec()).unwrap();
     let found = program_candidates(OsStr::new("tool"), &dir, Some(b"bin:/usr/bin")).unwrap();
-    assert_eq!(found, [dir.join("bin/tool"), "/usr/bin/tool".into()]);
+    assert_eq!(found, [at("bin/tool"), c("/usr/bin/tool")]);
     let found = program_candidates(OsStr::new("here"), &dir, Some(b"/usr/bin::/bin")).unwrap();
-    assert_eq!(
-        found,
-        ["/usr/bin/here".into(), dir.join("here"), "/bin/here".into()]
-    );
+    assert_eq!(found, [c("/usr/bin/here"), at("here"), c("/bin/here")]);
 }
 
 #[test]

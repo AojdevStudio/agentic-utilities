@@ -20,6 +20,7 @@ pub(crate) mod run_io;
 pub(crate) mod run_loop;
 mod run_output;
 pub(crate) mod run_prepare;
+mod run_program;
 pub(crate) mod runspec;
 pub(crate) mod server;
 pub(crate) mod spawn;

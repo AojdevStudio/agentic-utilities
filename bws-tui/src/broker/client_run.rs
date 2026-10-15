@@ -44,7 +44,7 @@ impl Client {
         });
         write_frame(stream, &request)?;
         let writer = Arc::new(Mutex::new(stream.try_clone()?));
-        // Workers hold clones of the socket. Closing it on every return lets
+        // Workers hold clones of the socket. Shutting it down on every return lets
         // the daemon see the client leave and stop the child.
         let _shutdown = ShutdownOnDrop(stream.try_clone()?);
         let credit = Arc::new(Credit::default());
@@ -144,7 +144,6 @@ enum Settled {
 }
 
 impl Completion {
-    /// Record a failure unless the run already settled.
     fn fail(&self, failure: InputFailure) {
         let mut state = self
             .0

@@ -210,6 +210,8 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 
 A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by root. The debug-only `--dev-same-user` flag relaxes ownership to the daemon user for same-user development.
 
+The broker trusts every local non-root account to request any vault secret for a run. Kernel peer credentials identify the caller and select the run identity. They do not restrict which secrets that caller may use. Caller allowlisting is tracked separately in [#76](https://github.com/AojdevStudio/agentic-utilities/issues/76).
+
 `hush run` (and `hush exec`) go only through the daemon. For each run the daemon:
 
 - resolves every `--secret` / `--fd` key to one secret id through its catalog and writes an audit line before any fetch,

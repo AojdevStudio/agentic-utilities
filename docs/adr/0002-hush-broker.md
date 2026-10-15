@@ -21,6 +21,10 @@ Sol's broker design is the base. Wonder Full's child-run design replaces Sol's s
 - They talk over one local Unix socket. No TCP. The daemon reads the caller's uid, gid, and pid from the kernel (`SO_PEERCRED` on Linux, `getpeereid` and `LOCAL_PEERPID` on macOS). Policy uses those values, never a value the client claims.
 - Socket paths: `/run/hush/hush.sock` (Linux), `/var/run/hush/hush.sock` (macOS). `HUSH_SOCKET` overrides the path for tests and same-user development only.
 
+### Local-user trust
+
+The broker trusts every local non-root account to request any vault secret for a run. Kernel peer credentials identify the caller and select the run identity. They do not restrict which secrets that caller may use. Caller allowlisting is tracked separately in [#76](https://github.com/AojdevStudio/agentic-utilities/issues/76).
+
 ### Token custody
 
 - Linux: root systemd service. Token is a systemd credential (`LoadCredentialEncrypted=` where systemd is 250 or newer, otherwise a root-only `LoadCredential=` file).

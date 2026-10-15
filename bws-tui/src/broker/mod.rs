@@ -37,9 +37,15 @@ mod fix_tests;
 #[cfg(test)]
 mod round2_tests;
 #[cfg(test)]
+mod run_boundary_tests;
+#[cfg(test)]
 mod run_flow_tests;
 #[cfg(test)]
 mod run_harness;
+#[cfg(test)]
+mod run_input_tests;
+#[cfg(test)]
+mod run_release_tests;
 #[cfg(test)]
 mod run_tests;
 #[cfg(test)]

@@ -20,6 +20,11 @@ pub(super) fn tempdir(tag: &str) -> PathBuf {
 }
 
 pub(super) fn backend() -> FakeBackend {
+    backend_with(&[])
+}
+
+/// The standard fake vault plus extra `(id, key, value)` entries.
+pub(super) fn backend_with(extra: &[(&str, &str, String)]) -> FakeBackend {
     let entry = |id: &str, key: &str, value: &str| {
         let meta = SecretMeta {
             id: id.into(),
@@ -30,11 +35,13 @@ pub(super) fn backend() -> FakeBackend {
         };
         (id.to_string(), (meta, value.to_string()))
     };
-    FakeBackend::new(HashMap::from([
+    let mut secrets = HashMap::from([
         entry("s1", "TOKEN", ENV_VALUE),
         entry("s2", "DB_PASSWORD", FD_VALUE),
         entry("s3", "TINY", "tiny1"),
-    ]))
+    ]);
+    secrets.extend(extra.iter().map(|(id, key, value)| entry(id, key, value)));
+    FakeBackend::new(secrets)
 }
 
 pub(super) fn daemon(dir: &Path, run: RunConfig) -> Client {
@@ -43,14 +50,25 @@ pub(super) fn daemon(dir: &Path, run: RunConfig) -> Client {
 
 /// A daemon that serves exactly one connection.
 pub(super) fn daemon_socket(dir: &Path, run: RunConfig) -> PathBuf {
+    serve_one(dir, run, backend()).0
+}
+
+/// Serve one connection from `vault`. The receiver fires once its handler returns.
+pub(super) fn serve_one(
+    dir: &Path,
+    run: RunConfig,
+    vault: FakeBackend,
+) -> (PathBuf, std::sync::mpsc::Receiver<()>) {
     let socket = dir.join("hush.sock");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let audit = audit::FileAuditLog::open(&dir.join("audit.log")).unwrap();
+    let (done_tx, done) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
-        let _ = daemon::serve_connection_with(stream, &backend(), &audit, &run);
+        let _ = daemon::serve_connection_with(stream, &vault, &audit, &run);
+        let _ = done_tx.send(());
     });
-    socket
+    (socket, done)
 }
 
 pub(super) fn binding(key: &str, env: &str, delivery: Delivery) -> Binding {

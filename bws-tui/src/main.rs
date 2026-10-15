@@ -78,6 +78,27 @@ mod tests {
     }
 
     #[test]
+    fn run_and_exec_accept_the_no_stdin_flag() {
+        for args in [
+            ["hush", "run", "-n", "--secret", "TOKEN", "--", "cat"],
+            [
+                "hush",
+                "run",
+                "--no-stdin",
+                "--secret",
+                "TOKEN",
+                "--",
+                "cat",
+            ],
+            ["hush", "exec", "-n", "--key", "TOKEN", "--", "cat"],
+            ["hush", "exec", "--no-stdin", "--key", "TOKEN", "--", "cat"],
+        ] {
+            let parsed = Cli::try_parse_from(args);
+            assert!(parsed.is_ok(), "{args:?}: {:?}", parsed.err());
+        }
+    }
+
+    #[test]
     fn rust_source_files_stay_within_the_repository_size_limit() {
         let mut pending = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
         while let Some(path) = pending.pop() {

@@ -30,9 +30,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.7
+      - name: Install job-scoped Bun
+        env:
+          BUN_JOB_DIR: ${{ runner.temp }}/bun
+        run: |
+          mkdir -p "$BUN_JOB_DIR"
+          curl --fail --location --silent --show-error https://github.com/oven-sh/bun/releases/download/bun-v1.3.7/bun-linux-x64-baseline.zip --output "$BUN_JOB_DIR/bun.zip"
+          unzip -q "$BUN_JOB_DIR/bun.zip" -d "$BUN_JOB_DIR"
+          echo "$BUN_JOB_DIR/bun-linux-x64-baseline" >> "$GITHUB_PATH"
+          "$BUN_JOB_DIR/bun-linux-x64-baseline/bun" --version
       - run: bun install --no-save --ignore-scripts
       - run: bun run check
       - run: bun run pack:dry

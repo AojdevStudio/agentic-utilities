@@ -18,6 +18,7 @@ pub(crate) mod policy;
 mod protocol;
 pub(crate) mod run_io;
 pub(crate) mod run_loop;
+mod run_output;
 pub(crate) mod run_prepare;
 pub(crate) mod runspec;
 pub(crate) mod server;

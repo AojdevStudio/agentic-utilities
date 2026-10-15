@@ -7,16 +7,17 @@
 //! is joined, and only then is the child reaped.
 
 use super::mask::Masker;
-use super::protocol::{write_frame, Frame, ResponseFrame, WireBytes};
+use super::protocol::{write_frame, Frame, ResponseFrame};
 use super::run_io::{
     spawn_client_reader, spawn_delivery, spawn_reader, spawn_waiter, Cancel, Control, Output,
     STDIN_WINDOW,
 };
+use super::run_output::Outbox;
 use super::run_prepare::PreparedRun;
 use super::runspec::{RunOutcome, StreamKind};
 use super::spawn::spawn;
 use anyhow::Result;
-use std::os::fd::AsRawFd;
+use std::collections::VecDeque;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -26,13 +27,6 @@ use std::time::{Duration, Instant};
 /// up, so a slow client never loses output that was already written.
 const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
 const TICK: Duration = Duration::from_millis(20);
-/// Encoded frames waiting for a slow client. Past this, output readers stall.
-const OUTGOING_CAP: usize = 256 * 1024;
-
-#[cfg(target_os = "linux")]
-const SEND_FLAGS: libc::c_int = libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL;
-#[cfg(not(target_os = "linux"))]
-const SEND_FLAGS: libc::c_int = libc::MSG_DONTWAIT;
 
 pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result<()> {
     stream.set_read_timeout(None)?;
@@ -61,7 +55,15 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     let mut supervisor = Supervisor {
         pid: child.pid,
         cancel: Cancel::clone(&cancel),
-        outgoing: Vec::new(),
+        out: Outbox::default(),
+        controls: short_keys
+            .into_iter()
+            .map(|key| ResponseFrame::RunNotice {
+                message: format!(
+                    "hush: {key} is shorter than 8 bytes, so it is not masked in this run's output"
+                ),
+            })
+            .collect(),
         maskers: [
             Masker::new(mask_values.iter().cloned()),
             Masker::new(mask_values.iter().cloned()),
@@ -69,21 +71,12 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
         open: [true, true],
         exited: None,
         exit_queued: false,
-        credit: 0,
+        credit: STDIN_WINDOW,
         unpressured: Duration::ZERO,
         last_tick: Instant::now(),
         group_killed: false,
     };
     drop(mask_values);
-    for key in short_keys {
-        let message = format!(
-            "hush: {key} is shorter than 8 bytes, so it is not masked in this run's output"
-        );
-        supervisor.queue(ResponseFrame::RunNotice { message });
-    }
-    supervisor.queue(ResponseFrame::RunStdinCredit {
-        bytes: STDIN_WINDOW as u32,
-    });
     let mut workers = Vec::new();
     for (pipe, value) in child.delivery.into_iter().zip(fd_values) {
         workers.push(spawn_delivery(pipe, value, Cancel::clone(&cancel)));
@@ -109,7 +102,7 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
         control_tx,
         Cancel::clone(&cancel),
     ));
-    supervisor.supervise(&mut stream, &output, &control);
+    let result = supervisor.supervise(&mut stream, &output, &control);
     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     kill_group(child.pid, libc::SIGKILL);
     // Shutdown ends the client reader; dropping the receivers frees any blocked send.
@@ -121,53 +114,53 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     let mut status = 0;
     // SAFETY: the child is ours and the waiter only observed it with WNOWAIT.
     unsafe { libc::waitpid(child.pid, &mut status, 0) };
-    Ok(())
+    result
 }
 
 struct Supervisor {
     pid: libc::pid_t,
     cancel: Cancel,
-    outgoing: Vec<u8>,
+    out: Outbox,
+    /// Notices not yet queued, sent one at a time ahead of output.
+    controls: VecDeque<ResponseFrame>,
     maskers: [Masker; 2],
     open: [bool; 2],
     /// The exit status and when the child exited.
     exited: Option<(RunOutcome, Instant)>,
     exit_queued: bool,
+    /// Stdin credit not yet granted to the client.
     credit: usize,
-    /// Time since exit in which outgoing stayed under the cap.
+    /// Time since exit in which the client kept up with output.
     unpressured: Duration,
     last_tick: Instant,
     group_killed: bool,
 }
 
 impl Supervisor {
+    /// Returns when the run is over. An error means the client cannot get a
+    /// complete reply; the caller still cleans up.
     fn supervise(
         &mut self,
         stream: &mut UnixStream,
         output: &Receiver<Output>,
         control: &Receiver<Control>,
-    ) {
+    ) -> Result<()> {
         loop {
             while let Ok(event) = control.try_recv() {
                 if !self.handle(event) {
-                    return;
+                    return Ok(());
                 }
             }
-            if self.credit > 0 && self.outgoing.len() < OUTGOING_CAP {
-                let bytes = self.credit as u32;
-                self.queue(ResponseFrame::RunStdinCredit { bytes });
-                self.credit = 0;
-            }
+            self.offer_controls()?;
             let now = Instant::now();
-            if self.exited.is_some() && self.outgoing.len() < OUTGOING_CAP {
+            if self.exited.is_some() && self.out.accepts_output() {
                 self.unpressured += now - self.last_tick;
             }
             self.last_tick = now;
             if let Some((outcome, exited_at)) = self.exited {
                 if self.open == [false, false] {
-                    if !self.exit_queued {
-                        self.queue(ResponseFrame::RunExit { outcome });
-                        self.exit_queued = true;
+                    if !self.exit_queued && !self.out.release_waiting() {
+                        self.exit_queued = self.out.offer(&ResponseFrame::RunExit { outcome })?;
                     }
                 } else if !self.group_killed && now - exited_at >= DRAIN_AFTER_EXIT {
                     kill_group(self.pid, libc::SIGKILL);
@@ -177,29 +170,29 @@ impl Supervisor {
                     self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
             }
-            if !self.flush(stream) {
-                return;
+            if !self.out.send(stream)? {
+                return Ok(());
             }
-            if self.exit_queued && self.outgoing.is_empty() {
-                return;
+            if self.exit_queued && self.out.is_drained() {
+                return Ok(());
             }
-            if self.open != [false, false] && self.outgoing.len() < OUTGOING_CAP {
+            if self.open != [false, false] && self.out.accepts_output() {
                 match output.recv_timeout(TICK) {
                     Ok(Output::Chunk(kind, chunk)) => {
                         let masked = self.maskers[index(kind)].push(&chunk);
-                        self.queue_output(kind, masked);
+                        self.out.release(kind, masked)?;
                     }
-                    Ok(Output::Eof(kind)) => self.close_stream(kind),
+                    Ok(Output::Eof(kind)) => self.close_stream(kind)?,
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => self.open = [false, false],
                 }
-            } else if !self.outgoing.is_empty() {
-                wait_writable(stream);
+            } else if !self.out.is_drained() {
+                self.out.wait_writable(stream, TICK);
             } else {
                 match control.recv_timeout(TICK) {
                     Ok(event) => {
                         if !self.handle(event) {
-                            return;
+                            return Ok(());
                         }
                     }
                     Err(RecvTimeoutError::Timeout) => {}
@@ -207,6 +200,23 @@ impl Supervisor {
                 }
             }
         }
+    }
+
+    /// Queue waiting notices, then any stdin credit, as far as the queue has room.
+    fn offer_controls(&mut self) -> Result<()> {
+        while let Some(notice) = self.controls.front() {
+            if !self.out.offer(notice)? {
+                return Ok(());
+            }
+            self.controls.pop_front();
+        }
+        let credit = ResponseFrame::RunStdinCredit {
+            bytes: self.credit as u32,
+        };
+        if self.credit > 0 && self.out.offer(&credit)? {
+            self.credit = 0;
+        }
+        Ok(())
     }
 
     /// False when the client is gone.
@@ -223,65 +233,14 @@ impl Supervisor {
         true
     }
 
-    fn close_stream(&mut self, kind: StreamKind) {
+    fn close_stream(&mut self, kind: StreamKind) -> Result<()> {
         if self.open[index(kind)] {
             self.open[index(kind)] = false;
             let tail = self.maskers[index(kind)].finish();
-            self.queue_output(kind, tail);
+            self.out.release(kind, tail)?;
         }
+        Ok(())
     }
-
-    fn queue_output(&mut self, kind: StreamKind, data: Vec<u8>) {
-        if !data.is_empty() {
-            self.queue(ResponseFrame::RunOutput {
-                stream: kind,
-                data: WireBytes(data),
-            });
-        }
-    }
-
-    fn queue(&mut self, frame: ResponseFrame) {
-        // Encoding into a Vec fails only past the payload limit, which a
-        // 32 KiB chunk, even fully masked, cannot reach.
-        let _ = write_frame(&mut self.outgoing, &Frame::Response(frame));
-    }
-
-    /// Send what the socket takes right now, without blocking. False means the client is gone.
-    fn flush(&mut self, stream: &UnixStream) -> bool {
-        while !self.outgoing.is_empty() {
-            // SAFETY: the pointer and length describe `outgoing`, which outlives the call.
-            let sent = unsafe {
-                libc::send(
-                    stream.as_raw_fd(),
-                    self.outgoing.as_ptr().cast(),
-                    self.outgoing.len(),
-                    SEND_FLAGS,
-                )
-            };
-            match sent {
-                0 => return false,
-                sent if sent > 0 => {
-                    self.outgoing.drain(..sent as usize);
-                }
-                _ => match std::io::Error::last_os_error().kind() {
-                    std::io::ErrorKind::WouldBlock => return true,
-                    std::io::ErrorKind::Interrupted => {}
-                    _ => return false,
-                },
-            }
-        }
-        true
-    }
-}
-
-fn wait_writable(stream: &UnixStream) {
-    let mut poll = libc::pollfd {
-        fd: stream.as_raw_fd(),
-        events: libc::POLLOUT,
-        revents: 0,
-    };
-    // SAFETY: one valid pollfd for the duration of the call.
-    unsafe { libc::poll(&mut poll, 1, TICK.as_millis() as i32) };
 }
 
 fn index(kind: StreamKind) -> usize {

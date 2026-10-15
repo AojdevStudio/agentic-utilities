@@ -3,8 +3,8 @@
 //!
 //! The supervisor never blocks on the client for longer than one tick, so a
 //! forwarded signal or a disconnect is handled while output waits. When the
-//! run ends, every process left in the child's group is killed, every worker
-//! is joined, and only then is the child reaped.
+//! run ends, the child and every process left in its original group are
+//! killed, every worker is joined, and only then is the child reaped.
 
 use super::mask::Masker;
 use super::protocol::{write_frame, Frame, ResponseFrame};
@@ -105,6 +105,10 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     let result = supervisor.supervise(&mut stream, &output, &control);
     cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     kill_group(child.pid, libc::SIGKILL);
+    // The child can leave its original group, so it is also killed by pid.
+    // SAFETY: the waiter observed the child only with WNOWAIT, so the pid
+    // stays reserved until the reap below and names no other process.
+    unsafe { libc::kill(child.pid, libc::SIGKILL) };
     // Shutdown ends the client reader; dropping the receivers frees any blocked send.
     let _ = stream.shutdown(std::net::Shutdown::Both);
     drop((output, control, supervisor));
@@ -113,7 +117,9 @@ pub(crate) fn serve_run(mut stream: UnixStream, prepared: PreparedRun) -> Result
     }
     let mut status = 0;
     // SAFETY: the child is ours and the waiter only observed it with WNOWAIT.
-    unsafe { libc::waitpid(child.pid, &mut status, 0) };
+    while unsafe { libc::waitpid(child.pid, &mut status, 0) } < 0
+        && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+    {}
     result
 }
 
@@ -251,7 +257,7 @@ fn index(kind: StreamKind) -> usize {
 }
 
 fn kill_group(pid: libc::pid_t, signal: i32) {
-    // SAFETY: the child leads its own process group, and its pid stays
+    // SAFETY: the child started its own process group, and its pid stays
     // reserved until the final reap, so -pid targets only that group.
     unsafe { libc::kill(-pid, signal) };
 }

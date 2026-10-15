@@ -29,6 +29,8 @@ bitwarden = "=2.1.0"
 # The SDK's own HTTP client, with the async resolver. Name lookups then run as
 # tasks on each write's runtime instead of a blocking getaddrinfo thread that
 # dropping the runtime must wait for. Feature only, at the locked version.
+# This reads resolv.conf and hosts, bypassing NSS and macOS scoped resolvers.
+# Hosts that depend on those resolvers can lose SDK login.
 reqwest = { version = "0.12.28", default-features = false, features = ["hickory-dns"] }
 tokio = { version = "1", features = ["rt", "time", "net"] }
 uuid = "1"

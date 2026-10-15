@@ -184,7 +184,8 @@ pub(crate) enum Refusal {
     InvalidValue {
         reason: String,
     },
-    /// The provider trims keys, so a key it would change is refused.
+    /// The provider trims keys and caps them at 500 characters, so a key it
+    /// would change or refuse is refused here.
     InvalidKey {
         key: String,
     },
@@ -225,7 +226,7 @@ impl fmt::Display for Refusal {
             Self::InvalidValue { reason } => write!(f, "invalid value: {reason}"),
             Self::InvalidKey { key } => write!(
                 f,
-                "invalid key {key:?}. Keys cannot be empty or start or end with whitespace"
+                "invalid key {key:?}. Keys need 1 to 500 characters and cannot start or end with whitespace"
             ),
             Self::VaultFailed { operation } => write!(f, "vault {operation} failed"),
             Self::WriteUncertain { operation } => write!(

@@ -15,7 +15,7 @@ use super::request::{Interrupt, RequestControl, CLEANUP_BUDGET};
 use super::spawn_fd::{close_all_from, FdCeiling};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -91,26 +91,18 @@ fn drain(from_child: File, control: &RequestControl<'_>) -> Result<Zeroizing<Vec
     }
 }
 
-/// The daemon's read end is non-blocking. The child's write end blocks.
+/// The daemon's read end is non-blocking. The child's write end blocks. On
+/// Linux both ends are close-on-exec from the syscall that makes them, so a
+/// `bws` spawned at the same moment cannot inherit the writer. The macOS
+/// `bws` spawn closes every descriptor it does not name.
 fn pipe() -> std::io::Result<(File, OwnedFd)> {
-    let mut fds = [0i32; 2];
-    // SAFETY: pipe writes two new descriptors into a valid array.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: both descriptors are new and owned only here.
-    let (read, write) = unsafe { (File::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
-    for fd in [read.as_raw_fd(), write.as_raw_fd()] {
-        // SAFETY: sets close-on-exec on a descriptor owned here.
-        if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-    }
+    let (read, write) = std::io::pipe()?;
+    let read = File::from(OwnedFd::from(read));
     // SAFETY: sets O_NONBLOCK on the read end this daemon alone holds.
     if unsafe { libc::fcntl(read.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) } != 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok((read, write))
+    Ok((read, write.into()))
 }
 
 /// Child exit codes. Only 0 means the input ended normally.

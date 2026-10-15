@@ -4,12 +4,12 @@
 //! uninterruptible kernel call, so retention is shown only up to the next reap.
 
 use super::children::{exited_cleanly, Children};
-use super::fdpass_tests::writers_closed;
+use super::fdpass_tests::{pipe, writers_closed};
 use super::input_pump::{read_input, InputStop};
 use super::request::{Interrupt, RequestControl};
 use super::spawn_fd::FdCeiling;
 use std::fs::File;
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -21,23 +21,6 @@ use std::time::{Duration, Instant};
 fn sleeper() -> libc::pid_t {
     let child = Command::new("sleep").arg("30").spawn().unwrap();
     child.id() as libc::pid_t
-}
-
-/// A pipe whose ends close on exec, so only a forked, not exec'd, child
-/// could ever hold a copy.
-fn cloexec_pipe() -> (File, File) {
-    let mut fds = [0i32; 2];
-    // SAFETY: pipe writes two new descriptors into a valid array.
-    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-    for fd in fds {
-        // SAFETY: marks a descriptor owned here close-on-exec.
-        assert_eq!(
-            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) },
-            0
-        );
-    }
-    // SAFETY: both descriptors are new and owned only here.
-    unsafe { (File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1])) }
 }
 
 #[test]
@@ -81,8 +64,8 @@ fn dropping_a_live_child_never_waits_and_never_loses_its_slot() {
 /// daemon holds elsewhere is not kept open by it.
 #[test]
 fn a_value_input_child_holds_no_other_daemon_descriptor() {
-    let (watched, unrelated) = cloexec_pipe();
-    let (input, _stalled) = cloexec_pipe();
+    let (watched, unrelated) = pipe();
+    let (input, _stalled) = pipe();
     let (socket, client) = UnixStream::pair().unwrap();
     let reader = std::thread::spawn(move || {
         let control = RequestControl::until(&socket, Duration::from_secs(10));

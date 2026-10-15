@@ -6,15 +6,12 @@ use super::protocol::{read_frame_with_rights, write_frame, write_frame_with_righ
 use super::{Frame, RequestFrame};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::{AsFd, AsRawFd, FromRawFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 pub(super) fn pipe() -> (File, File) {
-    let mut fds = [0i32; 2];
-    // SAFETY: pipe writes two new descriptors into a valid array.
-    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-    // SAFETY: both descriptors are new and owned only here.
-    unsafe { (File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1])) }
+    let (read, write) = std::io::pipe().unwrap();
+    (OwnedFd::from(read).into(), OwnedFd::from(write).into())
 }
 
 /// True when every writer of this pipe is closed. Waits up to two seconds.

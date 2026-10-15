@@ -4,13 +4,20 @@ use anyhow::{bail, Result};
 
 /// Ownership rule for the token file. Production requires root ownership.
 /// Development with `--dev-same-user` requires ownership by the daemon euid.
+/// systemd hands a Linux service its credential at 0400, so Linux also
+/// accepts that runtime mode. macOS reads the stored file, which stays 0600.
 pub(crate) fn check_token_metadata(
     mode: u32,
     owner_uid: u32,
     euid: u32,
     dev_same_user: bool,
 ) -> Result<()> {
-    if mode & 0o777 != 0o600 {
+    let access = mode & 0o7777;
+    if cfg!(target_os = "linux") {
+        if access != 0o600 && access != 0o400 {
+            bail!("token file must have mode 0600 or 0400");
+        }
+    } else if access != 0o600 {
         bail!("token file must have mode 0600");
     }
     if dev_same_user {

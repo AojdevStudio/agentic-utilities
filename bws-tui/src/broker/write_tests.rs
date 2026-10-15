@@ -18,8 +18,10 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::os::fd::AsFd;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Every key `str::trim` changes. The SDK trims with the same rule.
 const UNTRIMMED: [&str; 5] = ["TOKEN ", " TOKEN", "\u{a0}TOKEN", "TOKEN\u{3000}", " \t "];
@@ -237,4 +239,24 @@ fn a_bws_delete_that_started_and_failed_is_uncertain() {
         Err(WriteFailure::Rejected),
         "never started"
     );
+}
+
+/// Nothing before the final gate checks a request that already stopped, so
+/// the gate alone must refuse the write. No `bws` may start.
+#[test]
+fn a_write_for_a_request_that_already_stopped_never_starts() {
+    let dir = tempdir("write-stopped-gate");
+    let (script, marker) = (dir.join("bws"), dir.join("started"));
+    std::fs::write(&script, format!("#!/bin/sh\n: > '{}'\n", marker.display())).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let backend = BwsBackend::new(script, SecretString::from("t"));
+    let (socket, client) = UnixStream::pair().unwrap();
+    drop(client);
+    let control = RequestControl::until(&socket, Duration::from_secs(5));
+    let gate = WriteAttempt::new(&control).begin_remote();
+    assert_eq!(gate, Err(WriteFailure::Stopped));
+    let delete = backend.delete("s1", &mut WriteAttempt::new(&control));
+    assert_eq!(delete, Err(WriteFailure::Stopped));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!marker.exists(), "bws started for a stopped request");
 }

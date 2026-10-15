@@ -6,7 +6,7 @@ use super::mask::MASK;
 use super::protocol::{read_frame, write_frame, Frame, RequestFrame, ResponseFrame};
 use super::run_harness::*;
 use super::run_prepare::RunConfig;
-use super::runspec::{Delivery, ForwardSignal, RunOutcome};
+use super::runspec::{Delivery, ForwardSignal, RunOutcome, StreamKind};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
@@ -40,7 +40,10 @@ fn stdout_to_exit(stream: &mut UnixStream) -> (Vec<u8>, RunOutcome) {
     let mut out = Vec::new();
     loop {
         match read_frame(stream).unwrap() {
-            Frame::Response(ResponseFrame::RunOutput { data, .. }) => out.extend(data.0),
+            Frame::Response(ResponseFrame::RunOutput {
+                stream: StreamKind::Stdout,
+                data,
+            }) => out.extend(data.0),
             Frame::Response(ResponseFrame::RunExit { outcome }) => return (out, outcome),
             Frame::Response(ResponseFrame::Error { message, .. }) => panic!("{message}"),
             _ => {}

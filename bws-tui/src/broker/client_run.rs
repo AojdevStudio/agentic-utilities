@@ -17,6 +17,9 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+mod completion;
+use completion::{Completion, InputFailure, ReportedRun};
+
 /// Optional live inputs for a run. Without stdin the child sees end of file at once.
 #[derive(Default)]
 pub(crate) struct RunInputs {
@@ -70,7 +73,7 @@ fn relay(
     stream: &mut UnixStream,
     sink: &mut dyn OutputSink,
     credit: &Credit,
-) -> Result<RunOutcome> {
+) -> Result<ReportedRun> {
     loop {
         match read_frame(stream)? {
             Frame::Response(ResponseFrame::RunOutput { stream: kind, data }) => match kind {
@@ -81,8 +84,12 @@ fn relay(
             Frame::Response(ResponseFrame::RunStdinCredit { bytes }) => {
                 credit.grant(bytes as usize)
             }
-            Frame::Response(ResponseFrame::RunExit { outcome }) => return Ok(outcome),
-            Frame::Response(ResponseFrame::Error { message, .. }) => bail!("{message}"),
+            Frame::Response(ResponseFrame::RunExit { outcome }) => {
+                return Ok(ReportedRun::Exit(outcome));
+            }
+            Frame::Response(ResponseFrame::Error { message, .. }) => {
+                return Ok(ReportedRun::Refused(message));
+            }
             _ => bail!("unexpected frame from daemon"),
         }
     }
@@ -121,55 +128,6 @@ fn send(writer: &Mutex<UnixStream>, frame: RequestFrame) -> Result<()> {
         .lock()
         .map_err(|_| anyhow!("the run connection lock is poisoned"))?;
     write_frame(&mut *stream, &Frame::Request(frame))
-}
-
-/// Why the stdin worker stopped early.
-enum InputFailure {
-    /// The child may have taken the partial input as complete, so this
-    /// outranks even a reported exit.
-    Read(std::io::Error),
-    /// The connection broke. A reported exit still stands.
-    Send(anyhow::Error),
-}
-
-/// Settles a run once: the daemon's reply against a stdin worker failure.
-#[derive(Default)]
-struct Completion(Mutex<Settled>);
-
-#[derive(Default)]
-enum Settled {
-    #[default]
-    Running,
-    Failed(InputFailure),
-    Done,
-}
-
-impl Completion {
-    fn fail(&self, failure: InputFailure) {
-        let mut state = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if matches!(*state, Settled::Running) {
-            *state = Settled::Failed(failure);
-        }
-    }
-
-    fn settle(&self, result: Result<RunOutcome>) -> Result<RunOutcome> {
-        let mut state = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match std::mem::replace(&mut *state, Settled::Done) {
-            Settled::Failed(InputFailure::Read(error)) => {
-                Err(anyhow::Error::new(error).context("reading stdin for the run failed"))
-            }
-            Settled::Failed(InputFailure::Send(error)) if result.is_err() => {
-                Err(error.context("sending stdin to the daemon failed"))
-            }
-            _ => result,
-        }
-    }
 }
 
 /// Stdin bytes the daemon has agreed to take. The stdin thread waits for it.

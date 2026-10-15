@@ -43,10 +43,11 @@ pub(crate) fn build_spec(bindings: Vec<Binding>, cmd: Vec<OsString>) -> Result<R
         .ok_or_else(|| anyhow!("no command given after --"))?;
     let env_passthrough = std::env::vars_os()
         .filter_map(|(name, value)| {
-            let name = name.into_string().ok()?;
-            is_passthrough_allowed(&name)
-                .then(|| EnvName::try_from(name).ok().map(|name| (name, value)))
-                .flatten()
+            let name = name
+                .into_string()
+                .ok()
+                .filter(|name| is_passthrough_allowed(name))?;
+            Some((EnvName::try_from(name).ok()?, value))
         })
         .collect();
     Ok(RunSpec {

@@ -95,7 +95,7 @@ pub(crate) fn prepare_run(
     let mut bound = Vec::with_capacity(spec.bindings.len());
     let mut fd_values = Vec::new();
     let mut mask_values = Vec::with_capacity(spec.bindings.len());
-    let mut short_keys: Vec<String> = Vec::new();
+    let mut short_keys = Vec::new();
     for (binding, meta) in spec.bindings.iter().zip(ids) {
         let material = backend.fetch(&SecretRef::Id(meta.id.clone()))?;
         let value = Zeroizing::new(material.expose_bytes().to_vec());

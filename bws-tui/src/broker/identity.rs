@@ -36,16 +36,12 @@ pub(crate) fn resolve_identity(
     accounts: &dyn AccountDb,
 ) -> Result<Identity> {
     let identity = match run_as {
-        RunAs::Requester => match accounts.by_uid(peer.uid)? {
-            Some(account) => Identity {
-                uid: peer.uid,
-                gid: peer.gid,
-                groups: fit_groups(peer.gid, accounts.groups(&account)?, ngroups_max()?),
-            },
-            None => Identity {
-                uid: peer.uid,
-                gid: peer.gid,
-                groups: vec![peer.gid],
+        RunAs::Requester => Identity {
+            uid: peer.uid,
+            gid: peer.gid,
+            groups: match accounts.by_uid(peer.uid)? {
+                Some(account) => fit_groups(peer.gid, accounts.groups(&account)?, ngroups_max()?),
+                None => vec![peer.gid],
             },
         },
         RunAs::HushRun => {

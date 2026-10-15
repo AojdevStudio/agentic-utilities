@@ -2,8 +2,9 @@
 //! search that would need more is refused before any value is fetched, and
 //! the daemon keeps serving.
 
-use super::audit::FileAuditLog;
+use super::audit::{AuditLog, FileAuditLog};
 use super::backend::{FakeBackend, VaultBackend};
+use super::client::Client;
 use super::client_run::to_wire;
 use super::material::SecretMaterial;
 use super::meta::{SecretMeta, SecretRef};
@@ -11,8 +12,9 @@ use super::peercred::PeerCredentials;
 use super::run_harness::*;
 use super::run_prepare::{prepare_run, RunConfig};
 use super::runspec::{Delivery, EnvName, RunOutcome, RunSpec};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 struct Counting {
     inner: FakeBackend,
@@ -37,6 +39,26 @@ fn searching(program: &str, path: String, cwd: &Path) -> RunSpec {
     spec
 }
 
+/// A daemon that keeps accepting connections, like the real one.
+fn serving(dir: &Path) -> PathBuf {
+    let private = dir.join("socket");
+    std::fs::create_dir(&private).unwrap();
+    std::fs::set_permissions(
+        &private,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let socket = private.join("hush.sock");
+    let listener = super::server::bind_listener(&socket).unwrap();
+    let vault: Arc<dyn VaultBackend> = Arc::new(backend());
+    let audit: Arc<dyn AuditLog> = Arc::new(FileAuditLog::open(&dir.join("audit.log")).unwrap());
+    std::thread::spawn(move || {
+        let config = super::daemon::ServeConfig::default();
+        let _ = super::server::run_server(listener, vault, audit, config, Default::default());
+    });
+    socket
+}
+
 fn assert_refused(error: &anyhow::Error) {
     let text = format!("{error:#}");
     assert!(
@@ -53,26 +75,16 @@ fn an_oversized_path_search_is_refused_and_the_daemon_keeps_serving() {
         deep.push(format!("{level}{}", "d".repeat(200)));
     }
     std::fs::create_dir_all(&deep).unwrap();
-    let mut client = daemon(&dir, RunConfig::default());
+    let socket = serving(&dir);
+    let run = |spec: RunSpec, sink: &mut Capture| Client::connect_to(&socket)?.run(spec, sink);
 
     let empty_entries = ":".repeat(2047);
-    let error = client
-        .run(
-            searching("tool", empty_entries, &deep),
-            &mut Capture::default(),
-        )
-        .unwrap_err();
-    assert_refused(&error);
+    let spec = searching("tool", empty_entries, &deep);
+    assert_refused(&run(spec, &mut Capture::default()).unwrap_err());
 
     let long_name = "a".repeat(64 * 1024);
-    let entries = vec!["/usr/bin"; 32].join(":");
-    let error = client
-        .run(
-            searching(&long_name, entries, &dir),
-            &mut Capture::default(),
-        )
-        .unwrap_err();
-    assert_refused(&error);
+    let spec = searching(&long_name, vec!["/usr/bin"; 32].join(":"), &dir);
+    assert_refused(&run(spec, &mut Capture::default()).unwrap_err());
 
     let mut sink = Capture::default();
     let spec = sh(
@@ -80,7 +92,7 @@ fn an_oversized_path_search_is_refused_and_the_daemon_keeps_serving() {
         "echo ok",
         &dir,
     );
-    assert_eq!(client.run(spec, &mut sink).unwrap(), RunOutcome::Exited(0));
+    assert_eq!(run(spec, &mut sink).unwrap(), RunOutcome::Exited(0));
     assert_eq!(sink.text(), "ok\n");
 }
 

@@ -77,7 +77,8 @@ impl<'a> Console<'a> {
     /// Read one line with echo, line editing, and signals off. Bytes are kept
     /// in a zeroizing buffer that never grows past `limit`, so it never copies.
     /// A mode that could not be restored fails the read, so nothing it gated
-    /// can run.
+    /// can run. An answered prompt ends its line in request time. Only a cut
+    /// short one is teardown and spends the cleanup budget.
     pub(crate) fn read_hidden(
         &mut self,
         prompt: &str,
@@ -86,7 +87,10 @@ impl<'a> Console<'a> {
         let mode = self.hidden_mode().map_err(|_| Interrupt::Io)?;
         let mut line = Zeroizing::new(Vec::with_capacity(limit));
         let result = self.prompt_and_collect(prompt, &mut line, limit);
-        let ended = self.cleanup("\r\n");
+        let ended = match result {
+            Ok(()) => self.say("\r\n"),
+            Err(_) => self.cleanup("\r\n"),
+        };
         let restored = mode.restore().map_err(|_| Interrupt::Io);
         result?;
         restored?;

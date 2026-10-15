@@ -179,7 +179,8 @@ impl<'a> RequestControl<'a> {
         self.check()
     }
 
-    /// The one cleanup deadline. The first call fixes it for the request.
+    /// The one cleanup deadline. The first call fixes it for the request, so
+    /// call it only once teardown starts, never for work that succeeded.
     pub(crate) fn cleanup_deadline(&self) -> Instant {
         let deadline = self
             .cleanup

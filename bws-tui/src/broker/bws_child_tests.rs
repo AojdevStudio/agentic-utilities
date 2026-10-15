@@ -10,6 +10,7 @@ use secrecy::SecretString;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 fn script(dir: &Path, body: &str) -> BwsBackend {
@@ -69,6 +70,34 @@ fn a_bws_child_inherits_no_stray_descriptor() {
 /// One cleanup budget plus scheduling slack.
 const LEAVE_BOUND: Duration = Duration::from_millis(500);
 
+/// Runs `call` for a client that leaves once `bws` has closed its output.
+/// Returns the result and how long after the leave the call ended, or `None`
+/// when the call ended first, so a `bws` that never closes its output fails
+/// the caller instead of hanging it.
+fn call_then_leave<T>(
+    closed: &Path,
+    call: impl FnOnce(&RequestControl<'_>) -> T,
+) -> (T, Option<Duration>) {
+    let (socket, client) = UnixStream::pair().unwrap();
+    let (ended, call_ended) = mpsc::channel::<()>();
+    let closed = closed.to_path_buf();
+    let left = std::thread::spawn(move || loop {
+        if closed.exists() {
+            drop(client);
+            return Some(Instant::now());
+        }
+        match call_ended.recv_timeout(Duration::from_millis(1)) {
+            Err(RecvTimeoutError::Timeout) => {}
+            _ => return None,
+        }
+    });
+    let control = RequestControl::until(&socket, Duration::from_secs(5));
+    let result = call(&control);
+    drop(ended);
+    let late = left.join().unwrap().map(|at| at.elapsed());
+    (result, late)
+}
+
 /// After `bws` closes its output it is still the request's child. A client
 /// that leaves before it exits is not kept waiting, and a delete that may have
 /// run is uncertain.
@@ -78,32 +107,48 @@ fn a_client_that_leaves_after_bws_closes_its_output_is_not_kept_waiting() {
     let closed = dir.join("closed-output");
     let body = format!("exec 1>&-\n: > '{}'\nexec sleep 2\n", closed.display());
     let backend = script(&dir, &body);
-    let leave_once_closed = |client: UnixStream| {
-        let closed = closed.clone();
-        std::thread::spawn(move || {
-            while !closed.exists() {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            drop(client);
-            Instant::now()
-        })
-    };
 
-    let (socket, client) = UnixStream::pair().unwrap();
-    let left = leave_once_closed(client);
-    let control = RequestControl::until(&socket, Duration::from_secs(5));
-    let read = backend.projects(&control);
-    let late = left.join().unwrap().elapsed();
-    assert!(read.is_err(), "a cancelled read returned data");
+    let (read, late) = call_then_leave(&closed, |control| backend.projects(control));
+    let late = late.expect("bws never closed its output");
+    let error = read.expect_err("a cancelled read returned data");
+    assert!(
+        format!("{error:#}").contains("the client left"),
+        "the read ended for another reason: {error:#}"
+    );
     assert!(late < LEAVE_BOUND, "the read held the worker {late:?}");
 
     std::fs::remove_file(&closed).unwrap();
-    let (socket, client) = UnixStream::pair().unwrap();
-    let left = leave_once_closed(client);
-    let control = RequestControl::until(&socket, Duration::from_secs(5));
-    let delete = backend.delete("s1", &mut WriteAttempt::new(&control));
-    let late = left.join().unwrap().elapsed();
+    let (delete, late) = call_then_leave(&closed, |control| {
+        backend.delete("s1", &mut WriteAttempt::new(control))
+    });
+    let late = late.expect("bws never closed its output");
     assert_eq!(delete, Err(WriteFailure::Uncertain));
     assert!(late < LEAVE_BOUND, "the delete held the worker {late:?}");
     assert_eq!(backend.busy_children(), 0, "the stopped bws was not reaped");
+}
+
+/// A `bws` that fails, or never starts, before it closes its output ends the
+/// call on its own. The test must then report that, not wait for a client
+/// leave that never comes.
+#[test]
+fn a_bws_that_ends_before_closing_its_output_fails_the_leave_check() {
+    let dir = tempdir("bws-eof-never");
+    let closed = dir.join("closed-output");
+    let backend = script(&dir, "exit 3\n");
+    let not_executable = std::fs::Permissions::from_mode(0o644);
+    for (case, mode) in [("failed", None), ("never started", Some(not_executable))] {
+        if let Some(mode) = mode {
+            std::fs::set_permissions(dir.join("bws"), mode).unwrap();
+        }
+        let started = Instant::now();
+        let (read, late) = call_then_leave(&closed, |control| backend.projects(control));
+        assert!(read.is_err(), "a {case} bws returned data");
+        assert_eq!(late, None, "a {case} bws reported a client leave");
+        let waited = started.elapsed();
+        assert!(
+            waited < LEAVE_BOUND,
+            "a {case} bws held the test {waited:?}"
+        );
+    }
+    assert_eq!(backend.busy_children(), 0, "a failed bws was not reaped");
 }

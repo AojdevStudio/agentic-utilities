@@ -22,10 +22,28 @@ impl Read for Scripted {
     }
 }
 
+/// Sends some input, then fails with EIO once the child has written `started`.
+struct FailsOnceStarted {
+    started: std::path::PathBuf,
+    sent: bool,
+}
+
+impl Read for FailsOnceStarted {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if !self.sent {
+            self.sent = true;
+            buf[..7].copy_from_slice(b"partial");
+            return Ok(7);
+        }
+        assert!(wait_until(|| self.started.exists()), "child never started");
+        Err(Error::from_raw_os_error(libc::EIO))
+    }
+}
+
 fn run_with_stdin(
     tag: &str,
     script: &str,
-    stdin: Scripted,
+    stdin: impl Read + Send + 'static,
 ) -> (anyhow::Result<RunOutcome>, Capture) {
     let dir = tempdir(tag);
     let mut client = daemon(&dir, RunConfig::default());
@@ -43,11 +61,16 @@ fn run_with_stdin(
 fn a_stdin_read_error_fails_the_run_and_stops_the_child() {
     let dir = tempdir("stdin-eio");
     let pid_file = dir.join("pid");
-    let script = format!("echo $$ > '{}'; cat; exec sleep 30", pid_file.display());
-    let stdin = Scripted(vec![
-        Ok(b"partial"),
-        Err(Error::from_raw_os_error(libc::EIO)),
-    ]);
+    let partial = dir.join("pid.partial");
+    let script = format!(
+        "echo $$ > '{0}'; mv '{0}' '{1}'; cat; exec sleep 30",
+        partial.display(),
+        pid_file.display()
+    );
+    let stdin = FailsOnceStarted {
+        started: pid_file.clone(),
+        sent: false,
+    };
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(run_with_stdin("stdin-eio-run", &script, stdin).0);

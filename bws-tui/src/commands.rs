@@ -1,9 +1,13 @@
-use crate::{audit, bws, exec, retrieve, stdin_value};
+use crate::broker::runspec::Delivery;
+use crate::{audit, bws, retrieve, run_cmd, stdin_value};
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
-use std::io::IsTerminal;
+use std::ffi::OsString;
 use std::path::PathBuf;
+
+mod prompt;
+use prompt::pick_project_interactive;
 
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
@@ -34,13 +38,34 @@ pub(crate) enum Cmd {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Run a command with secrets injected as env vars (values never printed).
+    /// Run a command with secrets delivered by the broker daemon. Output is masked.
+    #[command(group(clap::ArgGroup::new("bindings").required(true).multiple(true).args(["secrets", "fds"])))]
+    Run {
+        /// Secret into the child's environment: KEY, or KEY=ENVNAME to remap. Repeatable.
+        #[arg(long = "secret")]
+        secrets: Vec<String>,
+        /// Secret through a pipe: KEY or KEY=ENVNAME. The child reads fd ENVNAME_FD. Repeatable.
+        #[arg(long = "fd")]
+        fds: Vec<String>,
+        #[arg(long)]
+        project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
+        /// Command to run, after `--`.
+        #[arg(last = true, required = true)]
+        cmd: Vec<OsString>,
+    },
+    /// Alias of `run --secret` for one release. Same daemon code path.
     Exec {
         /// Secret to inject: KEY, or KEY=ENVNAME to remap. Repeatable.
         #[arg(long = "key", required = true)]
         keys: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
         /// Command to run, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
@@ -83,6 +108,9 @@ pub(crate) enum Cmd {
         audit_log: Option<PathBuf>,
         #[arg(long)]
         bws_path: Option<PathBuf>,
+        /// Run policy file. Defaults to /etc/hush/hushd.toml.
+        #[arg(long)]
+        policy: Option<PathBuf>,
         /// Debug builds only. Allow token and bws owned by the daemon user.
         /// Release builds omit this flag so a non-root daemon always refuses to start.
         #[cfg(debug_assertions)]
@@ -186,7 +214,32 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
         } => add(key, project, value, note),
         Cmd::List { project, json } => retrieve::list(project.as_deref(), json),
         Cmd::Get { key, project } => retrieve::get(&key, project.as_deref()),
-        Cmd::Exec { keys, project, cmd } => exec::run(&keys, project.as_deref(), &cmd),
+        Cmd::Run {
+            secrets,
+            fds,
+            project,
+            no_stdin,
+            cmd,
+        } => run_cmd::run_flags(
+            &[
+                (&secrets, "--secret", Delivery::Env),
+                (&fds, "--fd", Delivery::Fd),
+            ],
+            project,
+            no_stdin,
+            cmd,
+        ),
+        Cmd::Exec {
+            keys,
+            project,
+            no_stdin,
+            cmd,
+        } => run_cmd::run_flags(
+            &[(&keys, "--key", Delivery::Env)],
+            project,
+            no_stdin,
+            cmd.into_iter().map(OsString::from).collect(),
+        ),
         Cmd::Sync => retrieve::sync(),
         Cmd::Edit {
             key,
@@ -210,12 +263,14 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user,
         } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
             socket: socket.unwrap_or_else(crate::broker::default_socket_path),
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user,
         }),
         #[cfg(not(debug_assertions))]
@@ -224,30 +279,14 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             token_file,
             audit_log,
             bws_path,
+            policy,
         } => crate::broker::daemon::run_daemon(crate::broker::daemon::DaemonOptions {
             socket: socket.unwrap_or_else(crate::broker::default_socket_path),
             token_file,
             audit_log,
             bws_path,
+            policy,
             dev_same_user: false,
         }),
     }
-}
-
-fn pick_project_interactive(projects: &[bws::Project]) -> Result<String> {
-    if !std::io::stdin().is_terminal() {
-        bail!("--project is required when not running interactively");
-    }
-    eprintln!("Select a project:");
-    for (index, project) in projects.iter().enumerate() {
-        eprintln!("  {}. {}", index + 1, project.name);
-    }
-    eprint!("> ");
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let selection: usize = line.trim().parse().context("enter a number")?;
-    projects
-        .get(selection.wrapping_sub(1))
-        .map(|project| project.id.clone())
-        .context("invalid selection")
 }

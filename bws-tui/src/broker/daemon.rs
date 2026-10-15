@@ -4,7 +4,9 @@ use super::audit::{AuditLog, FileAuditLog};
 use super::backend::{BwsBackend, VaultBackend};
 use super::paths::{default_token_path, resolve_trusted_bws};
 use super::peercred::read_peer_credentials;
+use super::policy::{default_policy_path, Policy};
 use super::protocol::{read_frame, write_frame, Frame, RequestFrame, ResponseFrame};
+use super::run_prepare::{prepare_run, RunConfig};
 use super::token::load_checked;
 use anyhow::{bail, Context, Result};
 use std::os::unix::net::UnixStream;
@@ -18,6 +20,7 @@ pub(crate) struct DaemonOptions {
     pub token_file: Option<PathBuf>,
     pub audit_log: Option<PathBuf>,
     pub bws_path: Option<PathBuf>,
+    pub policy: Option<PathBuf>,
     pub dev_same_user: bool,
 }
 
@@ -45,17 +48,30 @@ pub(crate) fn serve_connection_guarded(
     backend: &dyn VaultBackend,
     audit: &dyn AuditLog,
     config: ServeConfig,
+    run: &RunConfig,
 ) -> Result<()> {
     stream.set_read_timeout(Some(config.read_timeout))?;
     stream.set_write_timeout(Some(config.write_timeout))?;
-    serve_connection(stream, backend, audit)
+    serve_connection_with(stream, backend, audit, run)
 }
 
-/// Serve one connection until the client disconnects.
+/// Serve one connection with the default run settings.
+#[cfg(test)]
 pub(crate) fn serve_connection(
+    stream: UnixStream,
+    backend: &dyn VaultBackend,
+    audit: &dyn AuditLog,
+) -> Result<()> {
+    serve_connection_with(stream, backend, audit, &RunConfig::default())
+}
+
+/// Serve one connection until the client disconnects. A run request takes
+/// over the connection until the child exits.
+pub(crate) fn serve_connection_with(
     mut stream: UnixStream,
     backend: &dyn VaultBackend,
     audit: &dyn AuditLog,
+    run: &RunConfig,
 ) -> Result<()> {
     let peer = read_peer_credentials(&stream)?;
     loop {
@@ -80,6 +96,23 @@ pub(crate) fn serve_connection(
                     },
                 }
             }
+            Frame::Request(RequestFrame::Run { spec }) => {
+                match prepare_run(peer, spec, backend, audit, run) {
+                    Ok(prepared) => return super::run_loop::serve_run(stream, prepared),
+                    Err(error) => ResponseFrame::Error {
+                        code: "run_refused".into(),
+                        message: error.to_string(),
+                    },
+                }
+            }
+            Frame::Request(
+                RequestFrame::RunStdin { .. }
+                | RequestFrame::RunStdinEof
+                | RequestFrame::RunSignal { .. },
+            ) => ResponseFrame::Error {
+                code: "unexpected_frame".into(),
+                message: "no run is active on this connection".into(),
+            },
             Frame::Response(_) => ResponseFrame::Error {
                 code: "unexpected_frame".into(),
                 message: "clients send requests".into(),
@@ -127,7 +160,12 @@ pub(crate) fn run_daemon(options: DaemonOptions) -> Result<()> {
         .unwrap_or_else(super::audit::default_audit_path);
     let audit_raw = FileAuditLog::open(&audit_path)?;
     let audit: Arc<dyn AuditLog> = Arc::new(audit_raw);
+    let policy_path = options.policy.unwrap_or_else(default_policy_path);
+    let run = Arc::new(RunConfig {
+        policy: Policy::load(&policy_path, options.dev_same_user)?,
+        ..RunConfig::default()
+    });
     let listener = super::server::bind_listener(&options.socket)?;
     eprintln!("hush daemon listening on {}", options.socket.display());
-    super::server::run_server(listener, backend, audit, ServeConfig::default())
+    super::server::run_server(listener, backend, audit, ServeConfig::default(), run)
 }

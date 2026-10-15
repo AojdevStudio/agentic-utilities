@@ -2,9 +2,12 @@ mod audit;
 mod broker;
 mod bws;
 mod commands;
+// The old in-client exec path. `hush exec` now runs through the broker; PR 3 deletes this.
+#[allow(dead_code)]
 mod exec;
 mod index;
 mod retrieve;
+mod run_cmd;
 mod tui;
 
 use anyhow::Result;
@@ -72,6 +75,39 @@ mod tests {
             panic!("expected edit command");
         };
         assert!(!stdin);
+    }
+
+    #[test]
+    fn run_and_exec_accept_the_no_stdin_flag() {
+        for args in [
+            ["hush", "run", "-n", "--secret", "TOKEN", "--", "cat"],
+            [
+                "hush",
+                "run",
+                "--no-stdin",
+                "--secret",
+                "TOKEN",
+                "--",
+                "cat",
+            ],
+            ["hush", "exec", "-n", "--key", "TOKEN", "--", "cat"],
+            ["hush", "exec", "--no-stdin", "--key", "TOKEN", "--", "cat"],
+        ] {
+            let no_stdin = match Cli::try_parse_from(args).map(|cli| cli.cmd) {
+                Ok(Some(Cmd::Run { no_stdin, .. } | Cmd::Exec { no_stdin, .. })) => no_stdin,
+                Ok(_) => panic!("{args:?}: parsed as another command"),
+                Err(error) => panic!("{args:?}: {error}"),
+            };
+            assert!(no_stdin, "{args:?}");
+        }
+        let cli = Cli::try_parse_from(["hush", "run", "--secret", "TOKEN", "--", "cat"]).unwrap();
+        assert!(matches!(
+            cli.cmd,
+            Some(Cmd::Run {
+                no_stdin: false,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -22,9 +22,13 @@ impl SecretMeta {
     }
 }
 
-/// A reference to one secret, by stable id.
-#[allow(dead_code)]
+/// A reference to one secret. Backends fetch only by `Id`; the daemon
+/// resolves a `Key` to exactly one id through its catalog first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SecretRef {
     Id(String),
+    Key {
+        key: String,
+        project: Option<String>,
+    },
 }

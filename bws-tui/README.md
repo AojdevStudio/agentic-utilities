@@ -165,17 +165,20 @@ hush list --json
 # Read one secret: a single scoped `bws secret get`, not a vault-wide fetch
 hush get --key DB_PASSWORD
 
-# Run a command with secrets in its env — values never touch argv, stdout, or disk
-hush exec --key CF_API_TOKEN --key "Cloudflare Admin=CF_ADMIN" -- ./deploy.sh
+# Run a command with secrets, started by the broker daemon. Output is masked
+hush run --secret CF_API_TOKEN --secret "Cloudflare Admin=CF_ADMIN" -- ./deploy.sh
+
+# Deliver a value on a pipe instead of the environment: the child reads fd $DB_PASSWORD_FD
+hush run --fd DB_PASSWORD -- ./migrate.sh
 
 # Rebuild the local metadata index by hand (get and list keep it fresh themselves)
 hush sync
 ```
 
-- **Metadata index.** `get` and `exec` resolve key → id from a local index (`~/.cache/hush/index.json`, or under `$XDG_CACHE_HOME`) holding id/key/project/note — never values — then fetch exactly one secret. A stale id resyncs and retries once. `list` always queries live and refreshes the index as a side effect, so discovery is never answered from cache.
-- **Injection over printing.** `exec` is the multi-secret path: values enter the child's environment and die with it. Injected vars override inherited ones by design. Two keys targeting the same env name refuse to run; `KEY=ENVNAME` remaps keys that are not valid env var names.
+- **Metadata index.** `get` resolves key → id from a local index (`~/.cache/hush/index.json`, or under `$XDG_CACHE_HOME`) holding id/key/project/note — never values — then fetch exactly one secret. A stale id resyncs and retries once. `list` always queries live and refreshes the index as a side effect, so discovery is never answered from cache.
+- **Injection over printing.** `run` is the multi-secret path, and `exec --key` is now an alias of `run --secret` on the same code path. The broker daemon starts the child; the `hush` client never receives a value. Two bindings targeting the same env name refuse to run; `KEY=ENVNAME` remaps keys that are not valid env var names. `run` needs a reachable daemon and never falls back to fetching values in the client.
 - **No bulk export.** No command prints more than one value, in any output mode. `list --json` is discovery, not a dump — there is deliberately no way to script `hush` into exporting the vault.
-- **Audit trail.** Every verb appends a names-only line (`2026-08-18T23:46:52Z exec CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess.
+- **Audit trail.** `get`, `add`, `edit`, `delete`, and `sync` append a names-only line (`2026-08-18T23:46:52Z get CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess. `run` and `exec` are audited by the daemon in its own log instead.
 
 ## How it works
 
@@ -200,12 +203,26 @@ That narrow boundary is the point. `hush` is an interface, not another secrets p
 - **Sanitized failures:** failed `bws` operations report the operation and exit status, never the secret-bearing argv.
 - **Conditional native clipboard clear:** after 30 seconds, `hush` clears a native clipboard only if it still contains the value it copied. Your newer clipboard content is left alone. OSC 52 copies are not auto-cleared because the terminal cannot report whether the clipboard changed.
 - **Delete guard:** the TUI confirms deletion; scripts require `--yes`.
-- **Scoped reads:** `get` and `exec` fetch single secrets by id; only `list`/`sync` refreshes see the full metadata set, and nothing persists values.
+- **Scoped reads:** `get` fetches a single secret by id, and nothing persists values. To resolve `run` keys, the daemon lists the whole vault through `bws` (that listing carries every value), keeps only the metadata, and then fetches each bound secret by id. A vault whose listing passes the daemon's 16 MiB `bws` output limit makes every run fail.
 - **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.
 
 ### Broker daemon (in progress)
 
 A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by root. The debug-only `--dev-same-user` flag relaxes ownership to the daemon user for same-user development.
+
+The broker trusts every local non-root account to request any vault secret for a run. Kernel peer credentials identify the caller and select the run identity. They do not restrict which secrets that caller may use. Caller allowlisting is tracked separately in [#76](https://github.com/AojdevStudio/agentic-utilities/issues/76).
+
+`hush run` (and `hush exec`) go only through the daemon. For each run the daemon:
+
+- resolves every `--secret` / `--fd` key to one secret id through its catalog and writes an audit line before any fetch,
+- picks the run identity: the caller's uid and gid from the kernel, or the dedicated `hushrun` account when `/etc/hush/hushd.toml` lists a bound key under `require_hushrun` (no such account means the run is refused). Root is never a run identity,
+- builds the child environment from scratch: the bindings plus `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `TERM`, `TZ`, and `TMPDIR` from the caller. `BWS_*`, `LD_*`, and `DYLD_*` never reach a child,
+- drops to the run identity (`setgroups`, `setgid`, `setuid`), closes every other inherited fd, and starts the child in its own process group in the caller's working directory. The supplementary groups start with the caller's gid and stop at the system limit (`NGROUPS_MAX`, 16 on macOS), so a macOS account in more groups runs without the rest. A bare program name searches the caller's `PATH` as the run identity, so an entry that identity cannot use does not hide a later one. The daemon builds every candidate path before the child starts and refuses a search whose candidates would need more than 1 MiB, the size of one request. Because the search runs only in the child, a mistyped program name fails after the daemon has fetched the bound values. The run then fails at exec, and no program receives them,
+- masks every bound value in stdout and stderr as `<hidden by hush>`, forwards stdin and INT, TERM, HUP, and QUIT, and returns the exit code or signal. Values shorter than 8 bytes are not masked, and `hush run` warns once naming the key. A client that disconnects kills the child and its original process group, and anything the child leaves running in that group is killed when the run ends. Stdin flows under a credit window, so a child that never reads stdin cannot grow daemon memory. A stdin read error fails the run and stops the child. A non-blocking stdin with no data yet is not an error. The client tries again every 20 ms until data arrives or the run ends.
+
+`hush run -n` (or `--no-stdin`, also on `exec`) never reads stdin, and the child gets end of input at once, like `ssh -n`. Use it inside a shell `while read` loop and for background runs, so the run does not consume input meant for something else.
+
+Masking is best effort. A command that prints its own secret in a transformed form (for example base64) can still leak that value.
 
 ### Known upstream limit: argv exposure
 

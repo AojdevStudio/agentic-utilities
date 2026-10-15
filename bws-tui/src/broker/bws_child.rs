@@ -4,7 +4,7 @@
 //! limit, the request deadline, and the client. Nothing outlives the call:
 //! no reader thread and no blocking wait.
 
-use super::children::{exited_cleanly, Children};
+use super::children::{exited_cleanly, Children, OwnedChild};
 use super::request::{Interrupt, RequestControl};
 use anyhow::{anyhow, Context};
 use secrecy::SecretString;
@@ -70,9 +70,7 @@ pub(super) fn run(
             return Err(BwsError::Failed(error));
         }
     };
-    let Some(status) = child.wait_until(until) else {
-        return Err(BwsError::Failed(anyhow!("bws timed out")));
-    };
+    let status = reap(&mut child, control, until)?;
     if !exited_cleanly(status) {
         let name = call
             .args
@@ -122,6 +120,33 @@ fn read_capped(
                     .map_err(stopped)?;
             }
             Err(error) => return Err(error).context("failed to run bws"),
+        }
+    }
+}
+
+/// End of output is not the end of the call. Keep watching the request until
+/// the child is reaped. A child that already exited wins over a stop seen at
+/// the same moment, so a finished call keeps its real result.
+fn reap(
+    child: &mut OwnedChild<'_>,
+    control: &RequestControl<'_>,
+    until: Instant,
+) -> Result<libc::c_int, BwsError> {
+    loop {
+        if let Some(status) = child.try_reap() {
+            return Ok(status);
+        }
+        let waited = if Instant::now() >= until {
+            Err(Interrupt::TimedOut)
+        } else {
+            control.nap(Duration::from_millis(1))
+        };
+        if let Err(stop) = waited {
+            if let Some(status) = child.try_reap() {
+                return Ok(status);
+            }
+            child.stop(control.cleanup_deadline());
+            return Err(BwsError::Failed(stopped(stop)));
         }
     }
 }

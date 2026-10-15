@@ -93,9 +93,21 @@ mod tests {
             ["hush", "exec", "-n", "--key", "TOKEN", "--", "cat"],
             ["hush", "exec", "--no-stdin", "--key", "TOKEN", "--", "cat"],
         ] {
-            let parsed = Cli::try_parse_from(args);
-            assert!(parsed.is_ok(), "{args:?}: {:?}", parsed.err());
+            let no_stdin = match Cli::try_parse_from(args).map(|cli| cli.cmd) {
+                Ok(Some(Cmd::Run { no_stdin, .. } | Cmd::Exec { no_stdin, .. })) => no_stdin,
+                Ok(_) => panic!("{args:?}: parsed as another command"),
+                Err(error) => panic!("{args:?}: {error}"),
+            };
+            assert!(no_stdin, "{args:?}");
         }
+        let cli = Cli::try_parse_from(["hush", "run", "--secret", "TOKEN", "--", "cat"]).unwrap();
+        assert!(matches!(
+            cli.cmd,
+            Some(Cmd::Run {
+                no_stdin: false,
+                ..
+            })
+        ));
     }
 
     #[test]

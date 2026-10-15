@@ -4,8 +4,10 @@ use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
 use std::ffi::OsString;
-use std::io::IsTerminal;
 use std::path::PathBuf;
+
+mod prompt;
+use prompt::pick_project_interactive;
 
 #[derive(Subcommand)]
 pub(crate) enum Cmd {
@@ -47,6 +49,9 @@ pub(crate) enum Cmd {
         fds: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
         /// Command to run, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<OsString>,
@@ -58,6 +63,9 @@ pub(crate) enum Cmd {
         keys: Vec<String>,
         #[arg(long)]
         project: Option<String>,
+        /// Never read stdin; the child gets end of input at once, like `ssh -n`.
+        #[arg(short = 'n', long)]
+        no_stdin: bool,
         /// Command to run, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
@@ -210,6 +218,7 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             secrets,
             fds,
             project,
+            no_stdin,
             cmd,
         } => run_cmd::run_flags(
             &[
@@ -217,11 +226,18 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
                 (&fds, "--fd", Delivery::Fd),
             ],
             project,
+            no_stdin,
             cmd,
         ),
-        Cmd::Exec { keys, project, cmd } => run_cmd::run_flags(
+        Cmd::Exec {
+            keys,
+            project,
+            no_stdin,
+            cmd,
+        } => run_cmd::run_flags(
             &[(&keys, "--key", Delivery::Env)],
             project,
+            no_stdin,
             cmd.into_iter().map(OsString::from).collect(),
         ),
         Cmd::Sync => retrieve::sync(),
@@ -273,22 +289,4 @@ pub(crate) fn run(command: Cmd) -> Result<()> {
             dev_same_user: false,
         }),
     }
-}
-
-fn pick_project_interactive(projects: &[bws::Project]) -> Result<String> {
-    if !std::io::stdin().is_terminal() {
-        bail!("--project is required when not running interactively");
-    }
-    eprintln!("Select a project:");
-    for (index, project) in projects.iter().enumerate() {
-        eprintln!("  {}. {}", index + 1, project.name);
-    }
-    eprint!("> ");
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let selection: usize = line.trim().parse().context("enter a number")?;
-    projects
-        .get(selection.wrapping_sub(1))
-        .map(|project| project.id.clone())
-        .context("invalid selection")
 }

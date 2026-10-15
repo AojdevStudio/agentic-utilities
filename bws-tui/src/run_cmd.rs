@@ -62,6 +62,7 @@ pub(crate) fn build_spec(bindings: Vec<Binding>, cmd: Vec<OsString>) -> Result<R
 pub(crate) fn run_flags(
     flags: &[(&Vec<String>, &str, Delivery)],
     project: Option<String>,
+    no_stdin: bool,
     cmd: Vec<OsString>,
 ) -> Result<()> {
     let mut bindings = Vec::new();
@@ -70,11 +71,12 @@ pub(crate) fn run_flags(
             bindings.push(parse_binding(raw, flag, *delivery, project.as_deref())?);
         }
     }
-    run(bindings, cmd)
+    run(bindings, cmd, no_stdin)
 }
 
 /// Run through the daemon and exit with the child's status. Never returns on success.
-pub(crate) fn run(bindings: Vec<Binding>, cmd: Vec<OsString>) -> Result<()> {
+/// With `no_stdin`, the caller's stdin is never read and the child sees end of input.
+pub(crate) fn run(bindings: Vec<Binding>, cmd: Vec<OsString>, no_stdin: bool) -> Result<()> {
     let spec = build_spec(bindings, cmd)?;
     let mut client = match Client::try_connect()? {
         ConnectOutcome::Connected(client) => client,
@@ -85,7 +87,7 @@ hush never fetches secret values in the client. Start the daemon (see docs/adr/0
         ),
     };
     let inputs = RunInputs {
-        stdin: Some(Box::new(std::io::stdin())),
+        stdin: (!no_stdin).then(|| Box::new(std::io::stdin()) as Box<dyn std::io::Read + Send>),
         signals: Some(forward_signals()?),
     };
     match client.run_with(spec, &mut StdSink, inputs)? {

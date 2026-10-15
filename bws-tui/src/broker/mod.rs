@@ -47,6 +47,8 @@ mod run_harness;
 #[cfg(test)]
 mod run_input_tests;
 #[cfg(test)]
+mod run_path_tests;
+#[cfg(test)]
 mod run_release_tests;
 #[cfg(test)]
 mod run_tests;

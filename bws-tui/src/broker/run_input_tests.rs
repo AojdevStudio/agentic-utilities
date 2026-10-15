@@ -1,11 +1,14 @@
 //! Client stdin failures: a read error fails the run and stops the child,
-//! and an interrupted read is retried rather than treated as end of input.
+//! and an interrupted or would-block read is retried rather than treated as
+//! end of input.
 
 use super::client_run::RunInputs;
 use super::run_harness::*;
 use super::run_prepare::RunConfig;
 use super::runspec::{Delivery, RunOutcome};
 use std::io::{Error, ErrorKind, Read};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Replays `steps` in order, then reports end of input.
@@ -108,4 +111,44 @@ fn an_interrupted_stdin_read_is_retried() {
     let (outcome, sink) = run_with_stdin("stdin-eintr", "cat", stdin);
     assert_eq!(outcome.unwrap(), RunOutcome::Exited(0));
     assert_eq!(sink.text(), "hello\n");
+}
+
+#[test]
+fn a_would_block_stdin_read_is_retried() {
+    let stdin = Scripted(vec![Err(ErrorKind::WouldBlock.into()), Ok(b"hello\n")]);
+    let (outcome, sink) = run_with_stdin("stdin-eagain", "cat", stdin);
+    assert_eq!(outcome.unwrap(), RunOutcome::Exited(0));
+    assert_eq!(sink.text(), "hello\n");
+}
+
+/// A non-blocking stdin that never has data. Counts its reads.
+struct NeverReady(Arc<AtomicUsize>);
+
+impl Read for NeverReady {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(ErrorKind::WouldBlock.into())
+    }
+}
+
+#[test]
+fn a_stdin_that_never_has_data_waits_without_spinning_and_stops_with_the_run() {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let stdin = NeverReady(Arc::clone(&reads));
+    let (outcome, sink) = run_with_stdin("stdin-never", "sleep 0.3; echo done", stdin);
+    assert_eq!(outcome.unwrap(), RunOutcome::Exited(0));
+    assert_eq!(sink.text(), "done\n");
+    let during = reads.load(Ordering::SeqCst);
+    assert!(
+        (1..=50).contains(&during),
+        "{during} reads while the run lasted"
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    let settled = reads.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        reads.load(Ordering::SeqCst),
+        settled,
+        "stdin worker outlived the run"
+    );
 }

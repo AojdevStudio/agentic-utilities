@@ -10,6 +10,7 @@ use super::human_tests::{key, vault, VALUE};
 use super::meta::{SecretMeta, WriteFailure};
 use super::operation::{Operation, Outcome, Refusal, ValueChange, ValueSource};
 use super::pty_harness::{Fd, Session, Step};
+use super::request::{RequestControl, WriteAttempt};
 use super::run_harness::tempdir;
 use super::FakeBackend;
 use secrecy::SecretString;
@@ -82,19 +83,30 @@ fn add_refuses_keys_the_provider_would_trim() {
     assert_eq!(vault.stored("s1").unwrap(), VALUE.as_bytes());
 }
 
+/// A rename the provider would trim is refused before the password prompt.
 #[test]
 fn rename_refuses_keys_the_provider_would_trim() {
     let dir = tempdir("write-rename-key");
     let vault = vault();
-    let (socket, daemon) = human_daemon(&dir, vault.clone(), FakeAuth::new(), 1);
-    let rename = |new_key: &str| Operation::Edit {
-        secret: key("TOKEN"),
-        new_key: Some(new_key.into()),
-        note: None,
-        value: ValueChange::Keep,
+    let (socket, daemon) = human_daemon(&dir, vault.clone(), FakeAuth::panicking(), 1);
+    let rename = |new_key: &str| Step {
+        op: Operation::Edit {
+            secret: key("TOKEN"),
+            new_key: Some(new_key.into()),
+            note: None,
+            value: ValueChange::Keep,
+        },
+        fds: vec![Fd::Tty],
     };
-    let replies = approved_tty(&socket, vec![rename("OTHER "), rename("\u{a0}OTHER")]);
+    let session = Session::start(&socket, vec![rename("OTHER "), rename("\u{a0}OTHER")]);
+    let done = session.finish();
     daemon.join().unwrap();
+    assert!(!done.screen.contains("Password for"), "{}", done.screen);
+    let replies: Vec<_> = done
+        .results
+        .into_iter()
+        .map(|result| result.reply)
+        .collect();
     assert_eq!(
         replies,
         [
@@ -108,7 +120,7 @@ fn rename_refuses_keys_the_provider_would_trim() {
     );
     assert_eq!(vault.write_count(), 0);
     let keys: Vec<String> = vault
-        .catalog()
+        .catalog(&super::request::RequestControl::detached())
         .unwrap()
         .into_iter()
         .map(|meta| meta.key)
@@ -211,7 +223,9 @@ fn a_bws_delete_that_started_and_failed_is_uncertain() {
     std::fs::write(&script, body).unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let backend = BwsBackend::new(script, SecretString::from("t"));
-    assert_eq!(backend.delete("s1"), Err(WriteFailure::Uncertain));
+    let control = RequestControl::detached();
+    let delete = |backend: &BwsBackend| backend.delete("s1", &mut WriteAttempt::new(&control));
+    assert_eq!(delete(&backend), Err(WriteFailure::Uncertain));
     assert_eq!(
         std::fs::read_to_string(&marker).unwrap(),
         "s1",
@@ -219,7 +233,7 @@ fn a_bws_delete_that_started_and_failed_is_uncertain() {
     );
     let missing = BwsBackend::new(dir.join("absent"), SecretString::from("t"));
     assert_eq!(
-        missing.delete("s1"),
+        delete(&missing),
         Err(WriteFailure::Rejected),
         "never started"
     );

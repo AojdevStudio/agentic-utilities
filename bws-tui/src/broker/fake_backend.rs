@@ -5,6 +5,7 @@
 use super::backend::VaultBackend;
 use super::material::SecretMaterial;
 use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
+use super::request::{RequestControl, WriteAttempt};
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -75,7 +76,7 @@ impl FakeBackend {
     }
 
     fn project_name(&self, id: &str) -> Option<String> {
-        self.projects()
+        self.projects(&RequestControl::detached())
             .ok()?
             .into_iter()
             .find(|project| project.id == id)
@@ -84,7 +85,7 @@ impl FakeBackend {
 }
 
 impl VaultBackend for FakeBackend {
-    fn catalog(&self) -> Result<Vec<SecretMeta>> {
+    fn catalog(&self, _: &RequestControl<'_>) -> Result<Vec<SecretMeta>> {
         std::thread::sleep(self.catalog_delay);
         let secrets = self.secrets.lock().unwrap();
         let mut metas: Vec<SecretMeta> = secrets.values().map(|(meta, _)| meta.clone()).collect();
@@ -92,7 +93,7 @@ impl VaultBackend for FakeBackend {
         Ok(metas)
     }
 
-    fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
+    fn fetch(&self, secret: &SecretRef, _: &RequestControl<'_>) -> Result<SecretMaterial> {
         let SecretRef::Id(id) = secret else {
             bail!("backends fetch only resolved secret ids");
         };
@@ -102,7 +103,7 @@ impl VaultBackend for FakeBackend {
         Ok(SecretMaterial::new(value.clone()))
     }
 
-    fn projects(&self) -> Result<Vec<ProjectMeta>> {
+    fn projects(&self, _: &RequestControl<'_>) -> Result<Vec<ProjectMeta>> {
         let secrets = self.secrets.lock().unwrap();
         let mut projects: Vec<ProjectMeta> = secrets
             .values()
@@ -122,7 +123,9 @@ impl VaultBackend for FakeBackend {
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
+        attempt.begin_remote()?;
         self.record_write();
         let project = self.project_name(&secret.project_id);
         let mut secrets = self.secrets.lock().unwrap();
@@ -142,7 +145,9 @@ impl VaultBackend for FakeBackend {
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
+        attempt.begin_remote()?;
         self.record_write();
         let mut secrets = self.secrets.lock().unwrap();
         let (meta, stored) = secrets.get_mut(&secret.id).ok_or(WriteFailure::Rejected)?;
@@ -152,7 +157,8 @@ impl VaultBackend for FakeBackend {
         Ok(meta.clone())
     }
 
-    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
+    fn delete(&self, id: &str, attempt: &mut WriteAttempt<'_>) -> Result<(), WriteFailure> {
+        attempt.begin_remote()?;
         self.record_write();
         let mut secrets = self.secrets.lock().unwrap();
         secrets.remove(id).ok_or(WriteFailure::Rejected)?;
@@ -167,27 +173,37 @@ impl VaultBackend for FakeBackend {
 pub(crate) struct FailingBackend;
 
 impl VaultBackend for FailingBackend {
-    fn catalog(&self) -> Result<Vec<SecretMeta>> {
+    fn catalog(&self, _: &RequestControl<'_>) -> Result<Vec<SecretMeta>> {
         Err(anyhow!("backend exploded"))
     }
 
-    fn fetch(&self, _secret: &SecretRef) -> Result<SecretMaterial> {
+    fn fetch(&self, _: &SecretRef, _: &RequestControl<'_>) -> Result<SecretMaterial> {
         Err(anyhow!("backend exploded"))
     }
 
-    fn projects(&self) -> Result<Vec<ProjectMeta>> {
+    fn projects(&self, _: &RequestControl<'_>) -> Result<Vec<ProjectMeta>> {
         Err(anyhow!("backend exploded"))
     }
 
-    fn create(&self, _: &NewSecret, _: &SecretMaterial) -> Result<SecretMeta, WriteFailure> {
+    fn create(
+        &self,
+        _: &NewSecret,
+        _: &SecretMaterial,
+        _: &mut WriteAttempt<'_>,
+    ) -> Result<SecretMeta, WriteFailure> {
         Err(WriteFailure::Rejected)
     }
 
-    fn update(&self, _: &SecretUpdate, _: &SecretMaterial) -> Result<SecretMeta, WriteFailure> {
+    fn update(
+        &self,
+        _: &SecretUpdate,
+        _: &SecretMaterial,
+        _: &mut WriteAttempt<'_>,
+    ) -> Result<SecretMeta, WriteFailure> {
         Err(WriteFailure::Rejected)
     }
 
-    fn delete(&self, _id: &str) -> Result<(), WriteFailure> {
+    fn delete(&self, _: &str, _: &mut WriteAttempt<'_>) -> Result<(), WriteFailure> {
         Err(WriteFailure::Rejected)
     }
 }

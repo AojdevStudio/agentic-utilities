@@ -1,44 +1,73 @@
-//! Daemon handling of human operations. Descriptors are checked against the
-//! operation's roles first. Reveal, copy, edit, and delete then need a fresh
-//! password approval on the checked terminal. Add needs none and never
-//! overwrites. Values reach only the terminal or the vault.
+//! Daemon handling of human operations. Proposed keys and notes are checked
+//! first, then descriptors against the operation's roles. Reveal, copy, edit,
+//! and delete then need a fresh password approval on the checked terminal.
+//! Add needs none and never overwrites. Values reach only the terminal or the
+//! vault. One request control, made at entry, bounds the whole request and
+//! is checked between every stage, so a client that leaves gets no
+//! disclosure and no write. The native password check itself cannot be
+//! interrupted, so it is checked before and after, not bounded.
 
 use super::approve::Authenticator;
-use super::approve::{approve, platform_authenticator, terminal_refusal, ApprovalRequest};
+use super::approve::APPROVAL_TIMEOUT;
+use super::approve::{approve, terminal_refusal, ApprovalRequest};
 use super::audit::{AuditLog, HumanAudit};
 use super::backend::VaultBackend;
+use super::children::Children;
 use super::console::{escape, MAX_OSC52_VALUE};
 use super::fdpass::RightsViolation;
+use super::fields::{check_proposed, invalid};
 use super::meta::SecretRef;
-use super::mutate::{add, edit, invalid, resolve, resolve_project, vault_failed, write_refusal};
+use super::mutate::{add, edit, live, read_failed, resolve, resolve_project, write_refusal};
 use super::operation::{DescriptorProblem, Operation, Outcome, Refusal, SecretSelector};
 use super::operation::{ValueChange, ValueSource};
 use super::peercred::PeerCredentials;
 use super::protocol::ResponseFrame;
-use super::slots::{descriptors, Slots};
-use super::tty::check_terminal;
+use super::request::{RequestControl, WriteAttempt};
+use super::slots::{descriptors, Readers, Slots};
+use super::spawn_fd::FdCeiling;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// Shared by every connection. The mutation lock serializes daemon writes.
+/// The reader table bounds value-input children across all connections.
 pub(crate) struct HumanConfig {
     pub(crate) auth: Arc<dyn Authenticator>,
     pub(crate) mutation: Mutex<()>,
+    /// The whole request's one deadline, from handler entry.
+    pub(crate) timeout: Duration,
+    readers: Children,
+    ceiling: FdCeiling,
 }
 
 impl HumanConfig {
-    pub(crate) fn new(auth: Arc<dyn Authenticator>) -> Self {
+    /// `ceiling` must be fixed at daemon startup, before any thread exists.
+    pub(crate) fn serving(
+        auth: Arc<dyn Authenticator>,
+        ceiling: FdCeiling,
+        readers: usize,
+    ) -> Self {
         Self {
             auth,
             mutation: Mutex::new(()),
+            timeout: APPROVAL_TIMEOUT,
+            readers: Children::new(readers),
+            ceiling,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new(auth: Arc<dyn Authenticator>) -> Self {
+        let ceiling = FdCeiling::establish().expect("test descriptor ceiling");
+        Self::serving(auth, ceiling, super::daemon::MAX_CONNECTIONS)
     }
 }
 
+#[cfg(test)]
 impl Default for HumanConfig {
     fn default() -> Self {
-        Self::new(platform_authenticator())
+        Self::new(super::approve::platform_authenticator())
     }
 }
 
@@ -80,6 +109,7 @@ struct Context<'a> {
     backend: &'a dyn VaultBackend,
     audit: &'a dyn AuditLog,
     config: &'a HumanConfig,
+    control: &'a RequestControl<'a>,
     peer: PeerCredentials,
     verb: &'static str,
     slots: Slots<'a>,
@@ -115,13 +145,21 @@ fn handle(
     if violation.is_some() {
         return Err(descriptors(DescriptorProblem::Malformed));
     }
+    check_proposed(&op)?;
+    let control = RequestControl::until(socket, config.timeout);
+    live(&control)?;
+    let readers = Readers {
+        children: &config.readers,
+        ceiling: config.ceiling,
+    };
     let mut context = Context {
         backend,
         audit,
         config,
+        control: &control,
         peer,
         verb: op.verb(),
-        slots: Slots::bind(op.roles(), fds, peer, socket)?,
+        slots: Slots::bind(op.roles(), fds, peer, &control, readers)?,
     };
     match op {
         Operation::Add {
@@ -163,18 +201,15 @@ fn add_secret(
     note: Option<String>,
     source: ValueSource,
 ) -> Result<Outcome, Refusal> {
-    let project = resolve_project(context.backend, project)?;
+    let control = context.control;
+    let project = resolve_project(context.backend, project, control)?;
     context.record(&key, Some(&project.name), None)?;
+    live(control)?;
     let prompt = format!("Value for {} (input hidden): ", escape(key.as_bytes()));
     let value = context.slots.read_value(source, &prompt)?;
-    add(
-        context.backend,
-        &context.config.mutation,
-        &project,
-        key,
-        note,
-        &value,
-    )
+    live(control)?;
+    let lock = &context.config.mutation;
+    add(context.backend, lock, control, &project, key, note, &value)
 }
 
 /// Resolve, audit, approve on the terminal, then act.
@@ -184,8 +219,10 @@ fn approved(
     action: Action,
 ) -> Result<Outcome, Refusal> {
     let (backend, verb, peer) = (context.backend, context.verb, context.peer);
-    let meta = resolve(backend, secret, verb)?;
+    let control = context.control;
+    let meta = resolve(backend, secret, verb, control)?;
     context.record(&meta.key, meta.project.as_deref(), Some(&meta.id))?;
+    live(control)?;
     let request = ApprovalRequest {
         verb,
         key: &meta.key,
@@ -195,13 +232,14 @@ fn approved(
         pid: peer.pid,
     };
     approve(context.slots.console()?, &request, &*context.config.auth)?;
+    live(control)?;
     match action {
         Action::Reveal | Action::Copy => {
             let value = backend
-                .fetch(&SecretRef::Id(meta.id.clone()))
-                .map_err(|_| vault_failed(verb))?;
+                .fetch(&SecretRef::Id(meta.id.clone()), control)
+                .map_err(|_| read_failed(control, verb))?;
+            live(control)?;
             let console = context.slots.console()?;
-            check_terminal(console.fd(), peer).map_err(descriptors)?;
             if matches!(action, Action::Copy) {
                 if value.expose_bytes().len() > MAX_OSC52_VALUE {
                     return Err(invalid(
@@ -221,8 +259,9 @@ fn approved(
             Ok(Outcome::Revealed { key: meta.key })
         }
         Action::Delete => {
+            let mut attempt = WriteAttempt::new(control);
             backend
-                .delete(&meta.id)
+                .delete(&meta.id, &mut attempt)
                 .map_err(|failure| write_refusal(failure, verb))?;
             Ok(Outcome::Deleted {
                 id: meta.id,
@@ -242,8 +281,9 @@ fn approved(
                     Some(context.slots.read_value(source, &prompt)?)
                 }
             };
+            live(control)?;
             let lock = &context.config.mutation;
-            edit(backend, lock, &meta, new_key, note, value)
+            edit(backend, lock, control, &meta, new_key, note, value)
         }
     }
 }

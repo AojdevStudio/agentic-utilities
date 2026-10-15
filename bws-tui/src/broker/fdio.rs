@@ -1,82 +1,77 @@
-//! Bounded, cancellable I/O on descriptors a client passed in. A passed
-//! descriptor runs in non-blocking mode while the daemon holds it, so a
-//! paused terminal or another reader that wins a race cannot hang a worker.
-//! Every wait also watches the client's socket. Activity there means the
-//! client hung up or broke protocol, and the wait stops.
+//! I/O on the daemon's own open of a checked terminal. The daemon opened it
+//! non-blocking and no other process or worker shares that open, so no one
+//! else can make a read or write block. Every attempt checks the request
+//! first, so ready input or a fast write never skips a cancellation.
 
+use super::request::{poll_millis, Interrupt, RequestControl};
 use std::fs::File;
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::time::Instant;
 
-/// Why a read or write on a passed descriptor stopped early.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Interrupt {
-    /// Ctrl-C, Ctrl-D on an empty line, or a terminal hangup.
-    Cancelled,
-    /// The client hung up or sent data mid-operation.
-    Disconnected,
-    TimedOut,
-    TooLong,
-    Io,
-}
-
-/// A passed descriptor in non-blocking mode. Drop restores the original
-/// status flags, because the client shares the open file.
-pub(crate) struct Passed {
+pub(crate) struct OwnedTty {
     file: File,
-    flags: libc::c_int,
 }
 
-impl Passed {
-    pub(crate) fn new(fd: OwnedFd) -> io::Result<Self> {
-        // SAFETY: F_GETFL only reads the status flags of an owned descriptor.
-        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
-        if flags < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: F_SETFL changes only the status flags of an owned descriptor.
-        if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self {
+impl OwnedTty {
+    /// `fd` must be a non-blocking open this daemon made and holds alone.
+    pub(crate) fn new(fd: OwnedFd) -> Self {
+        Self {
             file: File::from(fd),
-            flags,
-        })
+        }
     }
 
-    /// Read what is available, waiting until `deadline`. Zero means end of file.
+    /// Read what is available inside the request. Zero means end of file.
     pub(crate) fn read(
         &mut self,
         buf: &mut [u8],
-        socket: &UnixStream,
-        deadline: Instant,
+        control: &RequestControl<'_>,
     ) -> Result<usize, Interrupt> {
         let mut hung_up = false;
         loop {
+            control.check()?;
             match self.file.read(buf) {
-                Ok(read) => return Ok(read),
+                Ok(read) => return control.check().map(|()| read),
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
                 Err(error) if error.kind() == ErrorKind::WouldBlock => {
                     if hung_up {
                         return Err(Interrupt::Cancelled);
                     }
-                    hung_up = wait(self.file.as_fd(), libc::POLLIN, socket, deadline)?;
+                    hung_up = control.wait(self.file.as_fd(), libc::POLLIN)?;
                 }
                 Err(_) => return Err(Interrupt::Io),
             }
         }
     }
 
+    /// Write every byte inside the request.
     pub(crate) fn write_all(
         &mut self,
+        bytes: &[u8],
+        control: &RequestControl<'_>,
+    ) -> Result<(), Interrupt> {
+        self.write_with(
+            bytes,
+            |fd, events| control.wait(fd, events),
+            || control.check(),
+        )
+    }
+
+    /// Write fixed cleanup text by `until`, even after the request stopped.
+    /// It waits on the terminal alone and never on the client.
+    pub(crate) fn write_cleanup(&mut self, bytes: &[u8], until: Instant) -> Result<(), Interrupt> {
+        self.write_with(bytes, |fd, events| wait_alone(fd, events, until), || Ok(()))
+    }
+
+    fn write_with(
+        &mut self,
         mut bytes: &[u8],
-        socket: &UnixStream,
-        deadline: Instant,
+        mut wait: impl FnMut(BorrowedFd<'_>, libc::c_short) -> Result<bool, Interrupt>,
+        check: impl Fn() -> Result<(), Interrupt>,
     ) -> Result<(), Interrupt> {
         let mut hung_up = false;
         while !bytes.is_empty() {
+            check()?;
             match self.file.write(bytes) {
                 Ok(0) => return Err(Interrupt::Io),
                 Ok(written) => {
@@ -88,7 +83,7 @@ impl Passed {
                     if hung_up {
                         return Err(Interrupt::Io);
                     }
-                    hung_up = wait(self.file.as_fd(), libc::POLLOUT, socket, deadline)?;
+                    hung_up = wait(self.file.as_fd(), libc::POLLOUT)?;
                 }
                 Err(_) => return Err(Interrupt::Io),
             }
@@ -97,62 +92,42 @@ impl Passed {
     }
 }
 
-impl AsFd for Passed {
+impl AsFd for OwnedTty {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.file.as_fd()
     }
 }
 
-impl Drop for Passed {
-    fn drop(&mut self) {
-        // SAFETY: restores status flags read from this same, still open descriptor.
-        unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_SETFL, self.flags) };
-    }
-}
-
-/// True when `fd` reported only a hangup or error, so the next attempt must not wait again.
-fn wait(
+/// Wait on `fd` alone until `until`. True means only a hangup or error.
+fn wait_alone(
     fd: BorrowedFd<'_>,
     events: libc::c_short,
-    socket: &UnixStream,
-    deadline: Instant,
+    until: Instant,
 ) -> Result<bool, Interrupt> {
     loop {
-        let left = deadline.saturating_duration_since(Instant::now());
+        let left = until.saturating_duration_since(Instant::now());
         if left.is_zero() {
             return Err(Interrupt::TimedOut);
         }
-        let mut fds = [
-            libc::pollfd {
-                fd: fd.as_raw_fd(),
-                events,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: socket.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
-        let millis = left.as_millis().clamp(1, i32::MAX as u128) as i32;
-        // SAFETY: two valid pollfd entries.
-        if unsafe { libc::poll(fds.as_mut_ptr(), 2, millis) } < 0 {
-            if io::Error::last_os_error().kind() == ErrorKind::Interrupted {
+        let mut ready = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd entry.
+        if unsafe { libc::poll(&mut ready, 1, poll_millis(left)) } < 0 {
+            if std::io::Error::last_os_error().kind() == ErrorKind::Interrupted {
                 continue;
             }
             return Err(Interrupt::Io);
         }
-        let (ready, client) = (fds[0].revents, fds[1].revents);
-        if client != 0 {
-            return Err(Interrupt::Disconnected);
-        }
-        if ready & libc::POLLNVAL != 0 {
+        if ready.revents & libc::POLLNVAL != 0 {
             return Err(Interrupt::Io);
         }
-        if ready & events != 0 {
+        if ready.revents & events != 0 {
             return Ok(false);
         }
-        if ready != 0 {
+        if ready.revents != 0 {
             return Ok(true);
         }
     }

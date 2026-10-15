@@ -55,9 +55,12 @@ pub(crate) struct SecretUpdate {
     pub note: String,
 }
 
-/// A failed write, with no provider text. `Rejected` means nothing was written.
+/// A failed write, with no provider text. `Rejected` and `Stopped` mean
+/// nothing was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WriteFailure {
     Rejected,
+    /// The client left or the request ran out of time before the write started.
+    Stopped,
     Uncertain,
 }

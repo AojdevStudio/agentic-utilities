@@ -1,11 +1,14 @@
 //! A paused terminal, a client that hangs up, or another reader that wins a
 //! race must never hang a daemon worker. Deadlines here are test values.
 
+use super::children::Children;
 use super::console::{Console, Interrupt, MAX_OSC52_VALUE};
 use super::fdpass_tests::pipe;
-use super::mutate::{invalid, read_input, MAX_VALUE};
-use super::operation::Refusal;
+use super::fields::MAX_VALUE;
+use super::input_pump::{read_input, InputStop};
 use super::pty_harness::open_pty;
+use super::request::RequestControl;
+use super::spawn_fd::FdCeiling;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -16,15 +19,24 @@ use std::time::{Duration, Instant};
 
 const BOUND: Duration = Duration::from_secs(5);
 
+/// A pty slave opened non-blocking by this test alone, like the daemon's own open.
 fn pty() -> (File, OwnedFd) {
     let (master, name) = open_pty();
     let slave = File::options()
         .read(true)
         .write(true)
-        .custom_flags(libc::O_NOCTTY)
+        .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
         .open(name.to_str().unwrap())
         .unwrap();
     (master, slave.into())
+}
+
+/// A value-input read with its own reader table, as one daemon would run it.
+fn read_value(fd: OwnedFd, socket: &UnixStream, limit: Duration) -> Result<usize, InputStop> {
+    let control = RequestControl::until(socket, limit);
+    let children = Children::new(2);
+    let ceiling = FdCeiling::establish().unwrap();
+    read_input(fd, &control, &children, ceiling).map(|value| value.len())
 }
 
 /// Output suspended, as after Ctrl-S.
@@ -53,8 +65,8 @@ fn a_paused_terminal_times_out_instead_of_hanging() {
     let (socket, _client) = UnixStream::pair().unwrap();
     let started = Instant::now();
     let result = worker(move || {
-        let console = Console::new(slave, &socket).unwrap();
-        let mut console = console.with_timeout(Duration::from_millis(300));
+        let control = RequestControl::until(&socket, Duration::from_millis(300));
+        let mut console = Console::new(slave, &control);
         console.say(&big_text())
     });
     assert_eq!(
@@ -72,8 +84,8 @@ fn every_wait_in_a_request_shares_one_deadline() {
     let (socket, _client) = UnixStream::pair().unwrap();
     let started = Instant::now();
     let result = worker(move || {
-        let console = Console::new(slave, &socket).unwrap();
-        let mut console = console.with_timeout(Duration::from_millis(400));
+        let control = RequestControl::until(&socket, Duration::from_millis(400));
+        let mut console = Console::new(slave, &control);
         console.say("first: ")?;
         std::thread::sleep(Duration::from_millis(300));
         console.read_hidden("second: ", 16).map(drop)
@@ -88,7 +100,10 @@ fn every_wait_in_a_request_shares_one_deadline() {
 fn a_client_hangup_cancels_a_blocked_terminal_write() {
     let (_master, slave) = paused_pty();
     let (socket, client) = UnixStream::pair().unwrap();
-    let result = worker(move || Console::new(slave, &socket).unwrap().say(&big_text()));
+    let result = worker(move || {
+        let control = RequestControl::until(&socket, BOUND);
+        Console::new(slave, &control).say(&big_text())
+    });
     std::thread::sleep(Duration::from_millis(200));
     drop(client);
     let reply = result.recv_timeout(BOUND).ok();
@@ -100,7 +115,7 @@ fn a_client_hangup_cancels_a_blocked_terminal_write() {
 /// Each round's input stays open, so the only correct reply is the deadline.
 #[test]
 fn a_reader_that_wins_the_race_cannot_hang_value_input() {
-    let late = invalid("the value input did not finish in time");
+    let late = InputStop::Stopped(Interrupt::TimedOut);
     let mut stolen_rounds = 0;
     for round in 0..40 {
         let (reader, mut writer) = pipe();
@@ -108,14 +123,12 @@ fn a_reader_that_wins_the_race_cannot_hang_value_input() {
         let (socket, _client) = UnixStream::pair().unwrap();
         let stolen = worker(move || (&competitor).read(&mut [0u8; 1]).ok());
         std::thread::sleep(Duration::from_millis(20));
-        let deadline = Instant::now() + Duration::from_millis(150);
-        let input = worker(move || {
-            read_input(reader.into(), &socket, deadline).map(|value| value.expose_bytes().len())
-        });
+        let limit = Duration::from_millis(150);
+        let input = worker(move || read_value(reader.into(), &socket, limit));
         std::thread::sleep(Duration::from_millis(20));
         writer.write_all(b"x").unwrap();
         let reply = input.recv_timeout(BOUND).ok();
-        assert_eq!(reply, Some(Err(late.clone())), "round {round} hung");
+        assert_eq!(reply, Some(Err(late)), "round {round} hung");
         drop(writer);
         if stolen.recv_timeout(BOUND).ok().flatten() == Some(1) {
             stolen_rounds += 1;
@@ -128,17 +141,12 @@ fn a_reader_that_wins_the_race_cannot_hang_value_input() {
 fn value_input_stops_at_64_kib() {
     for (len, expected) in [
         (MAX_VALUE, Ok(MAX_VALUE)),
-        (
-            MAX_VALUE + 1,
-            Err(invalid("the value is larger than 64 KiB")),
-        ),
+        (MAX_VALUE + 1, Err(InputStop::TooLong)),
     ] {
         let (reader, mut writer) = pipe();
         let feeder = std::thread::spawn(move || drop(writer.write_all(&vec![b'v'; len])));
         let (socket, _client) = UnixStream::pair().unwrap();
-        let deadline = Instant::now() + BOUND;
-        let read: Result<usize, Refusal> =
-            read_input(reader.into(), &socket, deadline).map(|value| value.expose_bytes().len());
+        let read = read_value(reader.into(), &socket, BOUND);
         assert_eq!(read, expected, "{len} bytes");
         feeder.join().unwrap();
     }
@@ -160,7 +168,8 @@ fn copy_writes_at_most_128_kib() {
         }
         screen
     });
-    let mut console = Console::new(slave, &socket).unwrap();
+    let control = RequestControl::until(&socket, BOUND);
+    let mut console = Console::new(slave, &control);
     let over = console.osc52(&vec![b'a'; MAX_OSC52_VALUE + 1]);
     assert_eq!(over, Err(Interrupt::TooLong));
     assert_eq!(console.osc52(&vec![b'a'; MAX_OSC52_VALUE]), Ok(()));

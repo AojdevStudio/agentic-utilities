@@ -4,26 +4,31 @@
 //! this module, so a failure can never echo a value.
 
 use super::backend::BWS_TIMEOUT;
+use super::fields::{check_key, check_note, check_value};
 use super::material::SecretMaterial;
 use super::meta::{NewSecret, SecretMeta, SecretUpdate, WriteFailure};
+use super::request::{RequestControl, WriteAttempt};
 use bitwarden::secrets_manager::secrets::{SecretCreateRequest, SecretPutRequest, SecretResponse};
 use bitwarden::secrets_manager::{
     AccessTokenLoginRequest, ClientSettings, DeviceType, SecretsManagerClient,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::fmt::Debug;
-use std::time::Duration;
+use std::future::Future;
+use std::os::fd::BorrowedFd;
+use std::task::Poll;
+use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
 use tokio::runtime::{Builder, Runtime};
 use uuid::Uuid;
 use zeroize::Zeroize;
-use WriteFailure::{Rejected, Uncertain};
+use WriteFailure::{Rejected, Stopped, Uncertain};
 
 /// One SDK login per write. Writes are rare human actions, so no session is cached.
 pub(crate) struct SdkWriter {
     token: SecretString,
     identity_url: String,
     api_url: String,
-    deadline: Duration,
 }
 
 impl SdkWriter {
@@ -41,31 +46,34 @@ impl SdkWriter {
             token,
             identity_url: identity_url.to_owned(),
             api_url: api_url.to_owned(),
-            deadline: BWS_TIMEOUT,
         }
     }
 
-    /// Sends exactly one create. A failure after the request may have reached
-    /// the server is `Uncertain` and is never retried.
+    /// Sends exactly one create. Fields the SDK would refuse never reach a
+    /// login. A failure after the request may have reached the server is
+    /// `Uncertain` and is never retried.
     pub(crate) fn create(
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
+        valid(&secret.key, &secret.note, value)?;
         let project = Uuid::parse_str(&secret.project_id).map_err(|_| Rejected)?;
-        let (runtime, client, organization_id) = self.connect()?;
-        let mut request = SecretCreateRequest {
-            organization_id,
-            key: secret.key.clone(),
-            value: utf8(value)?,
-            note: secret.note.clone(),
-            project_ids: Some(vec![project]),
-        };
+        let (runtime, client, organization_id) = self.connect(attempt.control())?;
+        let request = Wiped(
+            SecretCreateRequest {
+                organization_id,
+                key: secret.key.clone(),
+                value: utf8(value)?,
+                note: secret.note.clone(),
+                project_ids: Some(vec![project]),
+            },
+            |request| request.value.zeroize(),
+        );
         let secrets = client.secrets();
-        let outcome = runtime.block_on(async {
-            tokio::time::timeout(self.deadline, secrets.create(&request)).await
-        });
-        request.value.zeroize();
+        attempt.begin_remote()?;
+        let outcome = runtime.block_on(watched(attempt.control(), secrets.create(&request.0)));
         finish(outcome)
     }
 
@@ -74,31 +82,39 @@ impl SdkWriter {
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
+        valid(&secret.key, &secret.note, value)?;
         let id = Uuid::parse_str(&secret.id).map_err(|_| Rejected)?;
         let project_ids = match secret.project_id.as_deref() {
             Some(project) => Some(vec![Uuid::parse_str(project).map_err(|_| Rejected)?]),
             None => None,
         };
-        let (runtime, client, organization_id) = self.connect()?;
-        let mut request = SecretPutRequest {
-            id,
-            organization_id,
-            key: secret.key.clone(),
-            value: utf8(value)?,
-            note: secret.note.clone(),
-            project_ids,
-        };
+        let (runtime, client, organization_id) = self.connect(attempt.control())?;
+        let request = Wiped(
+            SecretPutRequest {
+                id,
+                organization_id,
+                key: secret.key.clone(),
+                value: utf8(value)?,
+                note: secret.note.clone(),
+                project_ids,
+            },
+            |request| request.value.zeroize(),
+        );
         let secrets = client.secrets();
-        let outcome = runtime.block_on(async {
-            tokio::time::timeout(self.deadline, secrets.update(&request)).await
-        });
-        request.value.zeroize();
+        attempt.begin_remote()?;
+        let outcome = runtime.block_on(watched(attempt.control(), secrets.update(&request.0)));
         finish(outcome)
     }
 
-    /// Log in with the daemon token. A failed login wrote nothing.
-    fn connect(&self) -> Result<(Runtime, SecretsManagerClient, Uuid), WriteFailure> {
+    /// Log in with the daemon token. A failed login wrote nothing. A login
+    /// the client abandoned, or that outlived the request, is `Stopped`.
+    fn connect(
+        &self,
+        control: &RequestControl<'_>,
+    ) -> Result<(Runtime, SecretsManagerClient, Uuid), WriteFailure> {
+        control.check().map_err(|_| Stopped)?;
         let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
@@ -107,17 +123,19 @@ impl SdkWriter {
             let _context = runtime.enter();
             SecretsManagerClient::new(Some(self.settings()))
         };
-        let mut request = AccessTokenLoginRequest {
-            access_token: self.token.expose_secret().to_owned(),
-            state_file: None,
-        };
+        let request = Wiped(
+            AccessTokenLoginRequest {
+                access_token: self.token.expose_secret().to_owned(),
+                state_file: None,
+            },
+            |request| request.access_token.zeroize(),
+        );
         let auth = client.auth();
-        let login = runtime.block_on(async {
-            tokio::time::timeout(self.deadline, auth.login_access_token(&request)).await
-        });
-        request.access_token.zeroize();
+        let login = runtime.block_on(watched(control, auth.login_access_token(&request.0)));
+        drop(request);
         match login {
-            Ok(Ok(response)) if response.authenticated => {}
+            _ if control.check().is_err() => return Err(Stopped),
+            Some(Ok(response)) if response.authenticated => {}
             _ => return Err(Rejected),
         }
         let organization: Uuid = client
@@ -148,13 +166,62 @@ fn utf8(value: &SecretMaterial) -> Result<String, WriteFailure> {
     })
 }
 
-fn finish<E: Debug, T>(
-    outcome: Result<Result<SecretResponse, E>, T>,
+/// Fields the SDK would refuse. It copies a refused field into its error and
+/// debug log, so they never reach a login or a request object.
+fn valid(key: &str, note: &str, value: &SecretMaterial) -> Result<(), WriteFailure> {
+    check_key(key)
+        .and(check_note(note))
+        .and(check_value(value.expose_bytes()))
+        .map_err(|_| Rejected)
+}
+
+/// An SDK request whose secret fields are wiped on every exit path.
+struct Wiped<T>(T, fn(&mut T));
+
+impl<T> Drop for Wiped<T> {
+    fn drop(&mut self) {
+        (self.1)(&mut self.0);
+    }
+}
+
+/// Run one SDK call until it finishes, its own limit or the request deadline
+/// passes, or the client leaves. `None` means it was abandoned unfinished.
+/// A finished call wins over a simultaneous stop, so a definitive provider
+/// answer is never thrown away.
+async fn watched<F: Future>(control: &RequestControl<'_>, call: F) -> Option<F::Output> {
+    let deadline = tokio::time::Instant::from_std(control.deadline(BWS_TIMEOUT));
+    let mut call = std::pin::pin!(tokio::time::timeout_at(deadline, call));
+    let mut left = std::pin::pin!(client_left(control.socket()));
+    std::future::poll_fn(|context| {
+        if let Poll::Ready(done) = call.as_mut().poll(context) {
+            return Poll::Ready(done.ok());
+        }
+        left.as_mut().poll(context).map(|()| None)
+    })
+    .await
+}
+
+/// Ends when the client socket is readable: a hangup or a protocol break.
+/// A socket that cannot be watched ends it at once, so no call runs unwatched.
+async fn client_left(socket: Option<BorrowedFd<'_>>) {
+    let Some(socket) = socket else {
+        return std::future::pending().await;
+    };
+    // SAFETY: the borrow keeps the socket open, and the same descriptor, for
+    // as long as the registration that lives inside this future.
+    if let Ok(watch) = unsafe { AsyncFd::register_with_interest(socket, Interest::READABLE) } {
+        // Readiness and a failed wait both mean the request must stop.
+        let _ready = watch.readable().await;
+    }
+}
+
+fn finish<E: Debug>(
+    outcome: Option<Result<SecretResponse, E>>,
 ) -> Result<SecretMeta, WriteFailure> {
     match outcome {
-        Ok(Ok(response)) => Ok(meta(response)),
-        Ok(Err(error)) => Err(classify(&error)),
-        Err(_) => Err(Uncertain),
+        Some(Ok(response)) => Ok(meta(response)),
+        Some(Err(error)) => Err(classify(&error)),
+        None => Err(Uncertain),
     }
 }
 

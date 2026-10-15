@@ -1,55 +1,61 @@
-//! The daemon side of a passed terminal: hidden line input that the human
+//! The daemon side of a checked terminal: hidden line input that the human
 //! or a client disconnect can cancel, value display escaped against terminal
-//! control injection, and OSC 52. Only a checked terminal becomes a `Console`.
+//! control injection, and OSC 52. The console reads and writes the daemon's
+//! own open of the terminal, and every wait shares the request's one
+//! deadline. Putting the terminal back uses the separate cleanup budget, so
+//! it still runs after the client leaves.
 
-use super::approve::APPROVAL_TIMEOUT;
-pub(crate) use super::fdio::Interrupt;
-use super::fdio::Passed;
+use super::fdio::OwnedTty;
+pub(crate) use super::request::Interrupt;
+use super::request::RequestControl;
 use base64::Engine;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
-use std::os::unix::net::UnixStream;
-use std::time::{Duration, Instant};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Largest value written to the terminal clipboard.
 pub(crate) const MAX_OSC52_VALUE: usize = 128 * 1024;
 
 pub(crate) struct Console<'a> {
-    tty: Passed,
-    socket: &'a UnixStream,
-    timeout: Duration,
+    tty: OwnedTty,
+    control: &'a RequestControl<'a>,
 }
 
-/// Restores the saved terminal mode on every exit path.
-/// It holds the raw descriptor because the console stays open for its whole life.
+/// The terminal mode saved before hidden input. `restore` reports failure.
+/// Drop restores only on a path that skipped `restore`, such as a panic.
 struct ModeGuard {
     fd: RawFd,
     saved: libc::termios,
+    restored: bool,
+}
+
+impl ModeGuard {
+    fn restore(mut self) -> io::Result<()> {
+        self.restored = true;
+        // SAFETY: restores a termios read from this same, still open descriptor.
+        if unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
 }
 
 impl Drop for ModeGuard {
     fn drop(&mut self) {
-        // SAFETY: restores a termios read from this same, still open descriptor.
-        unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved) };
+        if !self.restored {
+            // SAFETY: restores a termios read from this same, still open descriptor.
+            unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved) };
+        }
     }
 }
 
 impl<'a> Console<'a> {
-    /// Wrap a descriptor that already passed `check_terminal`. Activity on
-    /// `socket` cancels any wait.
-    pub(crate) fn new(fd: OwnedFd, socket: &'a UnixStream) -> io::Result<Self> {
-        Ok(Self {
-            tty: Passed::new(fd)?,
-            socket,
-            timeout: APPROVAL_TIMEOUT,
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
+    /// Wrap the daemon's own non-blocking open of a checked terminal.
+    pub(crate) fn new(fd: OwnedFd, control: &'a RequestControl<'a>) -> Self {
+        Self {
+            tty: OwnedTty::new(fd),
+            control,
+        }
     }
 
     pub(crate) fn fd(&self) -> BorrowedFd<'_> {
@@ -58,36 +64,54 @@ impl<'a> Console<'a> {
 
     /// Write daemon text. Names from the vault are escaped first.
     pub(crate) fn say(&mut self, text: &str) -> Result<(), Interrupt> {
-        let deadline = Instant::now() + self.timeout;
-        self.tty.write_all(text.as_bytes(), self.socket, deadline)
+        self.tty.write_all(text.as_bytes(), self.control)
+    }
+
+    /// Fixed text that puts the terminal back. It runs inside the cleanup
+    /// budget even after the request stopped.
+    fn cleanup(&mut self, text: &str) -> Result<(), Interrupt> {
+        let until = self.control.cleanup_deadline();
+        self.tty.write_cleanup(text.as_bytes(), until)
     }
 
     /// Read one line with echo, line editing, and signals off. Bytes are kept
     /// in a zeroizing buffer that never grows past `limit`, so it never copies.
+    /// A mode that could not be restored fails the read, so nothing it gated
+    /// can run.
     pub(crate) fn read_hidden(
         &mut self,
         prompt: &str,
         limit: usize,
     ) -> Result<Zeroizing<Vec<u8>>, Interrupt> {
-        let _mode = self.hidden_mode().map_err(|_| Interrupt::Io)?;
+        let mode = self.hidden_mode().map_err(|_| Interrupt::Io)?;
+        let mut line = Zeroizing::new(Vec::with_capacity(limit));
+        let result = self.prompt_and_collect(prompt, &mut line, limit);
+        let ended = self.cleanup("\r\n");
+        let restored = mode.restore().map_err(|_| Interrupt::Io);
+        result?;
+        restored?;
+        ended?;
+        Ok(line)
+    }
+
+    fn prompt_and_collect(
+        &mut self,
+        prompt: &str,
+        line: &mut Vec<u8>,
+        limit: usize,
+    ) -> Result<(), Interrupt> {
         // SAFETY: discards typeahead queued before the prompt appeared.
         if unsafe { libc::tcflush(self.tty.as_fd().as_raw_fd(), libc::TCIFLUSH) } != 0 {
             return Err(Interrupt::Io);
         }
         self.say(prompt)?;
-        let mut line = Zeroizing::new(Vec::with_capacity(limit));
-        let result = self.collect(&mut line, limit);
-        let ended = self.say("\r\n");
-        result?;
-        ended?;
-        Ok(line)
+        self.collect(line, limit)
     }
 
     fn collect(&mut self, line: &mut Vec<u8>, limit: usize) -> Result<(), Interrupt> {
-        let deadline = Instant::now() + self.timeout;
         let mut chunk = Zeroizing::new([0u8; 256]);
         loop {
-            let read = self.tty.read(&mut chunk[..], self.socket, deadline)?;
+            let read = self.tty.read(&mut chunk[..], self.control)?;
             if read == 0 {
                 return Err(Interrupt::Cancelled);
             }
@@ -128,11 +152,16 @@ impl<'a> Console<'a> {
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &hidden) } != 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(ModeGuard { fd, saved })
+        Ok(ModeGuard {
+            fd,
+            saved,
+            restored: false,
+        })
     }
 
     /// Show a value on its own screen, wait for Enter, then clear it, so the
-    /// value never stays in scrollback. The clear runs on every path.
+    /// value never stays in scrollback. The clear runs on every path, inside
+    /// the cleanup budget. A clear that fails is reported, never assumed.
     pub(crate) fn show_value(&mut self, title: &str, value: &[u8]) -> Result<(), Interrupt> {
         // Reserved up front so the buffer never reallocates and leaves a copy behind.
         let room = 64 + MAX_ESCAPE_GROWTH * (title.len() + value.len());
@@ -148,11 +177,13 @@ impl<'a> Console<'a> {
                     Ok(_) | Err(Interrupt::TooLong) | Err(Interrupt::Cancelled) => Ok(()),
                     Err(interrupt) => Err(interrupt),
                 });
-        let cleared = self.say("\x1b[2J\x1b[?1049l");
+        let cleared = self.cleanup("\x1b[2J\x1b[?1049l");
         shown.and(cleared)
     }
 
     /// Send a bounded OSC 52 clipboard write. The terminal cannot confirm it.
+    /// A write cut short is cancelled with CAN, so a truncated value is
+    /// never completed into the clipboard.
     pub(crate) fn osc52(&mut self, value: &[u8]) -> Result<(), Interrupt> {
         if value.len() > MAX_OSC52_VALUE {
             return Err(Interrupt::TooLong);
@@ -161,7 +192,11 @@ impl<'a> Console<'a> {
         sequence.push_str("\x1b]52;c;");
         base64::engine::general_purpose::STANDARD.encode_string(value, &mut sequence);
         sequence.push('\x07');
-        self.say(&sequence)
+        if let Err(stop) = self.say(&sequence) {
+            self.cleanup("\x18")?;
+            return Err(stop);
+        }
+        Ok(())
     }
 }
 

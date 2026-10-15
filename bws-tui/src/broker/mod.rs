@@ -5,6 +5,9 @@
 pub(crate) mod approve;
 pub(crate) mod audit;
 pub(crate) mod backend;
+mod bws_child;
+mod bws_spawn;
+mod children;
 pub(crate) mod client;
 pub(crate) mod client_human;
 pub(crate) mod client_run;
@@ -14,9 +17,11 @@ pub(crate) mod daemon;
 mod fake_backend;
 mod fdio;
 mod fdpass;
+mod fields;
 pub(crate) mod hardening;
 pub(crate) mod human;
 pub(crate) mod identity;
+mod input_pump;
 pub(crate) mod mask;
 pub(crate) mod material;
 pub(crate) mod meta;
@@ -30,6 +35,7 @@ pub(crate) mod paths;
 pub(crate) mod peercred;
 pub(crate) mod policy;
 mod protocol;
+mod request;
 pub(crate) mod run_io;
 pub(crate) mod run_loop;
 mod run_output;
@@ -62,6 +68,8 @@ mod bws_child_tests;
 mod cancel_harness;
 #[cfg(test)]
 mod cancel_tests;
+#[cfg(test)]
+mod children_tests;
 #[cfg(test)]
 mod console_tests;
 #[cfg(test)]

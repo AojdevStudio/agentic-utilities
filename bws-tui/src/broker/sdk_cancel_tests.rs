@@ -11,8 +11,9 @@ use super::material::SecretMaterial;
 use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
 use super::operation::{Operation, Refusal, ValueSource};
 use super::protocol::ResponseFrame;
+use super::request::{RequestControl, WriteAttempt};
 use super::sdk::SdkWriter;
-use super::sdk_tests::{secret_body, Cloud, ORG, PROJECT};
+use super::sdk_tests::{detached, secret_body, Cloud, ORG, PROJECT};
 use super::FakeBackend;
 use std::collections::HashMap;
 use std::io::Write;
@@ -29,36 +30,42 @@ struct SdkVault {
 }
 
 impl VaultBackend for SdkVault {
-    fn catalog(&self) -> anyhow::Result<Vec<SecretMeta>> {
-        self.reads.catalog()
+    fn catalog(&self, control: &RequestControl<'_>) -> anyhow::Result<Vec<SecretMeta>> {
+        self.reads.catalog(control)
     }
 
-    fn fetch(&self, secret: &SecretRef) -> anyhow::Result<SecretMaterial> {
-        self.reads.fetch(secret)
+    fn fetch(
+        &self,
+        secret: &SecretRef,
+        control: &RequestControl<'_>,
+    ) -> anyhow::Result<SecretMaterial> {
+        self.reads.fetch(secret, control)
     }
 
-    fn projects(&self) -> anyhow::Result<Vec<ProjectMeta>> {
-        self.reads.projects()
+    fn projects(&self, control: &RequestControl<'_>) -> anyhow::Result<Vec<ProjectMeta>> {
+        self.reads.projects(control)
     }
 
     fn create(
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.writer.create(secret, value)
+        self.writer.create(secret, value, attempt)
     }
 
     fn update(
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.writer.update(secret, value)
+        self.writer.update(secret, value, attempt)
     }
 
-    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
-        self.reads.delete(id)
+    fn delete(&self, id: &str, attempt: &mut WriteAttempt<'_>) -> Result<(), WriteFailure> {
+        self.reads.delete(id, attempt)
     }
 }
 
@@ -164,7 +171,7 @@ fn fields_the_sdk_would_refuse_never_reach_a_login() {
         (new("FRESH".into(), ""), SecretMaterial::new(Vec::new())),
     ];
     for (secret, value) in cases {
-        let refused = writer.create(&secret, &value);
+        let refused = writer.create(&secret, &value, &mut detached());
         assert_eq!(
             refused.unwrap_err(),
             WriteFailure::Rejected,
@@ -180,7 +187,7 @@ fn fields_the_sdk_would_refuse_never_reach_a_login() {
     };
     let kept = SecretMaterial::new("v".repeat(25_001).into_bytes());
     assert_eq!(
-        writer.update(&update, &kept).unwrap_err(),
+        writer.update(&update, &kept, &mut detached()).unwrap_err(),
         WriteFailure::Rejected
     );
     assert_eq!(cloud.logins(), 0, "an invalid write logged in");

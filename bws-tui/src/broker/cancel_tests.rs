@@ -164,6 +164,28 @@ fn a_client_that_leaves_during_a_bws_read_is_not_kept_waiting() {
     assert!(left.elapsed() < BOUND, "waited {:?}", left.elapsed());
 }
 
+/// A provider read never gets a fresh limit once the request's own deadline
+/// is near. The request ends at its deadline, not the read's.
+#[test]
+fn a_request_deadline_bounds_a_provider_read() {
+    let dir = tempdir("deadline-bws-read");
+    let script = dir.join("bws");
+    std::fs::write(&script, "#!/bin/sh\nsleep 5\nprintf '[]'\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let backend = Arc::new(BwsBackend::new(script, secrecy::SecretString::from("t")));
+    let mut config = HumanConfig::new(FakeAuth::panicking());
+    config.timeout = Duration::from_millis(400);
+    let input = ready(b"FAKE-deadline-0017");
+    let started = Instant::now();
+    let pending = Pending::new(add("FRESH"), &[input.as_fd()]).serve(backend, Arc::new(config));
+    assert_cancelled(pending.reply_within(BOUND));
+    assert!(
+        started.elapsed() < Duration::from_millis(1500),
+        "took {:?}",
+        started.elapsed()
+    );
+}
+
 /// Keys and notes the provider would refuse are refused before the daemon
 /// binds descriptors, looks anything up, or asks for anything.
 #[test]

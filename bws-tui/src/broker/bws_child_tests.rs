@@ -30,6 +30,11 @@ fn a_timed_out_bws_call_leaves_no_reader_on_its_output() {
     let timeout = Duration::from_millis(300);
     let failed = backend.run_bws_with_deadline(&["secret", "list"], 1024, timeout);
     assert!(failed.is_err(), "the call should time out");
+    assert_eq!(
+        backend.busy_children(),
+        0,
+        "the killed bws child was not reaped"
+    );
     std::thread::sleep(Duration::from_millis(1800));
     assert!(!marker.exists(), "a reader still held the bws output pipe");
 }

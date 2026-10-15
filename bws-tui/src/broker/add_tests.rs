@@ -101,7 +101,7 @@ fn concurrent_adds_of_one_key_create_one_secret() {
         "{replies:?}"
     );
     let race = vault
-        .catalog()
+        .catalog(&super::request::RequestControl::detached())
         .unwrap()
         .into_iter()
         .filter(|meta| meta.key == "RACE")

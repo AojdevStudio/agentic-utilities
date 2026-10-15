@@ -1,16 +1,18 @@
 //! Vault access. The `bws` wire structs stay private to this module.
 
+use super::bws_child::{run, BwsCall, BwsError};
+use super::children::Children;
+use super::daemon::MAX_CONNECTIONS;
 use super::material::SecretMaterial;
 use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
+use super::request::{RequestControl, WriteAttempt};
 use super::sdk::SdkWriter;
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Result};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
-use zeroize::{Zeroize, Zeroizing};
+use std::time::Duration;
+use zeroize::Zeroizing;
 
 /// Hard cap on bws stdout. `bws secret list` returns every value at once.
 pub(crate) const MAX_BWS_OUTPUT: usize = 16 * 1024 * 1024;
@@ -20,22 +22,29 @@ pub(crate) const BWS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The daemon's only path to stored values. `catalog` never returns values.
 /// Writes take values as [`SecretMaterial`] and never put them in argv.
+/// Every wait ends at the earlier of its own limit and the caller's request
+/// deadline, and stops when a human request's client leaves. A detached
+/// control keeps each call's own limit.
 pub(crate) trait VaultBackend: Send + Sync {
-    fn catalog(&self) -> Result<Vec<SecretMeta>>;
-    fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial>;
-    fn projects(&self) -> Result<Vec<ProjectMeta>>;
+    fn catalog(&self, control: &RequestControl<'_>) -> Result<Vec<SecretMeta>>;
+    fn fetch(&self, secret: &SecretRef, control: &RequestControl<'_>) -> Result<SecretMaterial>;
+    fn projects(&self, control: &RequestControl<'_>) -> Result<Vec<ProjectMeta>>;
+    /// Calls [`WriteAttempt::begin_remote`] immediately before the first step
+    /// that can reach the provider.
     fn create(
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure>;
     fn update(
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure>;
     /// A failure after the request may have reached the vault is `Uncertain`.
-    fn delete(&self, id: &str) -> Result<(), WriteFailure>;
+    fn delete(&self, id: &str, attempt: &mut WriteAttempt<'_>) -> Result<(), WriteFailure>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,13 +98,14 @@ fn drop_value(secret: BwsSecret, projects: &[BwsProject]) -> SecretMeta {
     }
 }
 
-/// Real backend. Reads and id-only deletes shell out to `bws` by absolute path
-/// with a cleared environment. `bws` takes write values in argv, so value
-/// writes go through the Bitwarden SDK instead.
+/// Real backend. Reads and id-only deletes run `bws` by absolute path with a
+/// cleared environment. `bws` takes write values in argv, so value writes go
+/// through the Bitwarden SDK instead.
 pub(crate) struct BwsBackend {
     bws_path: PathBuf,
     token: SecretString,
     writer: SdkWriter,
+    children: Children,
 }
 
 impl BwsBackend {
@@ -105,170 +115,79 @@ impl BwsBackend {
             bws_path,
             token,
             writer,
+            children: Children::new(MAX_CONNECTIONS),
         }
     }
 
-    fn run_bws(&self, args: &[&str]) -> Result<Zeroizing<String>> {
-        self.run_bws_with_deadline(args, MAX_BWS_OUTPUT, BWS_TIMEOUT)
+    fn call<'a>(&'a self, args: &'a [&'a str]) -> BwsCall<'a> {
+        BwsCall {
+            path: &self.bws_path,
+            token: &self.token,
+            args,
+        }
     }
 
-    /// Run bws with a byte cap on stdout and a hard deadline. Stderr is discarded.
-    /// The output holds secret values, so the returned string zeroizes on drop.
+    fn run_bws(&self, args: &[&str], control: &RequestControl<'_>) -> Result<Zeroizing<String>> {
+        Ok(run(
+            &self.call(args),
+            MAX_BWS_OUTPUT,
+            BWS_TIMEOUT,
+            control,
+            &self.children,
+        )?)
+    }
+
+    /// Run bws with a byte cap on stdout and a hard deadline, outside any
+    /// request. Stderr is discarded.
+    #[cfg(test)]
     pub(crate) fn run_bws_with_deadline(
         &self,
         args: &[&str],
         cap: usize,
         timeout: Duration,
     ) -> Result<Zeroizing<String>> {
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .context("failed to run bws")?;
-        let child = self.spawn_bws(args)?;
-        Self::finish_bws(child, args, cap, deadline)
+        let control = RequestControl::detached();
+        Ok(run(
+            &self.call(args),
+            cap,
+            timeout,
+            &control,
+            &self.children,
+        )?)
     }
 
-    fn spawn_bws(&self, args: &[&str]) -> Result<Child> {
-        Command::new(&self.bws_path)
-            .env_clear()
-            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
-            .env("BWS_ACCESS_TOKEN", self.token.expose_secret())
-            .args(args)
-            .args(["-o", "json"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("failed to run bws")
-    }
-
-    fn finish_bws(
-        child: Child,
-        args: &[&str],
-        cap: usize,
-        deadline: Instant,
-    ) -> Result<Zeroizing<String>> {
-        let mut guard = ChildGuard::new(child);
-        let stdout = guard.take_stdout().context("failed to run bws")?;
-        let (mut bytes, overflow) = read_capped_until(stdout, cap, deadline)?;
-        if overflow {
-            return Err(anyhow!("bws output exceeded the size limit"));
-        }
-        let status = guard.wait_until(deadline)?;
-        if !status.success() {
-            let name = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
-            return Err(anyhow!("bws {name} failed ({status})"));
-        }
-        let text = match String::from_utf8(std::mem::take(&mut bytes)) {
-            Ok(text) => text,
-            Err(error) => {
-                let mut raw = error.into_bytes();
-                raw.zeroize();
-                bail!("bws produced invalid UTF-8");
-            }
-        };
-        Ok(Zeroizing::new(text))
-    }
-}
-
-/// Read at most `cap` bytes. The flag is true when more data remains.
-fn read_capped(reader: &mut impl Read, cap: usize) -> Result<(Vec<u8>, bool)> {
-    let mut out = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        let read = reader.read(&mut chunk)?;
-        if read == 0 {
-            return Ok((out, false));
-        }
-        if out.len() + read > cap {
-            let keep = cap.saturating_sub(out.len());
-            out.extend_from_slice(&chunk[..keep]);
-            return Ok((out, true));
-        }
-        out.extend_from_slice(&chunk[..read]);
-    }
-}
-
-/// Read at most `cap` bytes before the deadline. Stdout waits on a helper thread.
-fn read_capped_until(
-    mut stdout: std::process::ChildStdout,
-    cap: usize,
-    deadline: Instant,
-) -> Result<(Vec<u8>, bool)> {
-    let (sender, receiver) = std::sync::mpsc::channel();
-    let _reader = std::thread::spawn(move || {
-        let _ = sender.send(read_capped(&mut stdout, cap));
-    });
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    match receiver.recv_timeout(remaining) {
-        Ok(result) => result.context("failed to run bws"),
-        Err(_) => Err(anyhow!("bws timed out")),
-    }
-}
-
-/// Kills and reaps the child on drop unless it already exited through `wait_until`.
-struct ChildGuard {
-    child: Option<Child>,
-}
-
-impl ChildGuard {
-    fn new(child: Child) -> Self {
-        Self { child: Some(child) }
-    }
-
-    fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
-        self.child.as_mut()?.stdout.take()
-    }
-
-    fn wait_until(&mut self, deadline: Instant) -> Result<std::process::ExitStatus> {
-        loop {
-            let child = match self.child.as_mut() {
-                Some(child) => child,
-                None => return Err(anyhow!("failed to run bws")),
-            };
-            if let Some(status) = child.try_wait().context("failed to run bws")? {
-                self.child = None;
-                return Ok(status);
-            }
-            if Instant::now() >= deadline {
-                return Err(anyhow!("bws timed out"));
-            }
-            std::thread::sleep(
-                Duration::from_millis(20).min(deadline.saturating_duration_since(Instant::now())),
-            );
-        }
-    }
-}
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+    /// Child slots not yet released by a reap.
+    #[cfg(test)]
+    pub(crate) fn busy_children(&self) -> usize {
+        self.children.busy()
     }
 }
 
 impl VaultBackend for BwsBackend {
-    fn catalog(&self) -> Result<Vec<SecretMeta>> {
-        let projects: Vec<BwsProject> = serde_json::from_str(&self.run_bws(&["project", "list"])?)?;
-        let secrets: Vec<BwsSecret> = serde_json::from_str(&self.run_bws(&["secret", "list"])?)?;
+    fn catalog(&self, control: &RequestControl<'_>) -> Result<Vec<SecretMeta>> {
+        let projects: Vec<BwsProject> =
+            serde_json::from_str(&self.run_bws(&["project", "list"], control)?)?;
+        let secrets: Vec<BwsSecret> =
+            serde_json::from_str(&self.run_bws(&["secret", "list"], control)?)?;
         Ok(secrets
             .into_iter()
             .map(|secret| drop_value(secret, &projects))
             .collect())
     }
 
-    fn fetch(&self, secret: &SecretRef) -> Result<SecretMaterial> {
+    fn fetch(&self, secret: &SecretRef, control: &RequestControl<'_>) -> Result<SecretMaterial> {
         let SecretRef::Id(id) = secret else {
             bail!("backends fetch only resolved secret ids");
         };
-        let wire: BwsSecret = serde_json::from_str(&self.run_bws(&["secret", "get", id])?)?;
+        let wire: BwsSecret =
+            serde_json::from_str(&self.run_bws(&["secret", "get", id], control)?)?;
         let bytes = wire.value.expose_secret().as_bytes().to_vec();
         Ok(SecretMaterial::new(bytes))
     }
 
-    fn projects(&self) -> Result<Vec<ProjectMeta>> {
-        let projects: Vec<BwsProject> = serde_json::from_str(&self.run_bws(&["project", "list"])?)?;
+    fn projects(&self, control: &RequestControl<'_>) -> Result<Vec<ProjectMeta>> {
+        let projects: Vec<BwsProject> =
+            serde_json::from_str(&self.run_bws(&["project", "list"], control)?)?;
         Ok(projects.into_iter().map(ProjectMeta::from).collect())
     }
 
@@ -276,24 +195,34 @@ impl VaultBackend for BwsBackend {
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.writer.create(secret, value)
+        self.writer.create(secret, value, attempt)
     }
 
     fn update(
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.writer.update(secret, value)
+        self.writer.update(secret, value, attempt)
     }
 
-    /// Only a delete that never started is `Rejected`.
-    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
+    /// Only a delete proven never to have started is `Rejected`.
+    fn delete(&self, id: &str, attempt: &mut WriteAttempt<'_>) -> Result<(), WriteFailure> {
         let args = ["secret", "delete", id];
-        let child = self.spawn_bws(&args).map_err(|_| WriteFailure::Rejected)?;
-        let deadline = Instant::now() + BWS_TIMEOUT;
-        let finished = Self::finish_bws(child, &args, MAX_BWS_OUTPUT, deadline);
-        finished.map(drop).map_err(|_| WriteFailure::Uncertain)
+        attempt.begin_remote()?;
+        match run(
+            &self.call(&args),
+            MAX_BWS_OUTPUT,
+            BWS_TIMEOUT,
+            attempt.control(),
+            &self.children,
+        ) {
+            Ok(_) => Ok(()),
+            Err(BwsError::NotStarted(_)) => Err(WriteFailure::Rejected),
+            Err(BwsError::Failed(_)) => Err(WriteFailure::Uncertain),
+        }
     }
 }

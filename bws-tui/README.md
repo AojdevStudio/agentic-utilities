@@ -115,7 +115,7 @@ Project names and UUIDs both work. Without `--project`, reveal, edit, and delete
 
 ### Multiline values
 
-`add` hands piped stdin to the daemon, which keeps the bytes exactly, including a trailing newline. With a terminal on stdin, the daemon prompts for a one-line value instead.
+`add` hands piped stdin to the daemon, which keeps the bytes exactly, including a trailing newline. With a terminal on stdin, the daemon prompts for a one-line value instead. If you press Ctrl-C or the client stops, the daemon stops too and starts no write. A write that may already have reached Bitwarden is reported as uncertain, so check `hush list` before trying again.
 
 ```bash
 hush add --project "API Keys" --key TLS_PRIVATE_KEY < key.pem
@@ -172,7 +172,7 @@ The client sends names and passes its terminal or stdin to the daemon as open fi
 - **Fresh approval:** every reveal, copy, edit, and delete asks for the password again. Nothing is cached.
 - **No values in lists, frames, or logs:** search rows hold key and project only. Errors name the operation, never a value.
 - **No values in argv:** `bws` takes write values as arguments, which other local users can read, so the daemon creates secrets and replaces values through the Bitwarden SDK instead.
-- **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment, and `hush` cannot see or undo that. Bitwarden trims keys, so a key with leading or trailing whitespace is refused instead of being saved under another name.
+- **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment, and `hush` cannot see or undo that. Bitwarden trims keys, so a key with leading or trailing whitespace is refused instead of being saved under another name. A key over 500 characters, a note over 7000 characters or made only of whitespace, and a value over 25000 characters or 64 KiB are refused before any lookup or write.
 - **Honest failures:** when a write's outcome is unknown, `hush` says so and does not retry. That includes a delete that may have reached the vault before it failed. Check `hush list` first.
 
 The daemon obtains metadata by listing the vault through bws. That listing carries values, which the daemon discards after parsing. The existing 16 MiB output cap can refuse a large vault. Changing that backend contract remains separate in [#80](https://github.com/AojdevStudio/agentic-utilities/issues/80).

@@ -9,6 +9,7 @@ use super::client_run::to_wire;
 use super::material::SecretMaterial;
 use super::meta::{NewSecret, ProjectMeta, SecretMeta, SecretRef, SecretUpdate, WriteFailure};
 use super::peercred::PeerCredentials;
+use super::request::{RequestControl, WriteAttempt};
 use super::run_harness::*;
 use super::run_prepare::{prepare_run, RunConfig};
 use super::runspec::{Delivery, EnvName, RunOutcome, RunSpec};
@@ -23,32 +24,38 @@ struct Counting {
 }
 
 impl VaultBackend for Counting {
-    fn catalog(&self) -> anyhow::Result<Vec<SecretMeta>> {
-        self.inner.catalog()
+    fn catalog(&self, control: &RequestControl<'_>) -> anyhow::Result<Vec<SecretMeta>> {
+        self.inner.catalog(control)
     }
-    fn fetch(&self, secret: &SecretRef) -> anyhow::Result<SecretMaterial> {
+    fn fetch(
+        &self,
+        secret: &SecretRef,
+        control: &RequestControl<'_>,
+    ) -> anyhow::Result<SecretMaterial> {
         self.fetches.fetch_add(1, Ordering::SeqCst);
-        self.inner.fetch(secret)
+        self.inner.fetch(secret, control)
     }
-    fn projects(&self) -> anyhow::Result<Vec<ProjectMeta>> {
-        self.inner.projects()
+    fn projects(&self, control: &RequestControl<'_>) -> anyhow::Result<Vec<ProjectMeta>> {
+        self.inner.projects(control)
     }
     fn create(
         &self,
         secret: &NewSecret,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.inner.create(secret, value)
+        self.inner.create(secret, value, attempt)
     }
     fn update(
         &self,
         secret: &SecretUpdate,
         value: &SecretMaterial,
+        attempt: &mut WriteAttempt<'_>,
     ) -> Result<SecretMeta, WriteFailure> {
-        self.inner.update(secret, value)
+        self.inner.update(secret, value, attempt)
     }
-    fn delete(&self, id: &str) -> Result<(), WriteFailure> {
-        self.inner.delete(id)
+    fn delete(&self, id: &str, attempt: &mut WriteAttempt<'_>) -> Result<(), WriteFailure> {
+        self.inner.delete(id, attempt)
     }
 }
 

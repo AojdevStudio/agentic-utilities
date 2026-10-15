@@ -272,9 +272,12 @@ fn peer_credentials_are_read_from_kernel() {
 #[test]
 fn fake_backend_fetch_returns_value_only_via_secret_material() {
     let backend = fake_backend();
-    let material = backend.fetch(&meta::SecretRef::Id("s1".into())).unwrap();
+    let control = super::request::RequestControl::detached();
+    let material = backend
+        .fetch(&meta::SecretRef::Id("s1".into()), &control)
+        .unwrap();
     assert_eq!(material.expose_bytes(), FAKE_VALUE.as_bytes());
     assert!(backend
-        .fetch(&meta::SecretRef::Id("missing".into()))
+        .fetch(&meta::SecretRef::Id("missing".into()), &control)
         .is_err());
 }

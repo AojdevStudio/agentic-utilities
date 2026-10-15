@@ -9,6 +9,7 @@ use super::meta::{SecretMeta, SecretRef};
 use super::peercred::PeerCredentials;
 use super::policy::Policy;
 use super::protocol::{WireBinding, WireRunSpec};
+use super::request::RequestControl;
 use super::run_program::program_candidates;
 use super::runspec::{child_var, is_forbidden_env, is_passthrough_allowed, Delivery};
 use super::spawn::{ChildPlan, FIRST_DELIVERY_FD, MAX_DELIVERY_FDS};
@@ -50,7 +51,8 @@ pub(crate) fn prepare_run(
     config: &RunConfig,
 ) -> Result<PreparedRun> {
     check_bindings(&spec.bindings)?;
-    let catalog = backend.catalog()?;
+    let control = RequestControl::detached();
+    let catalog = backend.catalog(&control)?;
     let resolved: Vec<Result<&SecretMeta>> = spec
         .bindings
         .iter()
@@ -97,7 +99,7 @@ pub(crate) fn prepare_run(
     let mut mask_values = Vec::with_capacity(spec.bindings.len());
     let mut short_keys: Vec<String> = Vec::new();
     for (binding, meta) in spec.bindings.iter().zip(ids) {
-        let material = backend.fetch(&SecretRef::Id(meta.id.clone()))?;
+        let material = backend.fetch(&SecretRef::Id(meta.id.clone()), &control)?;
         let value = Zeroizing::new(material.expose_bytes().to_vec());
         drop(material);
         if value.len() < MIN_MASKED_LEN && !short_keys.contains(&binding.key) {

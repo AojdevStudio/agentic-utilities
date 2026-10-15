@@ -35,7 +35,7 @@ impl AuditLog for NoAudit {
 /// One human request already on the wire. The client end stays here.
 pub(super) struct Pending {
     client: Option<UnixStream>,
-    daemon: Option<UnixStream>,
+    daemon: Option<(UnixStream, PeerCredentials)>,
     reply: Option<Receiver<ResponseFrame>>,
 }
 
@@ -45,9 +45,11 @@ impl Pending {
         let (client, daemon) = UnixStream::pair().unwrap();
         let frame = Frame::Request(RequestFrame::Human { op });
         write_frame_with_rights(&client, &frame, fds).unwrap();
+        // Read at accept time, as the daemon does. macOS refuses once the peer left.
+        let peer = read_peer_credentials(&daemon).unwrap();
         Self {
             client: Some(client),
-            daemon: Some(daemon),
+            daemon: Some((daemon, peer)),
             reply: None,
         }
     }
@@ -58,7 +60,7 @@ impl Pending {
         backend: Arc<dyn VaultBackend>,
         config: Arc<HumanConfig>,
     ) -> Self {
-        let daemon = self.daemon.take().expect("served once");
+        let (daemon, peer) = self.daemon.take().expect("served once");
         let (sender, reply) = channel();
         std::thread::spawn(move || {
             let received = read_frame_with_rights(&daemon).unwrap();
@@ -69,7 +71,7 @@ impl Pending {
                 op,
                 fds: received.fds,
                 violation: received.violation,
-                peer: read_peer_credentials(&daemon).unwrap(),
+                peer,
                 socket: &daemon,
             };
             let _ = sender.send(serve_human(request, &*backend, &NoAudit, &config));

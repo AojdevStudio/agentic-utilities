@@ -165,7 +165,8 @@ impl Supervisor {
             self.last_tick = now;
             if let Some((outcome, exited_at)) = self.exited {
                 if self.open == [false, false] {
-                    if !self.exit_queued && !self.out.release_waiting() {
+                    if !self.exit_queued && self.controls.is_empty() && !self.out.release_waiting()
+                    {
                         self.exit_queued = self.out.offer(&ResponseFrame::RunExit { outcome })?;
                     }
                 } else if !self.group_killed && now - exited_at >= DRAIN_AFTER_EXIT {

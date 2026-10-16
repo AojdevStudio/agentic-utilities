@@ -28,7 +28,7 @@ For administrators. `hush install` sets up the root broker daemon on one Linux m
 
 The token is the Bitwarden machine account token.
 
-- **Input.** `hush install` reads it from a hidden terminal prompt, a pipe, or an owner-only file redirected to stdin. It never takes the token from arguments or the environment. The limit is 64 KiB. Empty input, a NUL byte, and invalid UTF-8 are refused.
+- **Input.** `hush install` reads it from a hidden terminal prompt, a pipe such as `bws ... | sudo hush install`, or a named pipe or file redirected to stdin. A named pipe or file must belong to the installing user, with no group or other permission bits and no ACL grant. Input whose privacy cannot be proven is refused before it is read. It never takes the token from arguments or the environment. The limit is 64 KiB. Empty input, a NUL byte, and invalid UTF-8 are refused.
 - **When.** Input is read only after every check passes and before the first write. A rerun that finds a checked credential reads nothing.
 - **Linux, systemd 250 or newer.** The token is encrypted with the systemd host key into `/etc/hush/token.cred`, root-owned 0600, and the unit loads it with `LoadCredentialEncrypted=`. If `/var/lib/systemd/credential.secret` is absent, `hush install` creates it with `systemd-creds setup` as its own step, and only on persistent storage. It never replaces an existing key. If encryption fails, install stops. It never falls back to plaintext. Host-key encryption does not protect a full disk copy that includes the key file.
 - **Linux, systemd 247 to 249.** The token is stored in `/etc/hush/token`, root-owned 0600, and the unit loads it with `LoadCredential=`. Older systemd is refused.
@@ -46,15 +46,15 @@ The token is the Bitwarden machine account token.
 | Password approval | `/etc/pam.d/hush`, 0644, including the distro stack. A protected existing service in `/etc/pam.d` or `/usr/lib/pam.d` is kept as the operator's | OpenDirectory, no file |
 | Service | `/etc/systemd/system/hush.service`, 0644, then reload, enable, and start | `/Library/LaunchDaemons/hush.plist`, 0600, label `hush`, then enable if disabled and bootstrap, or start a loaded job that is not running |
 
-The daemon creates its socket directory and its audit log. `hush install` creates neither, and it writes no policy file. An existing `/etc/hush/hushd.toml` must be root-owned, not group or world writable, and valid.
+The daemon creates its socket directory and its audit log. `hush install` creates neither, and it writes no policy file. An existing `/etc/hush/hushd.toml` must be root-owned, not group or world writable, and valid. Every directory above it must be root-owned and not group or world writable, and neither the file nor those directories may have an ACL grant.
 
 The macOS broker is a root LaunchDaemon. [ADR 0002](../../docs/adr/0002-hush-broker.md) records why it is an exception to the usual managed path for Mac background jobs.
 
 ## Refusals and resume
 
 - **Before any change.** `hush install` lists every problem it can see before it reads input or writes anything. Facts it cannot read, or native queries that fail, also refuse. Nothing changes.
-- **Never repairs.** It never changes the mode or owner of, overwrites, adopts, or deletes an artifact it did not write exactly. A foreign or edited service definition, drop-ins, a mask, other unit names, a listener that is not the managed daemon, a partial or unexpected `hushrun` record, and an unknown PAM layout are refused.
-- **During install.** Each step checks its own fact again right before it acts. Install stops at the first failure or changed fact. Completed steps stay. Nothing is rolled back. Fix the cause and run `hush install` again. It does only the missing steps.
+- **Never repairs.** It never changes the mode or owner of, overwrites, adopts, or deletes an artifact it did not write exactly. A foreign or edited service definition, a loaded systemd command or run identity that differs from the rendered unit, drop-ins, a mask, other unit names, a listener that is not the managed daemon, a partial or unexpected `hushrun` record, and an unknown PAM layout are refused.
+- **During install.** Each step checks its own fact again right before it acts. Before each service manager command, every file install writes, the binaries, and the policy are checked again. Install stops at the first failure or changed fact. Completed steps stay. Nothing is rolled back. Fix the cause and run `hush install` again. It does only the missing steps.
 - **Already installed.** A complete, running, reachable install is a no-op. It reads no input and runs no service manager command.
 - **After a crash.** A private staging file named `.hush-stage.*` is never reused. If a staging name is the second link of a complete final file, the next run removes that staging name.
 

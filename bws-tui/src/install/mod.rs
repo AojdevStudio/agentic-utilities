@@ -12,6 +12,7 @@ mod layout;
 mod linux;
 mod macos;
 mod native_host;
+mod native_io;
 mod observe;
 mod plan;
 mod prereq;

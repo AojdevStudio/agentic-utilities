@@ -7,15 +7,15 @@ use super::custody::{Dir, Owner};
 use super::facts::Fact;
 use super::host::{Action, Answer, Host, Query};
 use super::layout::{rel, CREDENTIAL_NAME, LAUNCHD_LABEL, UNIT_NAME};
+use super::native_io::{drive, Budget, BUDGET};
 use super::sys::create_exclusive;
 use crate::broker::identity::{AccountDb, SystemAccounts, HUSHRUN_ACCOUNT};
 use anyhow::{bail, Context, Result};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
 
 const SYSTEMCTL: &str = "/usr/bin/systemctl";
 const BUSCTL: &str = "/usr/bin/busctl";
@@ -30,8 +30,6 @@ const SHOW_FIELDS: &str = "LoadState,ActiveState,UnitFileState,FragmentPath,Drop
 /// The D-Bus object of hush.service. `systemctl show` joins argv without
 /// quoting, so the loaded command is read here with its boundaries intact.
 const UNIT_OBJECT: &str = "/org/freedesktop/systemd1/unit/hush_2eservice";
-const OUTPUT_LIMIT: u64 = 1 << 20;
-const DEADLINE: Duration = Duration::from_secs(120);
 
 #[derive(Default)]
 pub(crate) struct NativeHost;
@@ -226,12 +224,22 @@ fn describe(code: Option<i32>) -> String {
     code.map_or("a signal".into(), |code| format!("code {code}"))
 }
 
-/// Run one checked program. Stdout is bounded and read on its own thread, so
-/// a chatty child cannot block. A child past the deadline is killed and reaped.
+/// Run one checked program under the production budget.
 fn run(
     program: &str,
     args: &[String],
     input: Option<(&SecretString, File)>,
+) -> Result<(Option<i32>, String)> {
+    run_within(program, args, input, BUDGET)
+}
+
+/// Run one checked program. Stdout is bounded and the child is killed and
+/// reaped past its deadline. `budget` is the production one outside tests.
+pub(super) fn run_within(
+    program: &str,
+    args: &[String],
+    input: Option<(&SecretString, File)>,
+    budget: Budget,
 ) -> Result<(Option<i32>, String)> {
     let root = match Dir::open_root(Path::new("/"), Owner(0)) {
         Fact::Known(root) => root,
@@ -253,48 +261,10 @@ fn run(
         Some((_, out)) => (Stdio::piped(), Stdio::from(out.try_clone()?)),
         None => (Stdio::null(), Stdio::piped()),
     };
-    let mut child = command
+    let child = command
         .stdin(stdin)
         .stdout(stdout)
         .spawn()
         .with_context(|| format!("cannot run {program}"))?;
-    if let Some((token, _)) = input {
-        let mut pipe = child.stdin.take().context("no stdin pipe")?;
-        let written = pipe.write_all(token.expose_secret().as_bytes());
-        drop(pipe);
-        if written.is_err() {
-            reap(&mut child);
-            bail!("{program} did not accept its input");
-        }
-    }
-    let reader = child.stdout.take().map(|stdout| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = stdout.take(OUTPUT_LIMIT).read_to_string(&mut text);
-            text
-        })
-    });
-    let deadline = Instant::now() + DEADLINE;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if Instant::now() > deadline {
-            reap(&mut child);
-            bail!(
-                "{program} did not finish within {} seconds",
-                DEADLINE.as_secs()
-            );
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let text = reader
-        .map(|reader| reader.join().unwrap_or_default())
-        .unwrap_or_default();
-    Ok((status.code(), text))
-}
-
-fn reap(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+    drive(program, child, input.map(|(token, _)| token), budget)
 }

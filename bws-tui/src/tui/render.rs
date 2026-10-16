@@ -10,7 +10,6 @@ pub(super) fn draw(frame: &mut ratatui::Frame, app: &App) {
         Mode::Menu => forms::draw_menu(f, chunks[1], app),
         Mode::AddProject => forms::draw_add_project(f, chunks[1], app),
         Mode::AddKey => forms::draw_add_key(f, chunks[1], app),
-        Mode::AddValue => forms::draw_add_value(f, chunks[1], app),
         Mode::Search => secrets::draw_search(f, chunks[1], app),
         Mode::ActionMenu => secrets::draw_action_menu(f, chunks[1], app),
         Mode::Edit => forms::draw_edit(f, chunks[1], app),

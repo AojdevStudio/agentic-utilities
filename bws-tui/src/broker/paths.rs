@@ -2,15 +2,37 @@
 
 use super::hardening::{check_not_group_or_world_writable, check_owner};
 use anyhow::{bail, Context, Result};
+use std::ffi::OsString;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
 /// Absolute bws candidates checked when the daemon gets no `--bws-path`.
 pub(crate) const DEFAULT_BWS_CANDIDATES: [&str; 2] = ["/usr/local/bin/bws", "/usr/bin/bws"];
 
-/// Socket path. ADR 0002 fixes the default. `HUSH_SOCKET` overrides it.
+/// The build flavor, passed explicitly so a debug test build can prove the
+/// release rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Build {
+    Release,
+    Debug,
+}
+
+impl Build {
+    pub(crate) const CURRENT: Self = if cfg!(debug_assertions) {
+        Self::Debug
+    } else {
+        Self::Release
+    };
+}
+
+/// Socket path. ADR 0002 fixes the default. `HUSH_SOCKET` overrides it in
+/// debug builds only, for tests and same-user development.
 pub(crate) fn default_socket_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("HUSH_SOCKET") {
+    socket_path(std::env::var_os("HUSH_SOCKET"), Build::CURRENT)
+}
+
+pub(crate) fn socket_path(override_path: Option<OsString>, build: Build) -> PathBuf {
+    if let (Some(path), Build::Debug) = (override_path, build) {
         return PathBuf::from(path);
     }
     #[cfg(target_os = "linux")]

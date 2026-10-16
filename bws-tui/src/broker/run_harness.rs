@@ -65,7 +65,8 @@ pub(super) fn serve_one(
     let (done_tx, done) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
-        let _ = daemon::serve_connection_with(stream, &vault, &audit, &run);
+        let human = human::HumanConfig::default();
+        let _ = daemon::serve_connection_with(stream, &vault, &audit, &run, &human);
         let _ = done_tx.send(());
     });
     (socket, done)

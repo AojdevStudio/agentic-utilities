@@ -3,7 +3,7 @@ name = "bws-tui"
 version = "0.0.4"
 edition = "2021"
 autobins = false
-description = "Interactive TUI and script-friendly CLI wrapper around the Bitwarden Secrets Manager `bws` CLI"
+description = "Interactive TUI and script-friendly client for a root broker daemon over Bitwarden Secrets Manager"
 license = "MIT"
 repository = "https://github.com/AojdevStudio/agentic-utilities"
 keywords = ["bitwarden", "secrets-manager", "tui", "cli", "bws"]
@@ -23,10 +23,20 @@ zeroize = "1"
 anyhow = "1"
 humantime = "2"
 clap = { version = "4", features = ["derive"] }
-arboard = "3"
 base64 = "0.22"
+# The daemon writes values through the SDK because `bws` takes them in argv.
+bitwarden = "=2.1.0"
+# The SDK's own HTTP client, with the async resolver. Name lookups then run as
+# tasks on each write's runtime instead of a blocking getaddrinfo thread that
+# dropping the runtime must wait for. Feature only, at the locked version.
+# This reads resolv.conf and hosts, bypassing NSS and macOS scoped resolvers.
+# Hosts that depend on those resolvers can lose SDK login.
+reqwest = { version = "0.12.28", default-features = false, features = ["hickory-dns"] }
+tokio = { version = "1", features = ["rt", "time", "net"] }
+uuid = "1"
 libc = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 [dev-dependencies]
 static_assertions = "1"
+wiremock = "0.6"

@@ -17,10 +17,6 @@
   <code>cargo install --locked bws-tui</code> &nbsp;→&nbsp; <code>hush</code>
 </p>
 
-<p align="center">
-  <img src="./docs/assets/hush-demo.gif" alt="hush demo: search for a secret, open its action menu, reveal it, and copy it" width="900">
-</p>
-
 > **Package:** `bws-tui` on crates.io · **Command:** `hush`
 
 ## The five-step problem
@@ -34,74 +30,43 @@ The official `bws` CLI already has the authentication and API access. What it do
 
 ## The insight
 
-**Do not replace `bws`. Make it pleasant.**
+**Do not replace Bitwarden. Make it pleasant, and keep values away from whoever runs the command.**
 
-`hush` owns no authentication flow, cloud client, or private secret format. It shells out to the official CLI with JSON I/O, then gives you a focused TUI and predictable commands. Bitwarden remains the source of truth; `hush` removes the ceremony.
+`hush` keeps no private secret format. A root broker daemon holds the Bitwarden token, reads through the official `bws` CLI, and writes through the official Bitwarden SDK. The `hush` you run holds names only, gives you a focused TUI and predictable commands, and hands your terminal to the daemon when a value must be typed or shown. Bitwarden remains the source of truth, and `hush` removes the ceremony.
 
 ## What changes
 
 | Before | With `hush` |
 | --- | --- |
-| Navigate the web vault to add one value | `hush` → Add → project → key → masked value |
+| Navigate the web vault to add one value | `hush` → Add → project → key → hidden value prompt |
 | Remember which project contains a key | Search every accessible project as you type |
-| Print values into terminal scrollback | Copy through an explicit action menu |
-| Repeat browser steps for edits | Edit key, value, or note in place |
-| Write one-off shell wrappers for CI | Use the same CRUD operations non-interactively |
+| Print values into terminal scrollback | Reveal on its own screen after password approval, then clear it |
+| Repeat browser steps for edits | Edit key or note in place, and replace the value only when you choose to |
+| Write one-off shell wrappers for CI | `hush run` starts the command with secrets it never shows you |
 
 ## Why it feels quiet
 
-- **Type to find.** Fuzzy filtering is always live; arrows always move.
+- **Type to find.** Fuzzy filtering is always live, and arrows always move.
 - **Enter means actions, never exit.** Copy, Reveal, Edit, Delete, or Cancel appear as plain English.
-- **Values stay out of lists and logs.** Reveal is deliberate; copy is explicit.
-- **Native clipboard copies expire.** The value clears after 30 seconds if it is still unchanged and `hush` remains open. Headless terminal copies use OSC 52 and must be cleared manually.
-- **Projects never drift.** The menu comes from `bws project list` every time.
-- **No config file.** `bws` keeps its token/profile configuration; `hush` adds none.
+- **Values stay out of the client.** The `hush` you run holds names only. A root broker daemon holds the token and every value.
+- **Your password guards disclosure.** Reveal, copy, edit, and delete ask for your account password on your terminal. Adding a new secret does not.
+- **Projects never drift.** The project menu comes live from the vault every time.
 
 ## Quick start
 
-### 1. Install Bitwarden's CLI
+`hush` is a client for the hush broker daemon described in [ADR 0002](../docs/adr/0002-hush-broker.md). The daemon runs as root and is the only process that holds the Bitwarden machine-account token. The client needs no token, no `bws` binary, and no config file.
 
-Install the official [`bws` binary](https://github.com/bitwarden/sdk-sm/releases) and make sure it is on `PATH`. `hush` is developed against `bws` 2.1.0.
+1. Install the crate:
 
-### 2. Load a machine-account token automatically
+   ```bash
+   cargo install --locked bws-tui
+   ```
 
-Create a token under **Secrets Manager → Machine accounts** in Bitwarden. Put it in your global `~/.env` so every terminal can use it without another setup step:
+2. Run the daemon as root with its token file. A guided `hush install` for Linux and macOS is planned. Until it lands, the ADR describes the token file, socket, and audit log locations.
+3. On Linux, password approval uses the PAM service `hush`, read from `/etc/pam.d/hush`. Without that file, reveal, copy, edit, and delete are refused before any prompt. On macOS, approval uses OpenDirectory and needs no setup.
+4. Run `hush`.
 
-```bash
-# ~/.env
-export BWS_ACCESS_TOKEN="..."
-```
-
-Protect the file after saving it:
-
-```bash
-chmod 600 ~/.env
-```
-
-Shells do not load `~/.env` automatically. Source it from your shell startup file:
-
-```bash
-# ~/.zshrc on macOS, or ~/.bashrc when using Bash
-[ -f "$HOME/.env" ] && source "$HOME/.env"
-```
-
-Load it now, then verify the official CLI before starting `hush`:
-
-```bash
-source "$HOME/.env"
-bws project list
-```
-
-New terminals will load the token automatically. No login flow exists in `hush`; the token is consumed by `bws` itself.
-
-### 3. Install the crate, run the good command
-
-```bash
-cargo install --locked bws-tui
-hush
-```
-
-On macOS and Linux desktops, `hush` uses the native clipboard through `arboard`. On headless Linux, it sends an OSC 52 clipboard write through the terminal. This fallback requires stdout to be a terminal; redirected output is rejected before writing value bytes. Native clipboard copies can still work with redirected stdout. OSC 52 cannot confirm delivery or read back the clipboard, so `hush` does not automatically clear terminal copies. Clear them manually. Terminal copies are limited to 128 KiB of value text. Under tmux, enable `set-clipboard on` and ensure the outer terminal supports clipboard writes.
+Without a reachable daemon, every command except `hush --help` fails with an error that names the socket it tried.
 
 ## The interface
 
@@ -114,7 +79,13 @@ Enter               Open Copy / Reveal / Edit / Delete / Cancel
 Esc                 Back out one level
 ```
 
-Inside the action menu, arrows + Enter are enough. Optional shortcuts are `c` (copy), `r` (reveal), `e` (edit), and `d` (delete). Delete always requires confirmation.
+Inside the action menu, arrows + Enter are enough. Optional shortcuts are `c` (copy), `r` (reveal), `e` (edit), and `d` (delete). Delete always asks for confirmation first.
+
+Copy, reveal, edit, and delete hand the terminal to the daemon. It shows what you are approving, asks for your account password with echo off, and then acts. Ctrl-C at the prompt cancels. The TUI redraws when the daemon is done.
+
+- **Reveal** shows the value on its own screen until you press Enter, then clears that screen. Control characters in a stored value are shown as escapes, so a value cannot drive your terminal.
+- **Copy** sends the value to your terminal's clipboard with OSC 52. The terminal cannot report whether the copy arrived, and `hush` never clears it. Clear it yourself when you are done. Under tmux, enable `set-clipboard on`. Copies are limited to 128 KiB.
+- **Edit** keeps the stored value by default. Move to the value field and press Space to replace it. The daemon prompts for the new value after approval.
 
 ### Add a secret
 
@@ -123,92 +94,90 @@ hush
   → Add a secret
   → choose a live-fetched project
   → enter the key
-  → enter the masked value
+  → type the value at the daemon's hidden prompt
 ```
+
+Add needs no password. It refuses a key that already exists in that project. Replacing a value is an edit, and edits need approval.
 
 ## Scripts and CI
 
-Every operation also works without the TUI:
+Every human operation also works without the TUI:
 
 ```bash
 hush list
-hush get --key DB_PASSWORD
-hush add --project "API Keys" --key NEW_SECRET --value 'not-a-real-secret'
-hush edit --key DB_PASSWORD --value 'new-value' --note "rotated"
+printf '%s' 'not-a-real-secret' | hush add --project "API Keys" --key NEW_SECRET
+hush reveal --key DB_PASSWORD
+hush edit --key DB_PASSWORD --note "rotated"
 hush delete --key OLD_SECRET --yes
 ```
 
-Project names and UUIDs both work. Without `--project`, get/edit/delete search all accessible projects and require an unambiguous key.
+Project names and UUIDs both work. Without `--project`, reveal, edit, and delete search all accessible projects and require an unambiguous key. Values never go on the command line. Reveal, edit, and delete need an interactive terminal for approval, and `hush reveal` refuses to run when stdout is redirected.
 
 ### Multiline values
 
-`add` reads stdin when `--value` is absent and preserves the bytes exactly—including a trailing newline:
+`add` hands piped stdin to the daemon, which keeps the bytes exactly, including a trailing newline. With a terminal on stdin, the daemon prompts for a one-line value instead. If you press Ctrl-C or the client stops, the daemon stops too and starts no write. A write that may already have reached Bitwarden is reported as uncertain, so check `hush list` before trying again.
 
 ```bash
 hush add --project "API Keys" --key TLS_PRIVATE_KEY < key.pem
 ```
 
-For edits, stdin is deliberately explicit so a note-only edit can never block or erase the value:
+For edits, `--stdin` is deliberately explicit so a note-only edit never touches the value:
 
 ```bash
 hush edit --key TLS_PRIVATE_KEY --stdin < replacement-key.pem
 ```
 
-## Agent-native retrieval
+## Agent-native use
 
-Coding agents are `hush`'s second user, and they get one contract: **read any one secret, or have secrets injected into a child process — no path through `hush` emits the vault.**
+Coding agents are `hush`'s second user. They can find secrets and use them, and they never see a value.
 
 ```bash
-# Discover what exists: id, key, project, note — never values
+# Discover what exists: id, key, project, note. Never values
 hush list --json
-
-# Read one secret: a single scoped `bws secret get`, not a vault-wide fetch
-hush get --key DB_PASSWORD
 
 # Run a command with secrets, started by the broker daemon. Output is masked
 hush run --secret CF_API_TOKEN --secret "Cloudflare Admin=CF_ADMIN" -- ./deploy.sh
 
 # Deliver a value on a pipe instead of the environment: the child reads fd $DB_PASSWORD_FD
 hush run --fd DB_PASSWORD -- ./migrate.sh
-
-# Rebuild the local metadata index by hand (get and list keep it fresh themselves)
-hush sync
 ```
 
-- **Metadata index.** `get` resolves key → id from a local index (`~/.cache/hush/index.json`, or under `$XDG_CACHE_HOME`) holding id/key/project/note — never values — then fetch exactly one secret. A stale id resyncs and retries once. `list` always queries live and refreshes the index as a side effect, so discovery is never answered from cache.
-- **Injection over printing.** `run` is the multi-secret path, and `exec --key` is now an alias of `run --secret` on the same code path. The broker daemon starts the child; the `hush` client never receives a value. Two bindings targeting the same env name refuse to run; `KEY=ENVNAME` remaps keys that are not valid env var names. `run` needs a reachable daemon and never falls back to fetching values in the client.
-- **No bulk export.** No command prints more than one value, in any output mode. `list --json` is discovery, not a dump — there is deliberately no way to script `hush` into exporting the vault.
-- **Audit trail.** `get`, `add`, `edit`, `delete`, and `sync` append a names-only line (`2026-08-18T23:46:52Z get CF_API_TOKEN`) to `~/.local/state/hush/audit.log` (or under `$XDG_STATE_HOME`). Working out which credentials a session touched is a grep, not a guess. `run` and `exec` are audited by the daemon in its own log instead.
+- **No client path to a value.** `hush get` and `hush sync` are gone. No command prints a value to stdout, and the client never reads the vault itself.
+- **Injection over printing.** `run` is the way to use secrets, and `exec --key` stays an alias of `run --secret` on the same code path. Two bindings targeting the same env name refuse to run. `KEY=ENVNAME` remaps keys that are not valid env var names.
+- **Disclosure needs a human.** Reveal and copy need the account password typed on the requesting process's own foreground terminal. An agent without the password cannot approve them.
+- **Audit trail.** The daemon writes a names-only line for every catalog read, run, and human request to its own root-owned log. A human line is written before approval and before any write, so it records an attempt, not a completed operation.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    You[You] -->|search / choose / confirm| H[hush]
-    H -->|non-interactive JSON commands| B[bws CLI]
-    T[BWS_ACCESS_TOKEN] --> B
+    You[You or an agent] -->|names, terminal, stdin| H[hush client]
+    H -->|Unix socket| D[hush daemon, root]
+    D -->|reads, deletes| B[bws CLI]
+    D -->|creates, value edits| K[Bitwarden SDK]
     B --> S[Bitwarden Secrets Manager]
+    K --> S
 
     style H fill:#22d3ee,color:#07111f,stroke:#8b5cf6,stroke-width:2px
-    style B fill:#111827,color:#e2e8f0,stroke:#475569
+    style D fill:#111827,color:#e2e8f0,stroke:#8b5cf6
     style S fill:#111827,color:#e2e8f0,stroke:#475569
 ```
 
-That narrow boundary is the point. `hush` is an interface, not another secrets platform.
+The client sends names and passes its terminal or stdin to the daemon as open file descriptors. The daemon reads values from those descriptors and writes disclosures straight to the terminal, so no value ever crosses the socket.
 
 ## Security model
 
-- **Masked entry:** TUI value input is never rendered as plaintext while typing.
-- **No values in lists:** search rows contain only key and project name.
-- **Sanitized failures:** failed `bws` operations report the operation and exit status, never the secret-bearing argv.
-- **Conditional native clipboard clear:** after 30 seconds, `hush` clears a native clipboard only if it still contains the value it copied. Your newer clipboard content is left alone. OSC 52 copies are not auto-cleared because the terminal cannot report whether the clipboard changed.
-- **Delete guard:** the TUI confirms deletion; scripts require `--yes`.
-- **Scoped reads:** `get` fetches a single secret by id, and nothing persists values. To resolve `run` keys, the daemon lists the whole vault through `bws` (that listing carries every value), keeps only the metadata, and then fetches each bound secret by id. A vault whose listing passes the daemon's 16 MiB `bws` output limit makes every run fail.
-- **Names-only audit log:** every operation is recorded with timestamp, verb, and key names — never values.
+- **One custodian:** only the daemon holds the token and values. The daemon reads the caller's uid and pid from the kernel, never from the client.
+- **Terminal checks:** a passed terminal must be read-write, owned by the caller, the caller's controlling terminal, and the caller's foreground terminal. The daemon checks again just before it discloses anything.
+- **Fresh approval:** every reveal, copy, edit, and delete asks for the password again. Nothing is cached.
+- **No values in lists, frames, or logs:** search rows hold key and project only. Errors name the operation, never a value.
+- **No values in argv:** `bws` takes write values as arguments, which other local users can read, so the daemon creates secrets and replaces values through the Bitwarden SDK instead.
+- **No silent overwrite:** add refuses an existing key. The daemon holds one lock across its duplicate check and the write. A writer outside this daemon, such as the web vault, can still create the same key at the same moment, and `hush` cannot see or undo that. Bitwarden trims keys, so a key with leading or trailing whitespace is refused instead of being saved under another name. A key over 500 characters, a note over 7000 characters or made only of whitespace, and a value over 25000 characters or 64 KiB are refused before any lookup or write.
+- **Honest failures:** when a write's outcome is unknown, `hush` says so and does not retry. That includes a delete that may have reached the vault before it failed. Check `hush list` first.
 
-### Broker daemon (in progress)
+The daemon obtains metadata by listing the vault through bws. That listing carries values, which the daemon discards after parsing. The existing 16 MiB output cap can refuse a large vault. Changing that backend contract remains separate in [#80](https://github.com/AojdevStudio/agentic-utilities/issues/80).
 
-A hidden `hush daemon` runs the broker from [ADR 0002](../docs/adr/0002-hush-broker.md). When it is reachable on the socket, `hush list` and `hush list --json` answer from the daemon metadata catalog. When no daemon is reachable, they keep today's direct `bws` behavior. The daemon refuses a token file that is not mode 0600 owned by root. The debug-only `--dev-same-user` flag relaxes ownership to the daemon user for same-user development.
+### The daemon's run path
 
 The broker trusts every local non-root account to request any vault secret for a run. Kernel peer credentials identify the caller and select the run identity. They do not restrict which secrets that caller may use. Caller allowlisting is tracked separately in [#76](https://github.com/AojdevStudio/agentic-utilities/issues/76).
 
@@ -223,12 +192,6 @@ The broker trusts every local non-root account to request any vault secret for a
 `hush run -n` (or `--no-stdin`, also on `exec`) never reads stdin, and the child gets end of input at once, like `ssh -n`. Use it inside a shell `while read` loop and for background runs, so the run does not consume input meant for something else.
 
 Masking is best effort. A command that prints its own secret in a transformed form (for example base64) can still leak that value.
-
-### Known upstream limit: argv exposure
-
-`bws` 2.1.0 accepts create/edit values only as positional argv. That makes a value briefly visible to local process inspection (`ps`) while the subprocess runs. `hush` cannot remove that exposure until upstream supports stdin or file descriptors.
-
-This tool is designed first for a trusted, single-user Mac—not a shared shell host.
 
 ## The story
 
@@ -245,13 +208,6 @@ cargo fmt --check
 cargo test
 cargo clippy -- -D warnings
 cargo publish --dry-run
-```
-
-The demo uses [VHS](https://github.com/charmbracelet/vhs) with safe fake data. Re-record it from the crate directory after building `hush`:
-
-```bash
-cargo build --release
-PATH="$PWD/docs/demo:$PWD/target/release:$PATH" vhs docs/assets/hush-demo.tape
 ```
 
 ## Contributing

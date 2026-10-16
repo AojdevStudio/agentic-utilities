@@ -1,27 +1,36 @@
 mod actions;
 mod chrome;
-mod clipboard;
 mod events;
 mod forms;
+mod ops;
 mod render;
 mod secrets;
 mod terminal;
 
-use crate::bws::{self, Project, Secret};
+use crate::broker::meta::{ProjectMeta, SecretMeta};
+use crate::human_cmd::connect_daemon;
 use anyhow::Result;
-use clipboard::*;
-use secrecy::SecretString;
-use std::time::{Duration, Instant};
 
 const ACCENT: ratatui::style::Color = ratatui::style::Color::Cyan;
 const DIM: ratatui::style::Style = ratatui::style::Style::new().fg(ratatui::style::Color::DarkGray);
 const MENU: [&str; 2] = ["Add a secret", "Search / manage secrets"];
-const ACTIONS: [&str; 5] = [
-    "Copy value to clipboard",
-    "Reveal value",
-    "Edit secret",
-    "Delete secret",
-    "Cancel",
+
+/// One entry in the secret action menu. The menu order is [`ACTIONS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Copy,
+    Reveal,
+    Edit,
+    Delete,
+    Cancel,
+}
+
+const ACTIONS: [(Action, &str); 5] = [
+    (Action::Copy, "Copy value to clipboard"),
+    (Action::Reveal, "Reveal value"),
+    (Action::Edit, "Edit secret"),
+    (Action::Delete, "Delete secret"),
+    (Action::Cancel, "Cancel"),
 ];
 
 #[derive(Debug, PartialEq)]
@@ -29,7 +38,6 @@ enum Mode {
     Menu,
     AddProject,
     AddKey,
-    AddValue,
     Search,
     ActionMenu,
     Edit,
@@ -61,30 +69,28 @@ impl EditField {
     }
 }
 
+/// TUI state. Metadata only: the daemon owns every value.
 struct App {
     mode: Mode,
-    projects: Vec<Project>,
-    secrets: Vec<Secret>,
+    projects: Vec<ProjectMeta>,
+    secrets: Vec<SecretMeta>,
     filtered: Vec<usize>, // indices into secrets
     menu_idx: usize,
     sel: usize, // selected row in the current list
     input: String,
-    value_buf: String, // masked entry
     filter: String,
     edit_field: EditField,
     edit_key: String,
-    edit_value: String,
     edit_note: String,
+    /// An edit keeps the stored value unless the user asks to replace it.
+    replace_value: bool,
     status: String,
     status_err: bool,
     action_idx: usize,
-    revealed: bool,
-    clipboard_value: Option<SecretString>,
-    clipboard_clear_at: Option<Instant>,
 }
 
 impl App {
-    fn new(projects: Vec<Project>) -> Self {
+    fn new(projects: Vec<ProjectMeta>) -> Self {
         Self {
             mode: Mode::Menu,
             projects,
@@ -93,18 +99,14 @@ impl App {
             menu_idx: 0,
             sel: 0,
             input: String::new(),
-            value_buf: String::new(),
             filter: String::new(),
             edit_field: EditField::Key,
             edit_key: String::new(),
-            edit_value: String::new(),
             edit_note: String::new(),
+            replace_value: false,
             status: String::new(),
             status_err: false,
             action_idx: 0,
-            revealed: false,
-            clipboard_value: None,
-            clipboard_clear_at: None,
         }
     }
 
@@ -122,15 +124,7 @@ impl App {
         self.status_err = true;
     }
 
-    fn project_name(&self, id: &str) -> &str {
-        self.projects
-            .iter()
-            .find(|p| p.id == id)
-            .map(|p| p.name.as_str())
-            .unwrap_or("?")
-    }
-
-    fn selected_secret(&self) -> Option<&Secret> {
+    fn selected_secret(&self) -> Option<&SecretMeta> {
         self.filtered.get(self.sel).map(|&i| &self.secrets[i])
     }
 
@@ -142,7 +136,7 @@ impl App {
     }
 
     fn reload_secrets(&mut self) -> bool {
-        match bws::list_secrets(None) {
+        match connect_daemon().and_then(|mut client| client.catalog(None)) {
             Ok(secrets) => {
                 self.secrets = secrets;
                 self.refilter();
@@ -155,7 +149,7 @@ impl App {
         }
     }
 
-    fn open_add_with(&mut self, projects: Result<Vec<Project>>) {
+    fn open_add_with(&mut self, projects: Result<Vec<ProjectMeta>>) {
         match projects {
             Ok(projects) if !projects.is_empty() => {
                 self.projects = projects;
@@ -164,36 +158,6 @@ impl App {
             }
             Ok(_) => self.set_error_message("no accessible BWS projects"),
             Err(error) => self.set_err(&error),
-        }
-    }
-
-    fn clear_clipboard_if_due(&mut self) {
-        self.clear_clipboard_if_due_with(Instant::now(), clear_clipboard_value);
-    }
-
-    fn clear_clipboard_if_due_with(
-        &mut self,
-        now: Instant,
-        clear: impl FnOnce(&SecretString) -> Result<bool>,
-    ) {
-        if self.clipboard_clear_at.is_none_or(|at| now < at) {
-            return;
-        }
-        let Some(copied) = self.clipboard_value.as_ref() else {
-            return;
-        };
-        match clear(copied) {
-            Ok(cleared) => {
-                self.clipboard_value = None;
-                self.clipboard_clear_at = None;
-                if cleared {
-                    self.set_ok("✓ clipboard cleared");
-                }
-            }
-            Err(error) => {
-                self.clipboard_clear_at = Some(now + Duration::from_secs(1));
-                self.set_err(&error);
-            }
         }
     }
 }
@@ -209,8 +173,9 @@ fn fuzzy_match(hay: &str, needle: &str) -> bool {
     cur.is_none()
 }
 
+/// Without a daemon the TUI does not start. The client has no vault access.
 pub fn run() -> Result<()> {
-    let mut app = App::new(bws::list_projects()?);
+    let mut app = App::new(connect_daemon()?.projects()?);
     terminal::run(&mut app)
 }
 

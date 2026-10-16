@@ -3,12 +3,16 @@
 //! Frame layout: one version byte, then a 3-byte big-endian payload length,
 //! then the JSON payload. No frame variant can hold secret material.
 
-use super::meta::SecretMeta;
+use super::fdpass::{recv_exact, send_with_rights, RightsViolation};
+use super::meta::{ProjectMeta, SecretMeta};
+use super::operation::{Operation, Outcome, Refusal};
 use super::runspec::{Delivery, EnvName, ForwardSignal, RunOutcome, StreamKind};
 use anyhow::{bail, Result};
 use base64::Engine;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::io::{Read, Write};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::unix::net::UnixStream;
 
 /// Current wire protocol version.
 pub(crate) const PROTOCOL_VERSION: u8 = 1;
@@ -20,6 +24,11 @@ pub(crate) const MAX_PAYLOAD: usize = 1 << 20;
 pub(crate) enum RequestFrame {
     Catalog {
         project: Option<String>,
+    },
+    Projects,
+    /// A human operation. Its descriptors ride on the first byte of this frame.
+    Human {
+        op: Operation,
     },
     /// Starts a child. The connection then carries only run frames until exit.
     Run {
@@ -39,6 +48,15 @@ pub(crate) enum RequestFrame {
 pub(crate) enum ResponseFrame {
     Catalog {
         entries: Vec<SecretMeta>,
+    },
+    Projects {
+        projects: Vec<ProjectMeta>,
+    },
+    Done {
+        outcome: Outcome,
+    },
+    Refused {
+        refusal: Refusal,
     },
     Error {
         code: String,
@@ -108,22 +126,20 @@ pub(crate) enum Frame {
     Response(ResponseFrame),
 }
 
-pub(crate) fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<()> {
+fn encode(frame: &Frame) -> Result<Vec<u8>> {
     let payload = serde_json::to_vec(frame)?;
     if payload.len() > MAX_PAYLOAD {
         bail!("frame payload too large");
     }
     let len = payload.len() as u32;
-    writer.write_all(&[PROTOCOL_VERSION])?;
-    writer.write_all(&len.to_be_bytes()[1..])?;
-    writer.write_all(&payload)?;
-    writer.flush()?;
-    Ok(())
+    let mut bytes = Vec::with_capacity(4 + payload.len());
+    bytes.push(PROTOCOL_VERSION);
+    bytes.extend_from_slice(&len.to_be_bytes()[1..]);
+    bytes.extend_from_slice(&payload);
+    Ok(bytes)
 }
 
-pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Frame> {
-    let mut head = [0u8; 4];
-    reader.read_exact(&mut head)?;
+fn payload_len(head: [u8; 4]) -> Result<usize> {
     if head[0] != PROTOCOL_VERSION {
         bail!("unsupported protocol version {}", head[0]);
     }
@@ -131,7 +147,50 @@ pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Frame> {
     if len > MAX_PAYLOAD {
         bail!("frame payload too large");
     }
-    let mut payload = vec![0u8; len];
+    Ok(len)
+}
+
+pub(crate) fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<()> {
+    writer.write_all(&encode(frame)?)?;
+    writer.flush()?;
+    Ok(())
+}
+
+pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Frame> {
+    let mut head = [0u8; 4];
+    reader.read_exact(&mut head)?;
+    let mut payload = vec![0u8; payload_len(head)?];
     reader.read_exact(&mut payload)?;
     Ok(serde_json::from_slice(&payload)?)
+}
+
+/// Write one frame with descriptors attached to its first byte.
+pub(crate) fn write_frame_with_rights(
+    stream: &UnixStream,
+    frame: &Frame,
+    fds: &[BorrowedFd<'_>],
+) -> Result<()> {
+    send_with_rights(stream.as_fd(), &encode(frame)?, fds)
+}
+
+/// One frame and the descriptors that rode on its first byte.
+pub(crate) struct Received {
+    pub frame: Frame,
+    pub fds: Vec<OwnedFd>,
+    pub violation: Option<RightsViolation>,
+}
+
+/// Read one frame, taking descriptors only from its first byte.
+pub(crate) fn read_frame_with_rights(stream: &UnixStream) -> Result<Received> {
+    let socket = stream.as_fd();
+    let mut head = [0u8; 4];
+    let (fds, first) = recv_exact(socket, &mut head[..1], true)?;
+    let (_, rest) = recv_exact(socket, &mut head[1..], false)?;
+    let mut payload = vec![0u8; payload_len(head)?];
+    let (_, body) = recv_exact(socket, &mut payload, false)?;
+    Ok(Received {
+        frame: serde_json::from_slice(&payload)?,
+        fds,
+        violation: first.or(rest).or(body),
+    })
 }

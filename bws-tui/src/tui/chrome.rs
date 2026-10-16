@@ -35,8 +35,7 @@ pub(super) fn hints(mode: &Mode) -> &'static [(&'static str, &'static str)] {
     match mode {
         Mode::Menu => &[("↑↓", "move"), ("Enter", "select"), ("Esc", "quit")],
         Mode::AddProject => &[("↑↓", "move"), ("Enter", "select"), ("Esc", "back")],
-        Mode::AddKey => &[("Enter", "next"), ("Esc", "back")],
-        Mode::AddValue => &[("Enter", "create"), ("Esc", "back")],
+        Mode::AddKey => &[("Enter", "enter value"), ("Esc", "back")],
         Mode::Search => &[
             ("type", "filter"),
             ("↑↓", "move"),
@@ -44,7 +43,12 @@ pub(super) fn hints(mode: &Mode) -> &'static [(&'static str, &'static str)] {
             ("Esc", "back"),
         ],
         Mode::ActionMenu => &[("↑↓", "choose"), ("Enter", "select"), ("Esc", "close")],
-        Mode::Edit => &[("Tab", "next field"), ("Enter", "save"), ("Esc", "cancel")],
+        Mode::Edit => &[
+            ("Tab", "next field"),
+            ("Space", "toggle value"),
+            ("Enter", "save"),
+            ("Esc", "cancel"),
+        ],
         Mode::ConfirmDelete => &[("y", "confirm delete"), ("any key", "cancel")],
     }
 }
@@ -69,10 +73,6 @@ pub(super) fn draw_footer(
         ))
     };
     frame.render_widget(Paragraph::new(vec![status, key_hints(hints)]), area);
-}
-
-pub(super) fn masked(value: &str) -> String {
-    "•".repeat(value.chars().count())
 }
 
 pub(super) fn panel(title: impl Into<Line<'static>>) -> Block<'static> {

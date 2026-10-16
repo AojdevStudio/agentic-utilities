@@ -30,11 +30,7 @@ pub(super) fn draw_search(f: &mut ratatui::Frame, area: Rect, app: &App) {
             .iter()
             .map(|&i| {
                 let s = &app.secrets[i];
-                let badge = s
-                    .project_id
-                    .as_deref()
-                    .map(|pid| app.project_name(pid))
-                    .unwrap_or("no project");
+                let badge = s.project.as_deref().unwrap_or("no project");
                 ListItem::new(Line::from(vec![
                     Span::raw(format!("  {}", s.key)),
                     Span::styled(format!("  {badge}"), DIM),
@@ -63,62 +59,38 @@ pub(super) fn draw_action_menu(f: &mut ratatui::Frame, area: Rect, app: &App) {
         .collect();
     f.render_widget(List::new(items).block(panel(" secrets ")), area);
     if let Some(s) = app.selected_secret() {
-        if app.revealed {
-            let dialog = centered(area, 60, 9);
-            f.render_widget(Clear, dialog);
-            let p = Paragraph::new(vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    s.value.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                key_hints(&[("Esc", "hide")]),
-            ])
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .title(format!(" “{}” ", s.key))
-                    .title_style(Style::default().fg(ACCENT)),
-            )
-            .wrap(Wrap { trim: false });
-            f.render_widget(p, dialog);
-        } else {
-            let dialog = centered(area, 40, 9);
-            f.render_widget(Clear, dialog);
-            let lines: Vec<Line> = ACTIONS
-                .iter()
-                .enumerate()
-                .map(|(i, a)| {
-                    // semantic: green=safe action, yellow=caution (value visible),
-                    // cyan=modify, red=destructive, dim=cancel
-                    let color = match i {
-                        0 => Color::Green,
-                        1 => Color::Yellow,
-                        2 => ACCENT,
-                        3 => Color::Red,
-                        _ => Color::DarkGray,
-                    };
-                    let style = if i == app.action_idx {
-                        Style::default().fg(color).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(color)
-                    };
-                    let marker = if i == app.action_idx { "▸ " } else { "  " };
-                    Line::from(Span::styled(format!("{marker}{a}"), style))
-                })
-                .collect();
-            let p = Paragraph::new(lines).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .title(format!(" “{}” ", s.key))
-                    .title_style(Style::default().fg(ACCENT)),
-            );
-            f.render_widget(p, dialog);
-        }
+        let dialog = centered(area, 40, 9);
+        f.render_widget(Clear, dialog);
+        let lines: Vec<Line> = ACTIONS
+            .iter()
+            .enumerate()
+            .map(|(i, (action, label))| {
+                // semantic: green=safe action, yellow=caution (value visible),
+                // cyan=modify, red=destructive, dim=cancel
+                let color = match action {
+                    Action::Copy => Color::Green,
+                    Action::Reveal => Color::Yellow,
+                    Action::Edit => ACCENT,
+                    Action::Delete => Color::Red,
+                    Action::Cancel => Color::DarkGray,
+                };
+                let style = if i == app.action_idx {
+                    Style::default().fg(color).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(color)
+                };
+                let marker = if i == app.action_idx { "▸ " } else { "  " };
+                Line::from(Span::styled(format!("{marker}{label}"), style))
+            })
+            .collect();
+        let p = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(format!(" “{}” ", s.key))
+                .title_style(Style::default().fg(ACCENT)),
+        );
+        f.render_widget(p, dialog);
     }
 }
 

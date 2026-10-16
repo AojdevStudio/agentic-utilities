@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use secrecy::{ExposeSecret, SecretString};
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
-use std::process::Child;
+use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering::SeqCst};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -82,13 +82,14 @@ pub(super) fn drive(
     // Output is checked before the reap, so a failure still owns the group.
     let exchanged = exchange(&mut child, input, deadline, budget).and_then(|output| {
         let text = String::from_utf8(output).map_err(|_| anyhow!("the output is not UTF-8"))?;
-        let status = child.wait().context("cannot reap the child")?;
+        // Stop descendants while the exited leader still reserves the group id.
+        let status = stop(&mut child).context("cannot reap the child")?;
         Ok((status.code(), text))
     });
     exchanged.map_err(|error| {
         let error = error.context(format!("{program} was stopped"));
         match stop(&mut child) {
-            Ok(()) => error,
+            Ok(_) => error,
             Err(reap) => error.context(format!("{program} could not be reaped ({reap})")),
         }
     })
@@ -189,10 +190,10 @@ fn exited(child: &Child) -> Result<bool> {
 
 /// Kill the child's whole process group, then reap the child. The group id
 /// is the unreaped child's pid, so the signal reaches only its descendants.
-fn stop(child: &mut Child) -> io::Result<()> {
+fn stop(child: &mut Child) -> io::Result<ExitStatus> {
     // SAFETY: the child leads its own group and is not yet reaped.
     unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL) };
-    child.wait().map(drop)
+    child.wait()
 }
 
 /// Install the holding handler once, keeping a signal the caller ignores ignored.

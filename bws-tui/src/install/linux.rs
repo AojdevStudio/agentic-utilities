@@ -112,6 +112,19 @@ pub(crate) fn parse_unit_show(text: &str, fragment: &str) -> Fact<Service> {
     if names.split_whitespace().ne([UNIT_NAME]) {
         return Fact::Refused(format!("{UNIT_NAME} also has the names {names}"));
     }
+    // The rendered unit sets no identity, so the daemon runs as root.
+    let (Some(user), Some(group), Some(dynamic)) =
+        (field("User"), field("Group"), field("DynamicUser"))
+    else {
+        return Fact::Unknown(format!(
+            "systemctl show did not report who {UNIT_NAME} runs as"
+        ));
+    };
+    if (user, group, dynamic) != ("", "", "no") {
+        return Fact::Refused(format!(
+            "{UNIT_NAME} runs as User={user} Group={group} DynamicUser={dynamic}, not as root"
+        ));
+    }
     Fact::Known(Service {
         loaded: true,
         needs_reload: reload == "yes",
@@ -119,6 +132,44 @@ pub(crate) fn parse_unit_show(text: &str, fragment: &str) -> Fact<Service> {
         active: active == "active",
         pid: (pid > 0).then_some(pid),
     })
+}
+
+/// Check the command systemd loaded, from `busctl --json=short get-property`
+/// of `ExecStart`, against the rendered daemon command. Exactly one command,
+/// the same executable and argv, and failures not ignored.
+pub(crate) fn loaded_command(json: &str, args: &[String]) -> Fact<()> {
+    use serde_json::Value;
+    let reply: Option<Value> = serde_json::from_str(json).ok();
+    let commands = reply
+        .as_ref()
+        .filter(|reply| reply["type"] == "a(sasbttttuii)")
+        .and_then(|reply| reply["data"].as_array());
+    let parsed: Option<Vec<(&str, Vec<&str>, bool)>> = commands.and_then(|commands| {
+        commands
+            .iter()
+            .map(|command| {
+                let argv = command[1].as_array()?.iter().map(Value::as_str);
+                Some((
+                    command[0].as_str()?,
+                    argv.collect::<Option<_>>()?,
+                    command[2].as_bool()?,
+                ))
+            })
+            .collect()
+    });
+    match parsed.as_deref() {
+        None | Some([]) => {
+            Fact::Unknown(format!("the loaded command of {UNIT_NAME} is unreadable"))
+        }
+        Some([(path, argv, false)])
+            if args.first().is_some_and(|first| first == path) && argv.iter().eq(args.iter()) =>
+        {
+            Fact::Known(())
+        }
+        Some(_) => Fact::Refused(format!(
+            "{UNIT_NAME} has a loaded command that is not the hush daemon command"
+        )),
+    }
 }
 
 /// The hushrun record from one `getent passwd` line and one `getent shadow`

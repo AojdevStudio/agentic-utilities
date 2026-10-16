@@ -1,11 +1,13 @@
 //! Manager resume and listener identity after an install already exists.
 
 use super::apply_harness::{install, Token};
+use super::facts::Fact;
 use super::fake_host_harness::FakeHost;
 use super::fixture_harness::Fixture;
 use super::host::Action;
 use super::layout::Platform;
 use super::observe::observe;
+use super::plan::Plan;
 use super::status::Status;
 use std::os::unix::net::UnixListener;
 
@@ -56,4 +58,68 @@ fn status_never_calls_a_foreign_listener_reachable() {
         status.contains("reachable: no (the listener is not the managed hush daemon)"),
         "{status}"
     );
+}
+
+#[test]
+fn a_foreign_loaded_command_or_identity_refuses_and_a_missing_one_is_unknown() {
+    let (fixture, mut host) = installed(Platform::Linux);
+    let plan = Plan::from_observation(observe(fixture.layout(), &mut host)).unwrap();
+    assert!(
+        plan.steps().is_empty(),
+        "the matching loaded service is a no-op"
+    );
+    let ours = host.loaded_command.borrow().clone().unwrap();
+    let mut extra = ours.clone();
+    extra.1.push("--extra".into());
+    // The same text with different boundaries: `daemon --socket` as one argument.
+    let mut merged = ours.clone();
+    let socket = merged.1.remove(2);
+    merged.1[1] = format!("{} {socket}", merged.1[1]);
+    let foreign = (
+        "/usr/bin/false".to_string(),
+        vec!["/usr/bin/false".to_string()],
+    );
+    let cases = [
+        (Some(foreign), Some("")),
+        (Some(extra), Some("")),
+        (Some(merged), Some("")),
+        (Some(ours.clone()), Some("nobody")),
+    ];
+    for (command, user) in cases {
+        *host.loaded_command.borrow_mut() = command.clone();
+        host.user = user.map(String::from);
+        let service = observe(fixture.layout(), &mut host).service;
+        assert!(
+            matches!(service, Fact::Refused(_)),
+            "{command:?} {user:?}: {service:?}"
+        );
+        assert!(Plan::from_observation(observe(fixture.layout(), &mut host)).is_err());
+    }
+    for (command, user) in [(None, Some("")), (Some(ours), None)] {
+        *host.loaded_command.borrow_mut() = command.clone();
+        host.user = user.map(String::from);
+        let service = observe(fixture.layout(), &mut host).service;
+        assert!(
+            matches!(service, Fact::Unknown(_)),
+            "{command:?} {user:?}: {service:?}"
+        );
+    }
+}
+
+#[test]
+fn a_foreign_command_loaded_during_apply_stops_before_the_next_manager_action() {
+    let (fixture, mut host) = installed(Platform::Linux);
+    host.stop();
+    host.service.enabled = false;
+    let _ = std::fs::remove_file(fixture.path("run/hush/hush.sock"));
+    let loaded = host.loaded_command.clone();
+    host.on_act = Some(Box::new(move |action| {
+        if *action == Action::EnableUnit {
+            *loaded.borrow_mut() = Some(("/usr/bin/false".into(), vec!["/usr/bin/false".into()]));
+        }
+    }));
+    let mut token = Token::default();
+    let failure = install(&fixture, &mut host, &mut token).unwrap_err();
+    assert_eq!(host.actions, [Action::EnableUnit], "{failure:?}");
+    assert_eq!(token.reads, 0);
 }

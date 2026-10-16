@@ -8,16 +8,21 @@ use super::host::{Action, Answer, Host, Query};
 use super::layout::Platform;
 use anyhow::{bail, Result};
 use secrecy::{ExposeSecret, SecretString};
+use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 pub(crate) const CIPHERTEXT: &[u8] = b"FAKE-SYSTEMD-CREDENTIAL\n";
 
 /// Runs after each successful action, for example to race the next step.
 pub(crate) type ActHook = Box<dyn FnMut(&Action)>;
+
+/// The executable and argv systemd last loaded. Shared so a hook can change it mid-apply.
+pub(crate) type Loaded = Rc<RefCell<Option<(String, Vec<String>)>>>;
 
 pub(crate) struct FakeHost {
     pub root: PathBuf,
@@ -33,6 +38,9 @@ pub(crate) struct FakeHost {
     pub fail_encrypt: bool,
     pub encrypted: usize,
     pub on_act: Option<ActHook>,
+    pub loaded_command: Loaded,
+    /// `User=` of the loaded unit. None models a reply without the field.
+    pub user: Option<String>,
     launchd_args: Vec<String>,
     listener: Option<UnixListener>,
 }
@@ -53,6 +61,8 @@ impl FakeHost {
             fail_encrypt: false,
             encrypted: 0,
             on_act: None,
+            loaded_command: Loaded::default(),
+            user: Some(String::new()),
             launchd_args: Vec::new(),
             listener: None,
         }
@@ -77,6 +87,12 @@ impl FakeHost {
         self.listener = None;
     }
 
+    /// The identity fields `systemctl show` prints for every unit, loaded or not.
+    fn identity(&self) -> String {
+        let user = self.user.as_ref().map(|user| format!("User={user}\n"));
+        format!("{}Group=\nDynamicUser=no\n", user.unwrap_or_default())
+    }
+
     fn passwd_line(&self) -> Option<String> {
         let a = self.account.as_ref()?;
         Some(format!(
@@ -92,15 +108,23 @@ impl Host for FakeHost {
         let account = self.account.clone();
         match query {
             Query::SystemdVersion => text(format!("systemd {} (fake)\n+PAM\n", self.systemd)),
-            Query::UnitShow if !self.service.loaded => text("MainPID=0\nNames=hush.service\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nUnitFileState=\nNeedDaemonReload=no\n".into()),
+            Query::UnitShow if !self.service.loaded => text(format!("MainPID=0\nNames=hush.service\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nUnitFileState=\nNeedDaemonReload=no\n{}", self.identity())),
             Query::UnitShow => {
                 let s = self.service;
                 text(format!(
-                    "MainPID={}\nNames=hush.service\nLoadState=loaded\nActiveState={}\nSubState=x\nFragmentPath=/etc/systemd/system/hush.service\nDropInPaths=\nUnitFileState={}\nNeedDaemonReload=no\n",
+                    "MainPID={}\nNames=hush.service\nLoadState=loaded\nActiveState={}\nSubState=x\nFragmentPath=/etc/systemd/system/hush.service\nDropInPaths=\nUnitFileState={}\nNeedDaemonReload=no\n{}",
                     s.pid.unwrap_or(0),
                     if s.active { "active" } else { "inactive" },
-                    if s.enabled { "enabled" } else { "disabled" }
+                    if s.enabled { "enabled" } else { "disabled" },
+                    self.identity()
                 ))
+            }
+            Query::UnitCommand => {
+                let data = match &*self.loaded_command.borrow() {
+                    Some((path, argv)) => serde_json::json!([[path, argv, false, 0, 0, 0, 0, 0, 0, 0]]),
+                    None => serde_json::json!([]),
+                };
+                text(serde_json::json!({"type": "a(sasbttttuii)", "data": data}).to_string())
             }
             Query::Passwd("nobody") => text("nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n".into()),
             Query::Passwd(_) => self.passwd_line().map_or(Answer::NotFound, text),
@@ -145,7 +169,17 @@ impl Host for FakeHost {
         self.actions.push(action.clone());
         match action {
             Action::DaemonReload => {
-                self.service.loaded = self.root.join("etc/systemd/system/hush.service").exists()
+                let unit = fs::read_to_string(self.root.join("etc/systemd/system/hush.service"));
+                self.service.loaded = unit.is_ok();
+                *self.loaded_command.borrow_mut() = unit.ok().and_then(|unit| {
+                    let argv: Vec<String> = unit
+                        .lines()
+                        .find_map(|line| line.strip_prefix("ExecStart="))?
+                        .split(' ')
+                        .map(String::from)
+                        .collect();
+                    Some((argv[0].clone(), argv))
+                });
             }
             Action::EnableUnit | Action::LaunchdEnable => {
                 self.service.enabled = true;

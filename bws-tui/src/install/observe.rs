@@ -94,7 +94,7 @@ pub(crate) fn observe(layout: Layout, host: &mut dyn Host) -> Observation {
         .map(|(fact, artifact)| (artifact, fact))
         .collect();
     let account = accounts::observe(&layout, &root, host);
-    let service = prereq::service(&layout, host, bws_path.as_deref());
+    let service = prereq::service(&layout, host, known(&backend), bws_path.as_deref());
     let socket = reach::probe(&layout.host_path(&layout.socket));
     Observation {
         layout,

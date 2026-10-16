@@ -249,12 +249,16 @@ fn manage(
         Fact::Known(bws) => Some(bws.as_path()),
         _ => None,
     };
-    let before = prereq::service(&o.layout, host, bws);
+    let backend = match o.backend {
+        Fact::Known(backend) => Some(backend),
+        _ => None,
+    };
+    let before = prereq::service(&o.layout, host, backend, bws);
     if !matches!(&before, Fact::Known(service) if needed(service)) {
         bail!("the service manager state changed after it was observed");
     }
     host.act(&action)?;
-    match prereq::service(&o.layout, host, bws) {
+    match prereq::service(&o.layout, host, backend, bws) {
         Fact::Known(service) if effect(&service) => Ok(()),
         _ => bail!("the service manager did not report the expected state afterwards"),
     }

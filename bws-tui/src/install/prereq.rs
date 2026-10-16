@@ -95,12 +95,43 @@ pub(crate) fn resolve_bws(layout: &Layout, root: &Dir) -> Fact<PathBuf> {
 }
 
 /// The manager's view. A failed query is Unknown, never disabled or inactive.
+/// A loaded definition must run the rendered command as its rendered identity.
 /// On macOS `enabled` means no disabled override for label hush.
-pub(crate) fn service(layout: &Layout, host: &mut dyn Host, bws: Option<&Path>) -> Fact<Service> {
+pub(crate) fn service(
+    layout: &Layout,
+    host: &mut dyn Host,
+    backend: Option<Backend>,
+    bws: Option<&Path>,
+) -> Fact<Service> {
     if layout.platform == Platform::Linux {
-        return match host.query(Query::UnitShow) {
+        let service = match host.query(Query::UnitShow) {
             Answer::Text(text) => linux::parse_unit_show(&text, layout.service_file()),
             Answer::NotFound => Fact::Unknown("systemctl show gave no reply".into()),
+            Answer::Failed(why) => Fact::Unknown(why),
+        };
+        let Fact::Known(found) = service else {
+            return service;
+        };
+        if !found.loaded {
+            return service;
+        }
+        let (Some(backend), Some(bws)) = (backend, bws) else {
+            return Fact::Unknown(
+                "the loaded unit cannot be checked without a known backend and a trusted bws"
+                    .into(),
+            );
+        };
+        let args = match layout.daemon_args(backend, bws) {
+            Ok(args) => args,
+            Err(why) => return Fact::Refused(why),
+        };
+        return match host.query(Query::UnitCommand) {
+            Answer::Text(json) => match linux::loaded_command(&json, &args) {
+                Fact::Known(()) => service,
+                Fact::Refused(why) => Fact::Refused(why),
+                Fact::Unknown(why) => Fact::Unknown(why),
+            },
+            Answer::NotFound => Fact::Unknown("busctl gave no reply".into()),
             Answer::Failed(why) => Fact::Unknown(why),
         };
     }

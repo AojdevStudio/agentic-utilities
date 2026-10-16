@@ -4,8 +4,8 @@ use super::custody::Owner;
 use super::facts::{AccountRecord, Fact, Service};
 use super::layout::{Backend, Layout, Platform};
 use super::linux::{
-    account_record, backend_for, parse_unit_show, render_pam, render_unit, systemd_version,
-    uid_count, PamLayout,
+    account_record, backend_for, loaded_command, parse_unit_show, render_pam, render_unit,
+    systemd_version, uid_count, PamLayout,
 };
 use std::path::Path;
 
@@ -24,6 +24,9 @@ fn show(changes: &[(&str, &str)]) -> String {
         ("DropInPaths", ""),
         ("UnitFileState", "enabled"),
         ("NeedDaemonReload", "no"),
+        ("User", ""),
+        ("Group", ""),
+        ("DynamicUser", "no"),
     ];
     base.iter()
         .map(|(key, value)| {
@@ -190,4 +193,21 @@ fn account_records_read_passwd_and_shadow_lock_state() {
     let all = "root:x:0:0::/root:/bin/bash\nhushrun:x:998:65534::/nonexistent:/usr/sbin/nologin\ntwin:x:998:1::/:/bin/sh\n";
     assert_eq!(uid_count(all, 998), 2);
     assert_eq!(uid_count(all, 0), 1);
+}
+
+#[test]
+fn the_loaded_command_keeps_argument_boundaries_from_busctl() {
+    // Captured from busctl --json=short on systemd 255 for a vendor unit.
+    let captured = r#"{"type":"a(sasbttttuii)","data":[["sh",["sh","-c","[ \"$AUTOSCAN\" != \"true\" ] || /sbin/mdadm --monitor --oneshot --scan"],false,0,0,0,0,0,0,0]]}"#;
+    let script = "[ \"$AUTOSCAN\" != \"true\" ] || /sbin/mdadm --monitor --oneshot --scan";
+    let args = ["sh", "-c", script].map(String::from);
+    assert_eq!(loaded_command(captured, &args), Fact::Known(()));
+    let split: Vec<String> = ["sh", "-c"]
+        .into_iter()
+        .chain(script.split(' '))
+        .map(String::from)
+        .collect();
+    assert!(matches!(loaded_command(captured, &split), Fact::Refused(_)));
+    let absent = r#"{"type":"a(sasbttttuii)","data":[]}"#;
+    assert!(matches!(loaded_command(absent, &args), Fact::Unknown(_)));
 }

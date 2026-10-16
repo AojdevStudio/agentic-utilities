@@ -18,6 +18,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const SYSTEMCTL: &str = "/usr/bin/systemctl";
+const BUSCTL: &str = "/usr/bin/busctl";
 const SYSTEMD_CREDS: &str = "/usr/bin/systemd-creds";
 const GETENT: &str = "/usr/bin/getent";
 const USERADD: &str = "/usr/sbin/useradd";
@@ -25,8 +26,10 @@ const LAUNCHCTL: &str = "/bin/launchctl";
 const DSCL: &str = "/usr/bin/dscl";
 const DSIMPORT: &str = "/usr/bin/dsimport";
 const PLIST: &str = "/Library/LaunchDaemons/hush.plist";
-const SHOW_FIELDS: &str =
-    "LoadState,ActiveState,UnitFileState,FragmentPath,DropInPaths,MainPID,Names,NeedDaemonReload";
+const SHOW_FIELDS: &str = "LoadState,ActiveState,UnitFileState,FragmentPath,DropInPaths,MainPID,Names,NeedDaemonReload,User,Group,DynamicUser";
+/// The D-Bus object of hush.service. `systemctl show` joins argv without
+/// quoting, so the loaded command is read here with its boundaries intact.
+const UNIT_OBJECT: &str = "/org/freedesktop/systemd1/unit/hush_2eservice";
 const OUTPUT_LIMIT: u64 = 1 << 20;
 const DEADLINE: Duration = Duration::from_secs(120);
 
@@ -52,6 +55,20 @@ impl Host for NativeHost {
                     "-p".into(),
                     SHOW_FIELDS.into(),
                 ],
+                None,
+            ),
+            Query::UnitCommand => (
+                BUSCTL,
+                [
+                    "--json=short",
+                    "get-property",
+                    "org.freedesktop.systemd1",
+                    UNIT_OBJECT,
+                    "org.freedesktop.systemd1.Service",
+                    "ExecStart",
+                ]
+                .map(String::from)
+                .to_vec(),
                 None,
             ),
             Query::Passwd(name) => (GETENT, vec!["passwd".into(), name.into()], Some(2)),

@@ -40,21 +40,19 @@ pub(super) fn drive(
     deadline: Instant,
     budget: Budget,
 ) -> Result<(Option<i32>, String)> {
+    // Output is checked before the reap, so a failure still owns the group.
     let exchanged = exchange(&mut child, input, deadline, budget).and_then(|output| {
+        let text = String::from_utf8(output).map_err(|_| anyhow!("the output is not UTF-8"))?;
         let status = child.wait().context("cannot reap the child")?;
-        Ok((status.code(), String::from_utf8(output).ok()))
+        Ok((status.code(), text))
     });
-    match exchanged {
-        Ok((code, Some(text))) => Ok((code, text)),
-        Ok((_, None)) => bail!("{program} printed output that is not UTF-8"),
-        Err(error) => {
-            let error = error.context(format!("{program} was stopped"));
-            Err(match stop(&mut child) {
-                Ok(()) => error,
-                Err(reap) => error.context(format!("{program} could not be reaped ({reap})")),
-            })
+    exchanged.map_err(|error| {
+        let error = error.context(format!("{program} was stopped"));
+        match stop(&mut child) {
+            Ok(()) => error,
+            Err(reap) => error.context(format!("{program} could not be reaped ({reap})")),
         }
-    }
+    })
 }
 
 /// Move bytes until the token is written, stdout is closed and the child has

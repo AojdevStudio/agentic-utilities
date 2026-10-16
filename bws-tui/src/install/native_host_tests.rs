@@ -98,6 +98,26 @@ fn unreadable_or_oversized_output_is_an_error_not_a_partial_result() {
 }
 
 #[test]
+fn a_descendant_left_behind_by_invalid_output_is_stopped() {
+    let temp = PrivateTemp::new("hush-native-test");
+    let pid_file = temp.path().join("pid");
+    let script = format!(
+        "{SLEEP} 3 >/dev/null 2>&1 & echo $! > {}; printf '\\377'; exit 0",
+        pid_file.display()
+    );
+    let outcome = run_within(SH, &args(&["-c", &script]), None, BUDGET);
+    let descendant = Descendant(
+        fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap(),
+    );
+    assert!(outcome.is_err(), "{outcome:?}");
+    assert!(descendant.gone_within(BOUND), "the descendant still runs");
+}
+
+#[test]
 fn a_helper_that_reads_its_token_finishes_within_its_budget() {
     let temp = PrivateTemp::new("hush-native-test");
     let path = temp.path().join("out");

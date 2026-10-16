@@ -83,7 +83,7 @@ mod fix_tests;
 #[cfg(test)]
 mod human_tests;
 #[cfg(test)]
-mod private_temp_harness;
+pub(crate) mod private_temp_harness;
 #[cfg(test)]
 mod pty_harness;
 #[cfg(test)]

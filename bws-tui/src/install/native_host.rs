@@ -6,7 +6,7 @@
 use super::custody::{Dir, Owner};
 use super::facts::Fact;
 use super::host::{Action, Answer, Host, Query};
-use super::layout::{rel, CREDENTIAL_NAME, LAUNCHD_LABEL, UNIT_NAME};
+use super::layout::{CREDENTIAL_NAME, LAUNCHD_LABEL, UNIT_NAME};
 use super::native_io::{drive, Budget, Owned, BUDGET};
 use super::sys::create_exclusive;
 use crate::broker::identity::{AccountDb, SystemAccounts, HUSHRUN_ACCOUNT};
@@ -248,14 +248,10 @@ pub(super) fn run_within(
         Fact::Known(root) => root,
         Fact::Refused(why) | Fact::Unknown(why) => bail!("cannot check {program} ({why})"),
     };
-    if let Fact::Refused(why) | Fact::Unknown(why) =
-        root.executable(rel(Path::new(program)), Owner(0))
-    {
-        bail!("{program} is not a trusted native program ({why})");
-    }
+    let checked = super::native_program::checked(&root, Owner(0), program)?;
     // Held until the child is reaped, so a stop signal waits for cleanup.
     let _owned = Owned::take()?;
-    let mut command = Command::new(program);
+    let mut command = Command::new(checked);
     command
         .args(args)
         .env_clear()

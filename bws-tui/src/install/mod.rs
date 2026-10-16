@@ -13,6 +13,7 @@ mod linux;
 mod macos;
 mod native_host;
 mod native_io;
+mod native_program;
 mod observe;
 mod plan;
 mod prereq;
@@ -41,6 +42,8 @@ mod macos_tests;
 mod manager_tests;
 #[cfg(test)]
 mod native_host_tests;
+#[cfg(test)]
+mod native_program_tests;
 #[cfg(test)]
 mod native_signal_tests;
 #[cfg(test)]

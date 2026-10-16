@@ -67,7 +67,7 @@ pub(crate) fn apply(
         false => None,
     };
     let root = match Dir::open_root(&observation.layout.root, observation.layout.owner) {
-        Fact::Known(root) => root,
+        Fact::Known(root) => root.trusting_log_parent(&observation.layout),
         Fact::Refused(why) | Fact::Unknown(why) => {
             return Err(stop("open the install root", anyhow!(why)))
         }

@@ -57,7 +57,7 @@ pub(crate) struct Observation {
 
 pub(crate) fn observe(layout: Layout, host: &mut dyn Host) -> Observation {
     let root = match Dir::open_root(&layout.root, layout.owner) {
-        Fact::Known(root) => root,
+        Fact::Known(root) => root.trusting_log_parent(&layout),
         Fact::Refused(why) => return Observation::blocked(layout, Fact::Refused(why)),
         Fact::Unknown(why) => return Observation::blocked(layout, Fact::Unknown(why)),
     };

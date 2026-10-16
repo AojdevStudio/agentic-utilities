@@ -11,6 +11,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
+mod groups;
 mod native_link;
 
 /// Prefix of this installer's private staging names:
@@ -26,6 +27,7 @@ pub(crate) struct Dir {
     fd: OwnedFd,
     path: PathBuf,
     mode: u32,
+    shared: groups::Shared,
 }
 
 pub(crate) enum Walk {
@@ -72,7 +74,7 @@ impl Dir {
             Err(error) => Err(error),
         };
         match fd {
-            Ok(fd) => Dir::checked(fd, path.to_path_buf(), owner),
+            Ok(fd) => Dir::checked(fd, path.to_path_buf(), owner, groups::Shared::default()),
             Err(error) => io_fact(path, &error),
         }
     }
@@ -91,13 +93,14 @@ impl Dir {
                 fd,
                 path: self.path.clone(),
                 mode: self.mode,
+                shared: self.shared.clone(),
             },
             Err(error) => return io_fact(&self.path, &error),
         };
         for (index, name) in names.iter().enumerate() {
             let path = current.path.join(name);
             match openat(current.fd(), name, libc::O_RDONLY | libc::O_DIRECTORY) {
-                Ok(fd) => match Dir::checked(fd, path, owner) {
+                Ok(fd) => match Dir::checked(fd, path, owner, current.shared.clone()) {
                     Fact::Known(dir) => current = dir,
                     Fact::Refused(why) => return Fact::Refused(why),
                     Fact::Unknown(why) => return Fact::Unknown(why),
@@ -220,7 +223,7 @@ impl Dir {
         self.mode
     }
 
-    fn checked(fd: OwnedFd, path: PathBuf, owner: Owner) -> Fact<Dir> {
+    fn checked(fd: OwnedFd, path: PathBuf, owner: Owner, shared: groups::Shared) -> Fact<Dir> {
         let stat = match fstat(fd.as_fd()) {
             Ok(stat) => stat,
             Err(error) => return io_fact(&path, &error),
@@ -232,7 +235,7 @@ impl Dir {
         if stat.st_uid != 0 && stat.st_uid != owner.0 {
             return refused(&path, format!("is owned by uid {}", stat.st_uid));
         }
-        if mode & 0o022 != 0 {
+        if mode & 0o002 != 0 || (mode & 0o020 != 0 && !shared.allows(&path, stat.st_gid)) {
             return refused(&path, "is group or world writable".into());
         }
         match acl::grants(fd.as_fd()) {
@@ -240,6 +243,7 @@ impl Dir {
                 fd,
                 path,
                 mode: mode & 0o7777,
+                shared,
             }),
             Ok(true) => refused(&path, "has extended ACL grants".into()),
             Err(error) => io_fact(&path, &error),

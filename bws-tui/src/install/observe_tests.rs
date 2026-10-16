@@ -12,6 +12,7 @@ use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
 mod native_links;
+mod system_groups;
 
 type Mutation = fn(&Fixture, &mut FakeHost);
 

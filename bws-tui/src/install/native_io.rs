@@ -4,6 +4,7 @@
 //! child's process group is killed and the child is reaped. The child's own
 //! group misses a terminal's stop signal, so that signal is held while a
 //! child is owned and delivered once its group is stopped and it is reaped.
+//! The hidden token prompt takes the same ownership while echo is off.
 
 use anyhow::{anyhow, bail, Context, Result};
 use secrecy::{ExposeSecret, SecretString};
@@ -31,8 +32,8 @@ pub(super) const BUDGET: Budget = Budget {
     input_pipe: None,
 };
 
-/// How often a quiet child is checked for exit.
-const TICK: Duration = Duration::from_millis(10);
+/// How often a quiet child or a waiting prompt checks for its end.
+pub(super) const TICK: Duration = Duration::from_millis(10);
 
 /// Signals a terminal or a supervisor sends to end the installer.
 const STOP_SIGNALS: [libc::c_int; 4] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT];
@@ -41,8 +42,8 @@ static OWNED: AtomicUsize = AtomicUsize::new(0);
 /// A stop signal held until no owned child runs, or 0.
 static HELD: AtomicI32 = AtomicI32::new(0);
 
-/// Cleanup ownership of one native child. Take it before spawn, so a signal
-/// at startup is held too, and drop it after the reap.
+/// Cleanup ownership of one native child or the hidden prompt. Take it before
+/// spawn, so a signal at startup is held too, and drop it after the reap.
 pub(super) struct Owned(());
 
 impl Owned {
@@ -67,6 +68,11 @@ impl Drop for Owned {
             }
         }
     }
+}
+
+/// Whether a stop signal is held for the current owners.
+pub(super) fn stopping() -> bool {
+    HELD.load(SeqCst) != 0
 }
 
 /// Feed the token, collect stdout and wait for the child, all before
@@ -116,7 +122,7 @@ fn exchange(
     }
     let (mut written, mut output, mut chunk) = (0, Vec::new(), [0u8; 8192]);
     loop {
-        if HELD.load(SeqCst) != 0 {
+        if stopping() {
             bail!("a stop signal arrived");
         }
         if written == token.len() {

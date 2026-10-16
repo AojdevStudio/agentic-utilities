@@ -39,9 +39,13 @@ fn linux_account(
     host: &mut dyn Host,
     nobody_gid: u32,
 ) -> Fact<Account> {
-    if let Fact::Refused(why) | Fact::Unknown(why) =
-        root.executable(rel(Path::new(LINUX_SHELL)), layout.owner)
-    {
+    // A merged usr/sbin -> bin is native. The record still names LINUX_SHELL.
+    let shell = match root.native_target(Path::new(LINUX_SHELL), layout.owner) {
+        Fact::Known(shell) => root.executable(rel(&shell), layout.owner),
+        Fact::Refused(why) => Fact::Refused(why),
+        Fact::Unknown(why) => Fact::Unknown(why),
+    };
+    if let Fact::Refused(why) | Fact::Unknown(why) = shell {
         return Fact::Refused(format!("no verified nonlogin shell ({why})"));
     }
     let shadow = host.query(Query::Shadow(HUSHRUN_ACCOUNT));

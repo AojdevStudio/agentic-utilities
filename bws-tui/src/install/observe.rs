@@ -251,8 +251,26 @@ fn pam_layout(root: &Dir, layout: &Layout) -> Option<linux::PamLayout> {
     if ready("common-auth") && ready("common-account") {
         Some(linux::PamLayout::Debian)
     } else {
-        ready("system-auth").then_some(linux::PamLayout::SystemAuth)
+        system_auth(root, layout).then_some(linux::PamLayout::SystemAuth)
     }
+}
+
+/// authselect owns system-auth as a link into etc/authselect. Only this
+/// include may cross a native link, and its target keeps every file check.
+fn system_auth(root: &Dir, layout: &Layout) -> bool {
+    let logical = Path::new("/etc/pam.d/system-auth");
+    let Fact::Known(target) = root.native_target(logical, layout.owner) else {
+        return false;
+    };
+    let (Some(parent), Some(name)) = (target.parent(), target.file_name()) else {
+        return false;
+    };
+    let Fact::Known(Walk::Found(dir)) = root.walk(rel(parent), layout.owner) else {
+        return false;
+    };
+    let name = name.to_string_lossy();
+    dir.file(&name, Mode::Protected, layout.owner, Contents::Opaque)
+        == Fact::Known(FileState::Ready)
 }
 
 #[cfg(target_os = "linux")]

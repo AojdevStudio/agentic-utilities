@@ -143,3 +143,39 @@ fn directory_records_and_free_system_uids() {
     assert_eq!(lines.len(), 2, "{record}");
     assert_eq!(lines[1], "hushrun:498:-2:/var/empty:/usr/bin/false:*:1");
 }
+
+/// Top-level lines of a real macOS 26.7 `launchctl print system/<label>` reply
+/// for a running LaunchDaemon, relabeled for hush. launchd prints `username` and
+/// `group` after `domain`, and only for a job that runs as another user.
+fn cached(program: &str, identity: &str) -> String {
+    let arguments: String = args().iter().map(|arg| format!("\t\t{arg}\n")).collect();
+    format!("system/hush = {{\n\tactive count = 1\n\tpath = {PLIST}\n\ttype = LaunchDaemon\n\tstate = running\n\n\tprogram = {program}\n\targuments = {{\n{arguments}\t}}\n\n\tdomain = system\n{identity}\tminimum runtime = 10\n\texit timeout = 5\n\truns = 1\n\tpid = 188\n\tlast exit code = (never exited)\n\n\tspawn type = daemon (3)\n\tproperties = runatload | inferred program\n}}\n")
+}
+
+#[test]
+fn cached_jobs_must_prove_the_rendered_program_and_root_identity() {
+    let ours = args()[0].clone();
+    let known = |text: &str| matches!(parse_print(text, PLIST, &args()), Fact::Known(_));
+    let refused = |text: &str| matches!(parse_print(text, PLIST, &args()), Fact::Refused(_));
+    let unknown = |text: &str| matches!(parse_print(text, PLIST, &args()), Fact::Unknown(_));
+    // launchd omits username and group for root, by default or set explicitly.
+    assert!(known(&cached(&ours, "")));
+    assert!(known(&cached(&ours, "\tusername = root\n")));
+    // Matching argv does not prove the executable or the user.
+    assert!(refused(&cached("/usr/bin/false", "")));
+    assert!(refused(&cached(
+        &ours,
+        "\tusername = _timed\n\tgroup = _timed\n"
+    )));
+    assert!(refused(&cached(&ours, "\tgroup = staff\n")));
+    // Missing, unreadable or forged proof is unknown, never root.
+    let real = cached(&ours, "");
+    assert!(unknown(&real.replace(&format!("\tprogram = {ours}\n"), "")));
+    assert!(unknown(&real.replace("\tdomain = system\n", "")));
+    assert!(unknown(&cached(&ours, "\tusername = \n")));
+    assert!(unknown(&cached(
+        &ours,
+        "\tusername = _timed\n\tusername = root\n"
+    )));
+    assert!(unknown(real.trim_end().trim_end_matches('}')));
+}

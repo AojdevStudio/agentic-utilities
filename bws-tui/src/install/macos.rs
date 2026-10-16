@@ -27,20 +27,45 @@ pub(crate) fn render_plist(layout: &Layout, bws: &Path) -> Result<Vec<u8>, Strin
     .into_bytes())
 }
 
+/// Top-level fields read from `launchctl print system/hush`.
+const FIELDS: [&str; 7] = [
+    "path", "state", "program", "domain", "username", "group", "pid",
+];
+
+/// Every top-level `key = value` line. A value with an embedded newline can
+/// print a second one, so callers refuse to pick between duplicates.
+fn top_values<'t>(text: &'t str, key: &'t str) -> impl Iterator<Item = &'t str> {
+    text.lines().filter_map(move |line| {
+        line.strip_prefix('\t')?
+            .strip_prefix(key)?
+            .strip_prefix(" =")
+            .map(|value| value.strip_prefix(' ').unwrap_or(value))
+    })
+}
+
 /// Read whitelisted top-level fields of `launchctl print system/hush`.
 /// Boot policy comes from `disabled_override`, so `enabled` here only means loaded.
+/// The cached job must run the rendered program as root. launchd prints
+/// `program` even when it is inferred from the arguments, and prints `username`
+/// and `group` after `domain` only for a job that runs as another user.
 pub(crate) fn parse_print(text: &str, path: &str, args: &[String]) -> Fact<Service> {
     if text.contains("Could not find service") {
         return Fact::Known(Service::default());
     }
-    let field = |key: &str| {
-        text.lines().find_map(|line| {
-            line.strip_prefix('\t')?
-                .strip_prefix(key)?
-                .strip_prefix(" = ")
-        })
-    };
-    let (Some(loaded_from), Some(state)) = (field("path"), field("state")) else {
+    if let Some(key) = FIELDS
+        .iter()
+        .find(|key| top_values(text, key).nth(1).is_some())
+    {
+        return Fact::Unknown(format!("launchctl print shows {key} more than once"));
+    }
+    let field = |key| top_values(text, key).next();
+    let (Some(loaded_from), Some(state), Some(program), Some("system"), true) = (
+        field("path"),
+        field("state"),
+        field("program"),
+        field("domain"),
+        text.lines().any(|line| line == "}"),
+    ) else {
         return Fact::Unknown("launchctl print gave an unexpected reply".into());
     };
     if loaded_from != path {
@@ -63,6 +88,27 @@ pub(crate) fn parse_print(text: &str, path: &str, args: &[String]) -> Fact<Servi
         return Fact::Refused(format!(
             "launchd job {LAUNCHD_LABEL} runs a different command"
         ));
+    }
+    if args.first().map(String::as_str) != Some(program) {
+        return Fact::Refused(format!(
+            "launchd job {LAUNCHD_LABEL} runs {program}, not the rendered program"
+        ));
+    }
+    for (key, root) in [("username", "root"), ("group", "wheel")] {
+        match field(key) {
+            None => {}
+            Some(value) if value == root => {}
+            Some("") => {
+                return Fact::Unknown(format!(
+                    "launchd job {LAUNCHD_LABEL} has an unreadable {key}"
+                ))
+            }
+            Some(value) => {
+                return Fact::Refused(format!(
+                    "launchd job {LAUNCHD_LABEL} runs with {key} {value}, not {root}"
+                ))
+            }
+        }
     }
     let active = state == "running";
     let pid = field("pid").and_then(|pid| pid.parse().ok());

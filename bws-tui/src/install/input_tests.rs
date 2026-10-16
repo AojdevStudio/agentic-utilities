@@ -1,6 +1,8 @@
 //! Token input against real files, a FIFO and a pseudo-terminal.
 
-use super::input::{check_private, hidden_line};
+use super::input::{check_private, hidden_line, private_terminal};
+use super::native_host_tests::Driver;
+use super::native_io::Owned;
 use crate::broker::private_temp_harness::PrivateTemp;
 use secrecy::ExposeSecret;
 use std::fs::{self, File, OpenOptions};
@@ -8,8 +10,10 @@ use std::io::{Read, Write};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const SENTINEL: &str = "SYNTHETIC-hidden-token";
 
@@ -44,6 +48,7 @@ fn a_terminal_line_is_read_with_echo_off_and_the_mode_is_restored() {
         unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut before) },
         0
     );
+    let flags = status_flags(&slave);
     let typed = std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(200));
         master
@@ -69,6 +74,90 @@ fn a_terminal_line_is_read_with_echo_off_and_the_mode_is_restored() {
         after.c_lflag, before.c_lflag,
         "terminal mode was not restored"
     );
+    assert_eq!(status_flags(&slave), flags, "the caller's flags changed");
+}
+
+#[test]
+fn a_stop_signal_during_the_hidden_prompt_restores_echo_then_ends_the_process() {
+    let (_master, slave) = pty();
+    assert!(echo(&slave), "a fresh terminal starts with echo on");
+    let flags = status_flags(&slave);
+    let driver = Driver(
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "install::input_tests::hidden_prompt_driver"])
+            .arg("--ignored")
+            .process_group(0)
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let until = Instant::now() + Duration::from_secs(10);
+    while echo(&slave) {
+        assert!(Instant::now() < until, "the prompt never turned echo off");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // SAFETY: SIGINT to the driver alone, which leads its own group.
+    unsafe { libc::kill(driver.0.id() as libc::pid_t, libc::SIGINT) };
+    let status = driver.wait_within(Duration::from_secs(10));
+    assert_eq!(
+        status.map(|status| status.signal()),
+        Some(Some(libc::SIGINT))
+    );
+    assert!(echo(&slave), "the interrupted prompt left echo off");
+    assert_eq!(status_flags(&slave), flags, "the caller's flags changed");
+}
+
+/// Select readiness does not reserve input, so the prompt reads through its
+/// own handle. With nothing queued that read returns at once, never blocks.
+#[test]
+fn the_prompt_reads_a_private_nonblocking_handle_on_the_same_terminal() {
+    let (mut master, slave) = pty();
+    let flags = status_flags(&slave);
+    let private = private_terminal(slave.as_fd()).unwrap();
+    let mut buffer = [0u8; 64];
+    let read = |buffer: &mut [u8]| {
+        // SAFETY: reads into a live buffer through an owned descriptor.
+        let read = unsafe { libc::read(private.as_raw_fd(), buffer.as_mut_ptr().cast(), 64) };
+        (read, std::io::Error::last_os_error().kind())
+    };
+    assert_eq!(read(&mut buffer), (-1, std::io::ErrorKind::WouldBlock));
+    assert_eq!(status_flags(&slave), flags, "the caller's flags changed");
+    master
+        .write_all(format!("{SENTINEL}\n").as_bytes())
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(read(&mut buffer).0, SENTINEL.len() as isize + 1);
+    let (pipe, _writer) = std::io::pipe().unwrap();
+    assert!(
+        private_terminal(pipe.as_fd()).is_err(),
+        "a pipe is no terminal"
+    );
+}
+
+fn status_flags(fd: &OwnedFd) -> libc::c_int {
+    // SAFETY: F_GETFL on a descriptor this test owns.
+    unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) }
+}
+
+#[test]
+#[ignore = "run only by a_stop_signal_during_the_hidden_prompt_restores_echo_then_ends_the_process"]
+fn hidden_prompt_driver() {
+    // Observation arms the native stop handlers before any prompt.
+    drop(Owned::take().unwrap());
+    let _ = hidden_line(std::io::stdin().as_fd());
+    panic!("the hidden prompt returned instead of ending the process");
+}
+
+fn echo(terminal: &OwnedFd) -> bool {
+    // SAFETY: zeroed termios is a valid out buffer for tcgetattr.
+    let mut mode: libc::termios = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::tcgetattr(terminal.as_raw_fd(), &mut mode) },
+        0
+    );
+    mode.c_lflag & libc::ECHO != 0
 }
 
 #[test]

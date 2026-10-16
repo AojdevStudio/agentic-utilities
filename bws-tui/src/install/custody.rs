@@ -11,6 +11,8 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
+mod native_link;
+
 /// Prefix of this installer's private staging names:
 /// `<STAGE_PREFIX><final name>.<pid>.<nanos>`.
 pub(crate) const STAGE_PREFIX: &str = ".hush-stage.";

@@ -11,6 +11,8 @@ use super::status::Status;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 
+mod native_links;
+
 type Mutation = fn(&Fixture, &mut FakeHost);
 
 fn setup(platform: Platform) -> (Fixture, FakeHost) {

@@ -151,7 +151,8 @@ impl Host for FakeHost {
                 let arguments: String = self.launchd_args.iter().map(|arg| format!("\t\t{arg}\n")).collect();
                 let pid = self.service.pid.map(|pid| format!("\tpid = {pid}\n")).unwrap_or_default();
                 let state = if self.service.active { "running" } else { "not running" };
-                text(format!("system/hush = {{\n\tpath = /Library/LaunchDaemons/hush.plist\n\tstate = {state}\n\targuments = {{\n{arguments}\t}}\n{pid}}}\n"))
+                let program = self.launchd_args.first().map(String::as_str).unwrap_or_default();
+                text(format!("system/hush = {{\n\tpath = /Library/LaunchDaemons/hush.plist\n\tstate = {state}\n\tprogram = {program}\n\targuments = {{\n{arguments}\t}}\n\tdomain = system\n{pid}}}\n"))
             }
             Query::LaunchdDisabled => text(match self.disabled {
                 Some(true) => "\tdisabled services = {\n\t\t\"hush\" => disabled\n\t}\n".into(),

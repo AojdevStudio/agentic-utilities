@@ -3,12 +3,17 @@
 //! zeroed on drop.
 
 use super::acl;
+use super::native_io::{stopping, Owned, TICK};
 use super::sys::fstat;
 use crate::broker::token::{read_bounded, TOKEN_LIMIT};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use secrecy::SecretString;
+use std::ffi::{CStr, OsStr};
+use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, IsTerminal};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::OpenOptionsExt;
 use zeroize::Zeroizing;
 
 pub(crate) trait TokenSource {
@@ -74,7 +79,11 @@ fn anonymous_pipe(fd: BorrowedFd<'_>) -> Result<bool> {
 }
 
 /// Read one line from a terminal with echo off, restoring the mode afterwards.
+/// Cleanup ownership comes before echo goes off, so a stop signal is held.
+/// The wait sees it, the mode is restored, and the owner's drop delivers it.
 pub(crate) fn hidden_line(terminal: BorrowedFd<'_>) -> Result<SecretString> {
+    let owned = Owned::take()?;
+    let private = private_terminal(terminal)?;
     let fd = terminal.as_raw_fd();
     // SAFETY: zeroed termios is a valid out buffer for tcgetattr.
     let mut saved: libc::termios = unsafe { std::mem::zeroed() };
@@ -87,28 +96,71 @@ pub(crate) fn hidden_line(terminal: BorrowedFd<'_>) -> Result<SecretString> {
     if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &quiet) } != 0 {
         bail!("cannot turn terminal echo off");
     }
-    let line = read_line(fd);
+    let line = read_line(private.as_raw_fd());
     // SAFETY: restores the mode saved above on every path.
     let restored = unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &saved) } == 0;
-    let line = line?;
-    if !restored {
-        bail!("cannot restore the terminal mode");
+    let token = match restored {
+        true => line.and_then(|line| read_bounded(&mut line.as_slice())),
+        false => Err(anyhow!("cannot restore the terminal mode")),
+    };
+    if stopping() {
+        // The held signal ends the process before any error could return.
+        if !restored {
+            eprintln!("cannot restore the terminal mode");
+        }
+        drop(token);
+        drop(owned);
+        bail!("a stop signal arrived");
     }
-    read_bounded(&mut line.as_slice())
+    token
+}
+
+/// A nonblocking read handle on the same terminal. Select readiness does not
+/// reserve input, so a blocking read could outwait a held stop signal. The
+/// flag lives on this handle's own open file description. A dup would share,
+/// and change, the caller's flags. The reopened node must be the same device.
+pub(crate) fn private_terminal(terminal: BorrowedFd<'_>) -> Result<File> {
+    let mut name = [0 as libc::c_char; 1024];
+    // SAFETY: ttyname_r writes a NUL-terminated name into the live buffer.
+    if unsafe { libc::ttyname_r(terminal.as_raw_fd(), name.as_mut_ptr(), name.len()) } != 0 {
+        bail!("cannot name the terminal");
+    }
+    // SAFETY: on success the buffer holds a NUL-terminated name.
+    let path = OsStr::from_bytes(unsafe { CStr::from_ptr(name.as_ptr()) }.to_bytes());
+    let private = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
+        .open(path)
+        .context("cannot open a private handle on the terminal")?;
+    let (want, got) = (fstat(terminal)?, fstat(private.as_fd())?);
+    let device = |stat: &libc::stat| stat.st_mode & libc::S_IFMT == libc::S_IFCHR;
+    let node = |stat: &libc::stat| (stat.st_dev, stat.st_ino, stat.st_rdev);
+    if !device(&want) || !device(&got) || node(&want) != node(&got) {
+        bail!("the reopened terminal is not the input terminal");
+    }
+    Ok(private)
 }
 
 /// Bytes up to the first newline. A line longer than the token limit is refused.
+/// `fd` is nonblocking, so input taken by another reader after the wait
+/// returns to the wait instead of blocking.
 fn read_line(fd: libc::c_int) -> Result<Zeroizing<Vec<u8>>> {
     let mut line = Zeroizing::new(vec![0u8; TOKEN_LIMIT + 1]);
     let mut filled = 0;
     while filled < line.len() {
+        if !input_ready(fd)? {
+            continue;
+        }
         // SAFETY: reads into the unfilled tail of a buffer this function owns.
         let read =
             unsafe { libc::read(fd, line[filled..].as_mut_ptr().cast(), line.len() - filled) };
         match read {
             0 => break,
             read if read < 0
-                && std::io::Error::last_os_error().kind() == ErrorKind::Interrupted =>
+                && matches!(
+                    std::io::Error::last_os_error().kind(),
+                    ErrorKind::Interrupted | ErrorKind::WouldBlock
+                ) =>
             {
                 continue
             }
@@ -125,4 +177,30 @@ fn read_line(fd: libc::c_int) -> Result<Zeroizing<Vec<u8>>> {
     }
     line.truncate(filled);
     Ok(line)
+}
+
+/// Wait up to one tick for terminal input. A held stop signal cancels the
+/// read. macOS poll(2) does not support devices, so this uses select(2).
+fn input_ready(fd: libc::c_int) -> Result<bool> {
+    if stopping() {
+        bail!("a stop signal arrived");
+    }
+    if fd >= libc::FD_SETSIZE as libc::c_int {
+        bail!("the terminal descriptor is too large to wait on");
+    }
+    // SAFETY: a zeroed fd_set is a valid set, and fd is below FD_SETSIZE.
+    let mut ready: libc::fd_set = unsafe { std::mem::zeroed() };
+    unsafe { libc::FD_SET(fd, &mut ready) };
+    let mut wait = libc::timeval {
+        tv_sec: 0,
+        tv_usec: TICK.as_micros() as libc::suseconds_t,
+    };
+    let null = std::ptr::null_mut();
+    // SAFETY: every set and the timeout are live for the call.
+    match unsafe { libc::select(fd + 1, &mut ready, null, null, &mut wait) } {
+        found if found > 0 => Ok(true),
+        0 => Ok(false),
+        _ if std::io::Error::last_os_error().kind() == ErrorKind::Interrupted => Ok(false),
+        _ => bail!("cannot wait for the terminal"),
+    }
 }

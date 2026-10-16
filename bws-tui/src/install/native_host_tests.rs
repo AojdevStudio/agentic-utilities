@@ -12,10 +12,9 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "linux")]
-const SH: &str = "/usr/bin/dash";
-#[cfg(target_os = "macos")]
-const SH: &str = "/bin/sh";
+#[path = "native_shell_harness.rs"]
+mod shell_harness;
+use shell_harness::sh;
 #[cfg(target_os = "linux")]
 const SLEEP: &str = "/usr/bin/sleep";
 #[cfg(target_os = "macos")]
@@ -60,7 +59,7 @@ fn a_descendant_holding_stdout_is_stopped_at_the_deadline() {
     let pid_file = temp.path().join("pid");
     let script = format!("{SLEEP} 3 & echo $! > {}; exit 0", pid_file.display());
     let started = Instant::now();
-    let outcome = run_within(SH, &args(&["-c", &script]), None, SHORT);
+    let outcome = run_within(sh(), &args(&["-c", &script]), None, SHORT);
     let elapsed = started.elapsed();
     let descendant = Descendant(
         fs::read_to_string(&pid_file)
@@ -95,7 +94,7 @@ fn unreadable_or_oversized_output_is_an_error_not_a_partial_result() {
     );
     let fits = run_within(PRINTF, &args(&["%016d", "0"]), None, small).unwrap();
     assert_eq!(fits, (Some(0), "0".repeat(16)));
-    let failed = run_within(SH, &args(&["-c", "exit 3"]), None, BUDGET).unwrap();
+    let failed = run_within(sh(), &args(&["-c", "exit 3"]), None, BUDGET).unwrap();
     assert_eq!(failed, (Some(3), String::new()));
 }
 
@@ -108,7 +107,7 @@ fn a_helper_group_is_stopped_before_its_leader_is_reaped() {
             "{SLEEP} 3 >/dev/null 2>&1 & echo $! > {}; {output}; exit 3",
             pid_file.display()
         );
-        let outcome = run_within(SH, &args(&["-c", &script]), None, BUDGET);
+        let outcome = run_within(sh(), &args(&["-c", &script]), None, BUDGET);
         let descendant = Descendant(
             fs::read_to_string(&pid_file)
                 .unwrap()
@@ -164,10 +163,10 @@ fn interrupt_driver() {
         let script = format!(
             "{SLEEP} 3 & echo $! > {dir}/descendant; {ready}; {SLEEP} 0.5; echo late > {dir}/late; {SLEEP} 3"
         );
-        let _ = run_within(SH, &args(&["-c", &script]), None, BUDGET);
+        let _ = run_within(sh(), &args(&["-c", &script]), None, BUDGET);
     } else {
-        run_within(SH, &args(&["-c", "exit 0"]), None, BUDGET).unwrap();
-        run_within(SH, &args(&["-c", &ready]), None, BUDGET).unwrap();
+        run_within(sh(), &args(&["-c", "exit 0"]), None, BUDGET).unwrap();
+        run_within(sh(), &args(&["-c", &ready]), None, BUDGET).unwrap();
         std::thread::sleep(Duration::from_secs(3));
     }
 }

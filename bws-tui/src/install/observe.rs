@@ -61,13 +61,7 @@ pub(crate) fn observe(layout: Layout, host: &mut dyn Host) -> Observation {
         Fact::Refused(why) => return Observation::blocked(layout, Fact::Refused(why)),
         Fact::Unknown(why) => return Observation::blocked(layout, Fact::Unknown(why)),
     };
-    let mut checks = vec![
-        root.executable(rel(&layout.executable), layout.owner),
-        prereq::policy(&layout),
-    ];
-    if layout.platform == Platform::MacOs {
-        checks.push(prereq::aliases(&layout));
-    }
+    let mut checks = prereq::checks(&layout, &root);
     let bws = prereq::resolve_bws(&layout, &root);
     let bws_path = known(&bws);
     let backend = match layout.platform {

@@ -172,6 +172,7 @@ fn perform(
         }
         Step::Reload => manage(
             o,
+            root,
             host,
             |s| !s.loaded || s.needs_reload,
             Action::DaemonReload,
@@ -179,6 +180,7 @@ fn perform(
         ),
         Step::Load => manage(
             o,
+            root,
             host,
             |s| !s.loaded,
             Action::LaunchdBootstrap,
@@ -186,6 +188,7 @@ fn perform(
         ),
         Step::Enable => manage(
             o,
+            root,
             host,
             |s| !s.enabled,
             if linux {
@@ -197,6 +200,7 @@ fn perform(
         ),
         Step::Start => manage(
             o,
+            root,
             host,
             |s| !s.active,
             if linux {
@@ -236,10 +240,12 @@ fn parent<'p>(root: &Dir, o: &Observation, path: &'p Path) -> Result<(Dir, &'p s
     }
 }
 
-/// One manager operation: recheck that it is still needed, act once, and
-/// read back that it took effect. No retry.
+/// One manager operation: recheck that it is still needed and that everything
+/// the service runs from is unchanged, act once, and read back that it took
+/// effect. No retry.
 fn manage(
     o: &Observation,
+    root: &Dir,
     host: &mut dyn Host,
     needed: fn(&Service) -> bool,
     action: Action,
@@ -257,9 +263,30 @@ fn manage(
     if !matches!(&before, Fact::Known(service) if needed(service)) {
         bail!("the service manager state changed after it was observed");
     }
+    unchanged_dependencies(o, root)?;
     host.act(&action)?;
     match prereq::service(&o.layout, host, backend, bws) {
         Fact::Known(service) if effect(&service) => Ok(()),
         _ => bail!("the service manager did not report the expected state afterwards"),
     }
+}
+
+/// Every artifact is ready, the prerequisites still hold and bws resolves to
+/// the same trusted binary. Manager steps follow every artifact step.
+fn unchanged_dependencies(o: &Observation, root: &Dir) -> Result<()> {
+    let layout = &o.layout;
+    for (artifact, _) in &o.artifacts {
+        if inspect(root, layout, artifact) != Fact::Known(FileState::Ready) {
+            bail!("{} changed after it was observed", artifact.path.display());
+        }
+    }
+    for check in prereq::checks(layout, root) {
+        if let Fact::Refused(why) | Fact::Unknown(why) = check {
+            bail!("{why}");
+        }
+    }
+    if prereq::resolve_bws(layout, root) != o.bws {
+        bail!("the trusted bws binary changed after it was observed");
+    }
+    Ok(())
 }

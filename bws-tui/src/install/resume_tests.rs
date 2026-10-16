@@ -11,7 +11,8 @@ use super::layout::Platform;
 use super::observe::observe;
 use super::plan::{Plan, Step};
 use std::fs;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 fn fresh() -> (Fixture, FakeHost) {
     let fixture = Fixture::new(Platform::Linux);
@@ -112,4 +113,62 @@ fn a_leftover_own_stage_link_is_finished_without_input() {
         fs::read(fixture.path("etc/hush/token.cred")).unwrap(),
         b"complete ciphertext"
     );
+}
+
+#[test]
+fn a_dependency_that_changes_after_enable_stops_apply_before_start() {
+    fn chmod(path: &Path, mode: u32) {
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let cases: [(&str, fn(&Path)); 4] = [
+        ("etc/hush/token.cred", |path| chmod(path, 0o640)),
+        ("etc/systemd/system/hush.service", |path| {
+            fs::write(path, b"[Service]\nExecStart=/usr/bin/false\n").unwrap()
+        }),
+        ("usr/local/bin/hush", |path| chmod(path, 0o777)),
+        ("etc/hush/hushd.toml", |path| {
+            fs::write(path, b"require_hushrun = []\n").unwrap();
+            chmod(path, 0o666);
+        }),
+    ];
+    let mut outcomes = Vec::new();
+    for (target, change) in cases {
+        let (fixture, mut host) = fresh();
+        install(&fixture, &mut host, &mut Token::default()).unwrap();
+        host.stop();
+        host.service.enabled = false;
+        host.actions.clear();
+        let _ = fs::remove_file(fixture.path("run/hush/hush.sock"));
+        let path = fixture.path(target);
+        host.on_act = Some(Box::new(move |action| {
+            if *action == Action::EnableUnit {
+                change(&path);
+            }
+        }));
+        let result = install(&fixture, &mut host, &mut Token::default());
+        let credential = fs::metadata(fixture.path("etc/hush/token.cred")).unwrap();
+        outcomes.push((
+            target,
+            host.actions.clone(),
+            result.err().map(|failure| failure.done),
+            credential.permissions().mode() & 0o777,
+        ));
+    }
+    let expected: Vec<_> = cases
+        .iter()
+        .map(|(target, _)| {
+            let mode = if *target == "etc/hush/token.cred" {
+                0o640
+            } else {
+                0o600
+            };
+            (
+                *target,
+                vec![Action::EnableUnit],
+                Some(vec![Step::Enable]),
+                mode,
+            )
+        })
+        .collect();
+    assert_eq!(outcomes, expected);
 }

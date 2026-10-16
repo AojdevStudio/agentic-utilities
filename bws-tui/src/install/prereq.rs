@@ -10,6 +10,18 @@ use crate::broker::policy::Policy;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Prerequisites checked at observation and again before each manager action.
+pub(crate) fn checks(layout: &Layout, root: &Dir) -> Vec<Fact<()>> {
+    let mut checks = vec![
+        root.executable(rel(&layout.executable), layout.owner),
+        policy(layout),
+    ];
+    if layout.platform == Platform::MacOs {
+        checks.push(aliases(layout));
+    }
+    checks
+}
+
 /// An existing policy must be protected and valid. Absence is the empty policy.
 pub(crate) fn policy(layout: &Layout) -> Fact<()> {
     let logical = layout.policy();

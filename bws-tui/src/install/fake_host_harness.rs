@@ -44,6 +44,8 @@ pub(crate) struct FakeHost {
     /// Commands the manager still holds in lists the rendered unit leaves
     /// empty, such as from an older definition. None models a failed query.
     pub cached: Vec<(&'static str, Option<Vec<String>>)>,
+    /// Native systemd can discover a newly published unit before daemon-reload.
+    pub auto_load_unit: bool,
     launchd_args: Vec<String>,
     listener: Option<UnixListener>,
 }
@@ -67,6 +69,7 @@ impl FakeHost {
             loaded_command: Loaded::default(),
             user: Some(String::new()),
             cached: Vec::new(),
+            auto_load_unit: false,
             launchd_args: Vec::new(),
             listener: None,
         }
@@ -110,6 +113,23 @@ impl Host for FakeHost {
     fn query(&mut self, query: Query<'_>) -> Answer {
         let text = |text: String| Answer::Text(text);
         let account = self.account.clone();
+        if self.auto_load_unit
+            && matches!(query, Query::UnitShow)
+            && !self.service.loaded
+            && self.root.join("etc/systemd/system/hush.service").is_file()
+        {
+            let unit = fs::read_to_string(self.root.join("etc/systemd/system/hush.service"))
+                .expect("fake unit was just published");
+            self.service.loaded = true;
+            *self.loaded_command.borrow_mut() = unit.lines().find_map(|line| {
+                let argv: Vec<String> = line
+                    .strip_prefix("ExecStart=")?
+                    .split(' ')
+                    .map(String::from)
+                    .collect();
+                Some((argv[0].clone(), argv))
+            });
+        }
         match query {
             Query::SystemdVersion => text(format!("systemd {} (fake)\n+PAM\n", self.systemd)),
             Query::UnitShow if !self.service.loaded => text(format!("MainPID=0\nNames=hush.service\nLoadState=not-found\nActiveState=inactive\nSubState=dead\nFragmentPath=\nDropInPaths=\nUnitFileState=\nNeedDaemonReload=no\n{}", self.identity())),

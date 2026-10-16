@@ -22,6 +22,20 @@ pub(crate) fn checks(layout: &Layout, root: &Dir) -> Vec<Fact<()>> {
     checks
 }
 
+/// A manager action may proceed when it remains needed. Linux can also
+/// discover the just-published unit before daemon-reload.
+pub(crate) fn action_needed(
+    observed: &Fact<Service>,
+    current: &Fact<Service>,
+    needed: fn(&Service) -> bool,
+    allow_discovered_unit: bool,
+) -> bool {
+    matches!(current, Fact::Known(service) if needed(service))
+        || (allow_discovered_unit
+            && matches!(observed, Fact::Known(service) if !service.loaded)
+            && matches!(current, Fact::Known(service) if service.loaded && !service.needs_reload))
+}
+
 /// An existing policy must be protected and valid, below protected ancestors,
 /// with no ACL grant on any of them. Absence is the empty policy.
 pub(crate) fn policy(layout: &Layout, root: &Dir) -> Fact<()> {

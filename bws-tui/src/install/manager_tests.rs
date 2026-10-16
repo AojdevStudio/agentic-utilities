@@ -140,6 +140,31 @@ fn a_cached_command_the_unit_does_not_render_refuses_and_an_unreadable_list_is_u
 }
 
 #[test]
+fn a_published_unit_discovered_before_reload_is_not_a_foreign_change() {
+    let fixture = Fixture::new(Platform::Linux);
+    let mut host = FakeHost::new(fixture.temp.path(), Platform::Linux);
+    let plan = Plan::from_observation(observe(fixture.layout(), &mut host)).unwrap();
+    host.auto_load_unit = true;
+
+    let done = apply(plan, &mut host, &mut Token::default()).unwrap();
+
+    assert_eq!(done.len(), 10);
+    assert_eq!(
+        host.actions,
+        [
+            Action::CreateLinuxAccount {
+                gid: 65534,
+                shell: "/usr/sbin/nologin".into()
+            },
+            Action::CreateHostKey,
+            Action::DaemonReload,
+            Action::EnableUnit,
+            Action::StartUnit,
+        ]
+    );
+}
+
+#[test]
 fn a_foreign_command_loaded_during_apply_stops_before_the_next_manager_action() {
     let (fixture, mut host) = installed(Platform::Linux);
     host.stop();

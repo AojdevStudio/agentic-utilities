@@ -1,7 +1,5 @@
-//! The one checked apply owner. It consumes the plan once, observes again
-//! before the first write, reads the token only after every known refusal,
-//! rechecks each step's own fact right before acting, and stops at the first
-//! failure or changed fact. Completed steps stay. Nothing is rolled back.
+//! Checked apply owner. It rechecks each step before acting and stops on the
+//! first failure or changed fact. Completed steps stay. Nothing is rolled back.
 
 use super::custody::{Dir, FileState, Walk};
 use super::facts::{Fact, Service};
@@ -248,9 +246,7 @@ fn parent<'p>(root: &Dir, o: &Observation, path: &'p Path) -> Result<(Dir, &'p s
     }
 }
 
-/// One manager operation: recheck that it is still needed and that everything
-/// the service runs from is unchanged, act once, and read back that it took
-/// effect. No retry.
+/// Recheck one manager operation, act once, and verify its effect. No retry.
 fn manage(
     o: &Observation,
     root: &Dir,
@@ -268,7 +264,12 @@ fn manage(
         _ => None,
     };
     let before = prereq::service(&o.layout, host, backend, bws);
-    if !matches!(&before, Fact::Known(service) if needed(service)) {
+    if !prereq::action_needed(
+        &o.service,
+        &before,
+        needed,
+        matches!(action, Action::DaemonReload),
+    ) {
         bail!("the service manager state changed after it was observed");
     }
     unchanged_dependencies(o, root)?;
@@ -279,8 +280,7 @@ fn manage(
     }
 }
 
-/// Every artifact is ready, the prerequisites still hold and bws resolves to
-/// the same trusted binary. Manager steps follow every artifact step.
+/// Verify artifacts, prerequisites, and the trusted bws path before a manager step.
 fn unchanged_dependencies(o: &Observation, root: &Dir) -> Result<()> {
     let layout = &o.layout;
     for (artifact, _) in &o.artifacts {

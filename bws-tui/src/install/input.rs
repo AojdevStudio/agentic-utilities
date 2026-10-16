@@ -2,6 +2,7 @@
 //! The token never comes from argv or the environment, and every buffer is
 //! zeroed on drop.
 
+use super::acl;
 use super::sys::fstat;
 use crate::broker::token::{read_bounded, TOKEN_LIMIT};
 use anyhow::{bail, Context, Result};
@@ -31,18 +32,45 @@ impl TokenSource for OperatorInput {
     }
 }
 
-/// Stdin may be a pipe, a socket or a file only its owner can read.
+/// Stdin must be a descriptor no other user can read from. A socket or an
+/// anonymous pipe reaches only the processes holding it. A named FIFO or a
+/// regular file must be this user's, with no group or other bits and no
+/// extended ACL grant. Privacy that cannot be proven is refused.
 pub(crate) fn check_private(fd: BorrowedFd<'_>) -> Result<()> {
     let stat = fstat(fd).context("cannot inspect stdin")?;
     let kind = stat.st_mode & libc::S_IFMT;
-    // SAFETY: geteuid takes no arguments and cannot fail.
-    let euid = unsafe { libc::geteuid() };
-    let private_file =
-        kind == libc::S_IFREG && stat.st_uid == euid && stat.st_mode as u32 & 0o077 == 0;
-    if kind == libc::S_IFIFO || kind == libc::S_IFSOCK || private_file {
+    if kind == libc::S_IFSOCK || (kind == libc::S_IFIFO && anonymous_pipe(fd)?) {
         return Ok(());
     }
-    bail!("the token must come from a pipe, an owner-only file or the terminal")
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    let owner_only = stat.st_uid == euid && stat.st_mode as u32 & 0o077 == 0;
+    if !matches!(kind, libc::S_IFIFO | libc::S_IFREG) || !owner_only {
+        bail!("the token must come from a pipe, an owner-only file or the terminal");
+    }
+    match acl::grants(fd) {
+        Ok(false) => Ok(()),
+        Ok(true) => bail!("the token input has an extended ACL grant"),
+        Err(_) => bail!("cannot prove that the token input is private"),
+    }
+}
+
+/// A pipe(2) pipe lives on no filesystem, so no other process can open it by
+/// name. Linux reports pipefs for it, and macOS refuses fstatfs with EINVAL.
+fn anonymous_pipe(fd: BorrowedFd<'_>) -> Result<bool> {
+    // SAFETY: zeroed statfs is a valid out buffer for fstatfs on an open descriptor.
+    let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
+    let found = unsafe { libc::fstatfs(fd.as_raw_fd(), &mut stat) } == 0;
+    #[cfg(target_os = "linux")]
+    if found {
+        const PIPEFS_MAGIC: libc::c_long = 0x5049_5045;
+        return Ok(stat.f_type == PIPEFS_MAGIC);
+    }
+    #[cfg(target_os = "macos")]
+    if found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL) {
+        return Ok(!found);
+    }
+    bail!("cannot tell whether stdin is a private pipe")
 }
 
 /// Read one line from a terminal with echo off, restoring the mode afterwards.

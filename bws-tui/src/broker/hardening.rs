@@ -2,6 +2,13 @@
 
 use anyhow::{bail, Result};
 
+/// Token modes the daemon loads, special bits included. systemd hands a Linux
+/// runtime credential over read-only at 0400. macOS keeps exactly 0600.
+#[cfg(target_os = "linux")]
+const TOKEN_MODES: (&[u32], &str) = (&[0o400, 0o600], "token file must have mode 0400 or 0600");
+#[cfg(not(target_os = "linux"))]
+const TOKEN_MODES: (&[u32], &str) = (&[0o600], "token file must have mode 0600");
+
 /// Ownership rule for the token file. Production requires root ownership.
 /// Development with `--dev-same-user` requires ownership by the daemon euid.
 pub(crate) fn check_token_metadata(
@@ -10,8 +17,9 @@ pub(crate) fn check_token_metadata(
     euid: u32,
     dev_same_user: bool,
 ) -> Result<()> {
-    if mode & 0o777 != 0o600 {
-        bail!("token file must have mode 0600");
+    let (allowed, refusal) = TOKEN_MODES;
+    if !allowed.contains(&(mode & 0o7777)) {
+        bail!(refusal);
     }
     if dev_same_user {
         if owner_uid != euid {

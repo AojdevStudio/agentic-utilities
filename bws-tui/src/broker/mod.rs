@@ -83,6 +83,8 @@ mod fix_tests;
 #[cfg(test)]
 mod human_tests;
 #[cfg(test)]
+mod private_temp_harness;
+#[cfg(test)]
 mod pty_harness;
 #[cfg(test)]
 mod round2_tests;
@@ -108,6 +110,10 @@ mod sdk_cancel_tests;
 mod sdk_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod token_read_tests;
+#[cfg(all(test, target_os = "linux"))]
+mod token_tests;
 #[cfg(test)]
 mod trust_tests;
 #[cfg(test)]

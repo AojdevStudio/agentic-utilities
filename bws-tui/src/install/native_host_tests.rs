@@ -229,10 +229,10 @@ fn an_interrupt_stops_the_helper_group_before_the_installer_exits() {
 }
 
 /// The interrupt test's driver. Its group is killed on drop if it still runs.
-struct Driver(Child);
+pub(super) struct Driver(pub(super) Child);
 
 impl Driver {
-    fn wait_within(mut self, limit: Duration) -> Option<std::process::ExitStatus> {
+    pub(super) fn wait_within(mut self, limit: Duration) -> Option<std::process::ExitStatus> {
         let until = Instant::now() + limit;
         while Instant::now() < until {
             if let Some(status) = self.0.try_wait().unwrap() {

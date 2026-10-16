@@ -48,7 +48,7 @@ pub(super) struct Owned(());
 impl Owned {
     pub(super) fn take() -> Result<Self> {
         static HANDLERS: OnceLock<io::Result<()>> = OnceLock::new();
-        if let Err(error) = HANDLERS.get_or_init(hold_stop_signals) {
+        if let Err(error) = HANDLERS.get_or_init(prepare_signals) {
             bail!("cannot arm interrupt cleanup ({error})");
         }
         OWNED.fetch_add(1, SeqCst);
@@ -196,8 +196,18 @@ fn stop(child: &mut Child) -> io::Result<ExitStatus> {
     child.wait()
 }
 
-/// Install the holding handler once, keeping a signal the caller ignores ignored.
-fn hold_stop_signals() -> io::Result<()> {
+/// Keep helpers waitable and hold stop signals, preserving ignored stop signals.
+fn prepare_signals() -> io::Result<()> {
+    // SAFETY: restore default SIGCHLD with no auto-reap flags before any
+    // helper exists. Its unreaped leader must reserve the process group id.
+    unsafe {
+        let mut reap: libc::sigaction = std::mem::zeroed();
+        reap.sa_sigaction = libc::SIG_DFL;
+        libc::sigemptyset(&mut reap.sa_mask);
+        if libc::sigaction(libc::SIGCHLD, &reap, std::ptr::null_mut()) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
     for signal in STOP_SIGNALS {
         // SAFETY: zeroed sigaction values are valid buffers, and each call
         // names one valid signal.

@@ -69,11 +69,8 @@ fn exchange(
     let mut stdout = child.stdout.take();
     let token = input.map_or(&[][..], |token| token.expose_secret().as_bytes());
     if let Some(pipe) = &stdin {
-        #[cfg(all(test, target_os = "linux"))]
-        if let Some(size) = budget.input_pipe {
-            // SAFETY: F_SETPIPE_SZ resizes this process's own open pipe end.
-            assert!(unsafe { libc::fcntl(pipe.as_raw_fd(), libc::F_SETPIPE_SZ, size) } > 0);
-        }
+        #[cfg(test)]
+        shrink(pipe.as_fd(), budget.input_pipe);
         nonblocking(pipe.as_fd())?;
     }
     if let Some(pipe) = &stdout {
@@ -156,6 +153,19 @@ fn stop(child: &mut Child) -> io::Result<()> {
     // SAFETY: the child leads its own group and is not yet reaped.
     unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL) };
     child.wait().map(drop)
+}
+
+/// Test only: model a small Linux pipe. macOS has no per-pipe size control,
+/// so its tests keep the native size.
+#[cfg(test)]
+fn shrink(fd: BorrowedFd<'_>, size: Option<libc::c_int>) {
+    #[cfg(target_os = "linux")]
+    if let Some(size) = size {
+        // SAFETY: F_SETPIPE_SZ resizes this process's own open pipe end.
+        assert!(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETPIPE_SZ, size) } > 0);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (fd, size);
 }
 
 fn nonblocking(fd: BorrowedFd<'_>) -> Result<()> {

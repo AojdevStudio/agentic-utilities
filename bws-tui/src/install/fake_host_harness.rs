@@ -41,6 +41,9 @@ pub(crate) struct FakeHost {
     pub loaded_command: Loaded,
     /// `User=` of the loaded unit. None models a reply without the field.
     pub user: Option<String>,
+    /// Commands the manager still holds in lists the rendered unit leaves
+    /// empty, such as from an older definition. None models a failed query.
+    pub cached: Vec<(&'static str, Option<Vec<String>>)>,
     launchd_args: Vec<String>,
     listener: Option<UnixListener>,
 }
@@ -63,6 +66,7 @@ impl FakeHost {
             on_act: None,
             loaded_command: Loaded::default(),
             user: Some(String::new()),
+            cached: Vec::new(),
             launchd_args: Vec::new(),
             listener: None,
         }
@@ -119,10 +123,16 @@ impl Host for FakeHost {
                     self.identity()
                 ))
             }
-            Query::UnitCommand => {
-                let data = match &*self.loaded_command.borrow() {
-                    Some((path, argv)) => serde_json::json!([[path, argv, false, 0, 0, 0, 0, 0, 0, 0]]),
-                    None => serde_json::json!([]),
+            Query::UnitCommands(list) => {
+                let command = |path: &String, argv: &Vec<String>| serde_json::json!([[path, argv, false, 0, 0, 0, 0, 0, 0, 0]]);
+                let data = match (list, self.cached.iter().find(|(name, _)| *name == list)) {
+                    ("ExecStart", _) => match &*self.loaded_command.borrow() {
+                        Some((path, argv)) => command(path, argv),
+                        None => serde_json::json!([]),
+                    },
+                    (_, Some((_, None))) => return Answer::Failed("busctl get-property failed".into()),
+                    (_, Some((_, Some(argv)))) => command(&argv[0], argv),
+                    (_, None) => serde_json::json!([]),
                 };
                 text(serde_json::json!({"type": "a(sasbttttuii)", "data": data}).to_string())
             }
@@ -171,6 +181,8 @@ impl Host for FakeHost {
             Action::DaemonReload => {
                 let unit = fs::read_to_string(self.root.join("etc/systemd/system/hush.service"));
                 self.service.loaded = unit.is_ok();
+                // The rendered unit defines no other command list.
+                self.cached.clear();
                 *self.loaded_command.borrow_mut() = unit.ok().and_then(|unit| {
                     let argv: Vec<String> = unit
                         .lines()

@@ -11,8 +11,9 @@ use std::path::PathBuf;
 pub(crate) enum Query<'a> {
     SystemdVersion,
     UnitShow,
-    /// The command systemd loaded for the unit, with its argument boundaries.
-    UnitCommand,
+    /// One command list systemd loaded for the unit, named by its property,
+    /// with its argument boundaries.
+    UnitCommands(&'a str),
     Passwd(&'a str),
     Shadow(&'a str),
     PasswdAll,

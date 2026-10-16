@@ -125,7 +125,8 @@ pub(crate) fn resolve_bws(layout: &Layout, root: &Dir) -> Fact<PathBuf> {
 }
 
 /// The manager's view. A failed query is Unknown, never disabled or inactive.
-/// A loaded definition must run the rendered command as its rendered identity.
+/// A loaded definition must run the rendered command as its rendered identity,
+/// with no command in a list the rendered unit leaves empty.
 /// On macOS `enabled` means no disabled override for label hush.
 pub(crate) fn service(
     layout: &Layout,
@@ -155,15 +156,20 @@ pub(crate) fn service(
             Ok(args) => args,
             Err(why) => return Fact::Refused(why),
         };
-        return match host.query(Query::UnitCommand) {
-            Answer::Text(json) => match linux::loaded_command(&json, &args) {
-                Fact::Known(()) => service,
-                Fact::Refused(why) => Fact::Refused(why),
-                Fact::Unknown(why) => Fact::Unknown(why),
-            },
-            Answer::NotFound => Fact::Unknown("busctl gave no reply".into()),
-            Answer::Failed(why) => Fact::Unknown(why),
-        };
+        for list in std::iter::once("ExecStart").chain(linux::UNRENDERED_COMMANDS) {
+            let check = match host.query(Query::UnitCommands(list)) {
+                Answer::Text(json) if list == "ExecStart" => linux::loaded_command(&json, &args),
+                Answer::Text(json) => linux::no_command(&json, list),
+                Answer::NotFound => Fact::Unknown("busctl gave no reply".into()),
+                Answer::Failed(why) => Fact::Unknown(why),
+            };
+            match check {
+                Fact::Known(()) => {}
+                Fact::Refused(why) => return Fact::Refused(why),
+                Fact::Unknown(why) => return Fact::Unknown(why),
+            }
+        }
+        return service;
     }
     let mut service = match host.query(Query::LaunchdPrint) {
         Answer::NotFound => Service::default(),

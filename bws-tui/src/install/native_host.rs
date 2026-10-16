@@ -57,7 +57,7 @@ impl Host for NativeHost {
                 ],
                 None,
             ),
-            Query::UnitCommand => (
+            Query::UnitCommands(list) => (
                 BUSCTL,
                 [
                     "--json=short",
@@ -65,7 +65,7 @@ impl Host for NativeHost {
                     "org.freedesktop.systemd1",
                     UNIT_OBJECT,
                     "org.freedesktop.systemd1.Service",
-                    "ExecStart",
+                    list,
                 ]
                 .map(String::from)
                 .to_vec(),

@@ -1,5 +1,6 @@
 //! Manager resume and listener identity after an install already exists.
 
+use super::apply::apply;
 use super::apply_harness::{install, Token};
 use super::facts::Fact;
 use super::fake_host_harness::FakeHost;
@@ -104,6 +105,38 @@ fn a_foreign_loaded_command_or_identity_refuses_and_a_missing_one_is_unknown() {
             "{command:?} {user:?}: {service:?}"
         );
     }
+}
+
+#[test]
+fn a_cached_command_the_unit_does_not_render_refuses_and_an_unreadable_list_is_unknown() {
+    let (fixture, mut host) = installed(Platform::Linux);
+    host.stop();
+    let _ = std::fs::remove_file(fixture.path("run/hush/hush.sock"));
+    let foreign = || Some(vec!["/usr/bin/false".to_string()]);
+    let lists = [
+        "ExecCondition",
+        "ExecStartPre",
+        "ExecStartPost",
+        "ExecStop",
+        "ExecStopPost",
+    ];
+    for list in lists {
+        for (cached, expected) in [(foreign(), "refused"), (None, "unknown")] {
+            host.cached = vec![(list, cached)];
+            let got = match observe(fixture.layout(), &mut host).service {
+                Fact::Refused(_) => "refused",
+                Fact::Unknown(_) => "unknown",
+                Fact::Known(_) => "known",
+            };
+            assert_eq!(got, expected, "{list}");
+            assert!(Plan::from_observation(observe(fixture.layout(), &mut host)).is_err());
+        }
+    }
+    host.cached.clear();
+    let plan = Plan::from_observation(observe(fixture.layout(), &mut host)).unwrap();
+    host.cached = vec![("ExecStartPre", foreign())];
+    let failure = apply(plan, &mut host, &mut Token::default()).unwrap_err();
+    assert!(host.actions.is_empty(), "{failure:?} {:?}", host.actions);
 }
 
 #[test]

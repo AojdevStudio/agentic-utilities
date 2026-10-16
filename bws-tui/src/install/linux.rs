@@ -134,42 +134,61 @@ pub(crate) fn parse_unit_show(text: &str, fragment: &str) -> Fact<Service> {
     })
 }
 
+/// Command lists the rendered unit leaves empty. A start runs the condition
+/// and pre and post commands, and a started service runs the stop lists when
+/// it ends. Install never reloads the service, so ExecReload is not read.
+pub(crate) const UNRENDERED_COMMANDS: [&str; 5] = [
+    "ExecCondition",
+    "ExecStartPre",
+    "ExecStartPost",
+    "ExecStop",
+    "ExecStopPost",
+];
+
 /// Check the command systemd loaded, from `busctl --json=short get-property`
 /// of `ExecStart`, against the rendered daemon command. Exactly one command,
 /// the same executable and argv, and failures not ignored.
 pub(crate) fn loaded_command(json: &str, args: &[String]) -> Fact<()> {
-    use serde_json::Value;
-    let reply: Option<Value> = serde_json::from_str(json).ok();
-    let commands = reply
-        .as_ref()
-        .filter(|reply| reply["type"] == "a(sasbttttuii)")
-        .and_then(|reply| reply["data"].as_array());
-    let parsed: Option<Vec<(&str, Vec<&str>, bool)>> = commands.and_then(|commands| {
-        commands
-            .iter()
-            .map(|command| {
-                let argv = command[1].as_array()?.iter().map(Value::as_str);
-                Some((
-                    command[0].as_str()?,
-                    argv.collect::<Option<_>>()?,
-                    command[2].as_bool()?,
-                ))
-            })
-            .collect()
-    });
-    match parsed.as_deref() {
+    match commands(json).as_deref() {
         None | Some([]) => {
             Fact::Unknown(format!("the loaded command of {UNIT_NAME} is unreadable"))
         }
-        Some([(path, argv, false)])
-            if args.first().is_some_and(|first| first == path) && argv.iter().eq(args.iter()) =>
-        {
+        Some([(path, argv, false)]) if args.first() == Some(path) && argv == args => {
             Fact::Known(())
         }
         Some(_) => Fact::Refused(format!(
             "{UNIT_NAME} has a loaded command that is not the hush daemon command"
         )),
     }
+}
+
+/// Check that a list the rendered unit leaves empty holds no loaded command.
+pub(crate) fn no_command(json: &str, list: &str) -> Fact<()> {
+    match commands(json).as_deref() {
+        None => Fact::Unknown(format!("the loaded {list} of {UNIT_NAME} is unreadable")),
+        Some([]) => Fact::Known(()),
+        Some(_) => Fact::Refused(format!(
+            "{UNIT_NAME} has a loaded {list} command that the hush unit does not define"
+        )),
+    }
+}
+
+/// The executable, argv and ignore flag of each command in one reply.
+fn commands(json: &str) -> Option<Vec<(String, Vec<String>, bool)>> {
+    use serde_json::Value;
+    let reply: Value = serde_json::from_str(json).ok()?;
+    if reply["type"] != "a(sasbttttuii)" {
+        return None;
+    }
+    let text = |value: &Value| value.as_str().map(String::from);
+    reply["data"]
+        .as_array()?
+        .iter()
+        .map(|command| {
+            let argv: Option<_> = command[1].as_array()?.iter().map(text).collect();
+            Some((text(&command[0])?, argv?, command[2].as_bool()?))
+        })
+        .collect()
 }
 
 /// The hushrun record from one `getent passwd` line and one `getent shadow`

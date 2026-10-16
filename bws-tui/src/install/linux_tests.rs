@@ -4,8 +4,8 @@ use super::custody::Owner;
 use super::facts::{AccountRecord, Fact, Service};
 use super::layout::{Backend, Layout, Platform};
 use super::linux::{
-    account_record, backend_for, loaded_command, parse_unit_show, render_pam, render_unit,
-    systemd_version, uid_count, PamLayout,
+    account_record, backend_for, loaded_command, no_command, parse_unit_show, render_pam,
+    render_unit, systemd_version, uid_count, PamLayout,
 };
 use std::path::Path;
 
@@ -210,4 +210,9 @@ fn the_loaded_command_keeps_argument_boundaries_from_busctl() {
     assert!(matches!(loaded_command(captured, &split), Fact::Refused(_)));
     let absent = r#"{"type":"a(sasbttttuii)","data":[]}"#;
     assert!(matches!(loaded_command(absent, &args), Fact::Unknown(_)));
+    // Captured the same way for the ExecStartPre list of a vendor unit.
+    let pre = r#"{"type":"a(sasbttttuii)","data":[["/usr/sbin/sshd",["/usr/sbin/sshd","-t"],false,1792045132701340,1059766237265,1792045132709720,1059766245647,1224493,1,0]]}"#;
+    assert!(matches!(no_command(pre, "ExecStartPre"), Fact::Refused(_)));
+    assert_eq!(no_command(absent, "ExecStartPre"), Fact::Known(()));
+    assert!(matches!(no_command("{}", "ExecStartPre"), Fact::Unknown(_)));
 }

@@ -82,6 +82,15 @@ fn only_the_daemon_backend_spawns_bws() {
                 continue;
             }
             let text = std::fs::read_to_string(&path).unwrap();
+            // The installer's one native boundary runs service and account
+            // tools as root, never bws. Its tests run fixture tools such as setfacl.
+            if relative == "install/native_host.rs" {
+                assert!(!text.contains("bws"), "{relative} names bws");
+                continue;
+            }
+            if relative.starts_with("install/") && relative.ends_with("_tests.rs") {
+                continue;
+            }
             assert!(
                 !text.contains("Command::new"),
                 "{relative} spawns a process"
@@ -148,4 +157,25 @@ fn run_and_exec_accept_the_no_stdin_flag() {
             ..
         })
     ));
+}
+
+#[test]
+fn install_and_status_parse_with_no_extra_surface() {
+    for args in [["hush", "install"], ["hush", "status"]] {
+        if let Err(error) = parse(&args) {
+            panic!("{args:?}: {}", error.kind());
+        }
+    }
+    for args in [
+        ["hush", "install", "--force"],
+        ["hush", "install", "--token"],
+        ["hush", "status", "--json"],
+    ] {
+        let kind = parse(&args).err().map(|error| error.kind());
+        assert_eq!(
+            kind,
+            Some(clap::error::ErrorKind::UnknownArgument),
+            "{args:?}"
+        );
+    }
 }

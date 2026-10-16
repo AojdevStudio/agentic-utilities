@@ -29,7 +29,7 @@ The broker trusts every local non-root account to request any vault secret for a
 
 - Linux: root systemd service. Token is a systemd credential (`LoadCredentialEncrypted=` where systemd is 250 or newer, otherwise a root-only `LoadCredential=` file).
 - macOS: root LaunchDaemon. Token is a root-only file `/var/db/hush/token`, mode 0600, directory 0700. (Sol proposed a System Keychain item. A root-only file gives the same protection against a non-root agent and does not need a signed binary. Keychain can come later.)
-- The daemon refuses to start if the token file is not owned by root with mode 0600.
+- The daemon refuses to start if the token file is not owned by root with mode 0600. On Linux it also accepts mode 0400, the read-only mode systemd gives a runtime credential. Stored Linux credential sources stay 0600. Special mode bits are always refused.
 - The daemon runs `bws` by absolute path with a cleared environment plus `BWS_ACCESS_TOKEN`. The `bws` child runs as root, so non-root processes cannot read its environment. They can still read its argv on Linux unless `/proc` is mounted with `hidepid`, so `bws` gets only ids and metadata in argv. Values are written through the Bitwarden SDK instead (see PR 3 decisions).
 
 ### Client surface
@@ -138,5 +138,5 @@ These record how `hush-broker/3-human` implements the human surface. They refine
 
 ## Open questions
 
-- A root LaunchDaemon on macOS conflicts with the rule that Mac background jobs ship through `obi bgjob deploy`. PR 4 documents it as an exception unless `obi bgjob` grows LaunchDaemon support.
+- A root LaunchDaemon on macOS conflicts with the rule that Mac background jobs ship through `obi bgjob deploy`. PR 4 documents it as an exception unless `obi bgjob` grows LaunchDaemon support. [bws-tui/docs/install.md](../../bws-tui/docs/install.md) documents the exception for operators.
 - PAM headers (`libpam0g-dev`) must exist on the Linux build machine and CI runner for PR 3.

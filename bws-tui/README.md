@@ -62,11 +62,11 @@ The official `bws` CLI already has the authentication and API access. What it do
    cargo install --locked bws-tui
    ```
 
-2. Run the daemon as root with its token file. A guided `hush install` for Linux and macOS is planned. Until it lands, the ADR describes the token file, socket, and audit log locations.
-3. On Linux, password approval uses the PAM service `hush`, read from `/etc/pam.d/hush`. Without that file, reveal, copy, edit, and delete are refused before any prompt. On macOS, approval uses OpenDirectory and needs no setup.
+2. Stage the binary in a root-owned path and run `sudo /usr/local/bin/hush install`. It sets up the root service, the `hushrun` account, and the token. See [docs/install.md](docs/install.md) for the prerequisites, the token, and what it creates. `hush status` shows what is installed, with no root and no daemon.
+3. On Linux, password approval uses the PAM service `hush`, which install writes from the distro stack. Without `/etc/pam.d/hush`, reveal, copy, edit, and delete are refused before any prompt. On macOS, approval uses OpenDirectory and needs no setup.
 4. Run `hush`.
 
-Without a reachable daemon, every command except `hush --help` fails with an error that names the socket it tried.
+Without a reachable daemon, every command except `hush --help`, `hush install`, and `hush status` fails with an error that names the socket it tried.
 
 ## The interface
 

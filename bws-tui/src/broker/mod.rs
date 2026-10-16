@@ -63,6 +63,8 @@ pub(crate) use protocol::{Frame, RequestFrame, ResponseFrame};
 #[cfg(test)]
 mod add_tests;
 #[cfg(test)]
+mod audit_tests;
+#[cfg(test)]
 mod bws_child_tests;
 #[cfg(test)]
 mod cancel_harness;

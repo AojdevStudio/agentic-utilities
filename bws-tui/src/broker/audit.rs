@@ -2,10 +2,12 @@
 
 use super::peercred::PeerCredentials;
 use super::runspec::RunAs;
+use crate::install::sys::{c_path, check, fstat, openat, owned};
 use anyhow::{bail, Context, Result};
-use std::fs::{OpenOptions, Permissions};
+use std::fs::{File, Permissions};
 use std::io::Write;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::fd::{AsFd, AsRawFd};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -42,18 +44,14 @@ pub(crate) struct FileAuditLog {
 
 impl FileAuditLog {
     pub(crate) fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(path)
+        let file = open_private(path)
             .with_context(|| format!("failed to open daemon audit log at {}", path.display()))?;
         let metadata = file
             .metadata()
             .with_context(|| format!("failed to inspect daemon audit log at {}", path.display()))?;
+        if !metadata.is_file() {
+            bail!("daemon audit log must be a regular file");
+        }
         // SAFETY: geteuid takes no arguments and cannot fail.
         let euid = unsafe { libc::geteuid() };
         if metadata.uid() != euid {
@@ -69,6 +67,57 @@ impl FileAuditLog {
             file: Mutex::new(file),
         })
     }
+}
+
+/// Open the log in its own directory, which only the daemon user may write.
+/// The directory above it may be shared, as Ubuntu's root:syslog /var/log is,
+/// so its members can rename the log dir or put a symlink in its place. The log
+/// dir and the file are opened from descriptors without following a symlink,
+/// and the log dir is checked on its open descriptor: it must be the daemon
+/// user's and owner-only. A missing log dir is created 0700 the same way and
+/// checked before use.
+fn open_private(path: &Path) -> Result<File> {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        bail!("the path names no file");
+    };
+    let (Some(above), Some(dir_name)) = (dir.parent(), dir.file_name()) else {
+        bail!("the log must sit in its own directory");
+    };
+    let above = match above.as_os_str().is_empty() {
+        true => Path::new("."),
+        false => above,
+    };
+    let (dir_name, name) = (
+        dir_name.to_str().context("the log dir name is not UTF-8")?,
+        name.to_str().context("the log file name is not UTF-8")?,
+    );
+    let above = File::open(above)?;
+    let open_dir = || openat(above.as_fd(), dir_name, libc::O_RDONLY | libc::O_DIRECTORY);
+    let dir = match open_dir() {
+        Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
+            let raw = c_path(dir_name.as_bytes())?;
+            // SAFETY: the name is NUL-terminated and the parent descriptor is open.
+            check(unsafe { libc::mkdirat(above.as_raw_fd(), raw.as_ptr(), 0o700) })?;
+            open_dir()
+        }
+        opened => opened,
+    }?;
+    let stat = fstat(dir.as_fd())?;
+    // SAFETY: geteuid takes no arguments and cannot fail.
+    if stat.st_uid != unsafe { libc::geteuid() } {
+        bail!("its directory must be owned by the daemon user");
+    }
+    if stat.st_mode as u32 & 0o077 != 0 {
+        bail!("its directory must be owner-only, such as 0700");
+    }
+    let raw = c_path(name.as_bytes())?;
+    let flags =
+        libc::O_WRONLY | libc::O_APPEND | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: the name is NUL-terminated and the mode argument matches O_CREAT.
+    let fd = owned(unsafe {
+        libc::openat(dir.as_raw_fd(), raw.as_ptr(), flags, 0o600 as libc::c_uint)
+    })?;
+    Ok(File::from(fd))
 }
 
 /// Escape client-controlled text so one record stays exactly one line.

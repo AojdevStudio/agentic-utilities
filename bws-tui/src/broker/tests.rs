@@ -14,6 +14,8 @@ fn tempdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("hush-broker-test-{}-{tag}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
+    // A loose umask (002 on the CI box) would make this group writable, which the audit log refuses.
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     dir
 }
 

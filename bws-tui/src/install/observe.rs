@@ -171,7 +171,7 @@ pub(crate) fn artifact_table(
 pub(crate) fn inspect(root: &Dir, layout: &Layout, artifact: &Artifact) -> Fact<FileState> {
     let path = artifact.path.display();
     if let Spec::Dir(mode) = artifact.spec {
-        return match root.walk(rel(&artifact.path), layout.owner) {
+        return match root.walk_own_dir(rel(&artifact.path), layout.owner) {
             Fact::Known(Walk::Found(dir)) if dir.mode() == mode => Fact::Known(FileState::Ready),
             Fact::Known(Walk::Found(dir)) => Fact::Refused(format!(
                 "{path} has mode {:o}, expected {mode:o}",

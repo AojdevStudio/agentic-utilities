@@ -3,7 +3,7 @@
 //! rechecks each step's own fact right before acting, and stops at the first
 //! failure or changed fact. Completed steps stay. Nothing is rolled back.
 
-use super::custody::{Dir, FileState};
+use super::custody::{Dir, FileState, Walk};
 use super::facts::{Fact, Service};
 use super::host::{Action, Host};
 use super::input::TokenSource;
@@ -101,8 +101,16 @@ fn perform(
                 Spec::Dir(mode) => *mode,
                 _ => bail!("{} is not a directory artifact", path.display()),
             };
-            let (parent, name) = parent(root, o, path)?;
-            publish::create_dir(&parent, name, mode)
+            // The same walk that found it absent, so the log dir alone keeps its parent's trust.
+            match root.walk_own_dir(rel(path), layout.owner) {
+                Fact::Known(Walk::Missing { parent, rest }) if rest.len() == 1 => {
+                    publish::create_dir(&parent, &rest[0], mode)
+                }
+                _ => bail!(
+                    "{} is no longer missing below a checked directory",
+                    path.display()
+                ),
+            }
         }
         Step::CreateAccount(creation) => {
             if accounts::observe(layout, root, host)
@@ -235,7 +243,7 @@ fn parent<'p>(root: &Dir, o: &Observation, path: &'p Path) -> Result<(Dir, &'p s
         bail!("{} names no file", path.display());
     };
     match root.walk(rel(parent), o.layout.owner) {
-        Fact::Known(super::custody::Walk::Found(dir)) => Ok((dir, name)),
+        Fact::Known(Walk::Found(dir)) => Ok((dir, name)),
         _ => bail!("{} is no longer a checked directory", parent.display()),
     }
 }

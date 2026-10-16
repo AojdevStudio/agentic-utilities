@@ -20,7 +20,7 @@ mod prereq;
 mod publish;
 mod reach;
 mod status;
-mod sys;
+pub(crate) mod sys;
 
 #[cfg(test)]
 mod apply_harness;

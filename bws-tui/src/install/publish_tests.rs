@@ -109,3 +109,38 @@ fn create_dir_makes_an_exact_mode_and_refuses_an_existing_name() {
         Fact::Known(Walk::Found(_))
     ));
 }
+
+#[test]
+fn create_dir_below_a_strict_parent_keeps_its_exact_mode_under_a_restrictive_umask() {
+    let (temp, root) = tree();
+    // SAFETY: umask takes one mode value and returns the previous mask.
+    let old = unsafe { libc::umask(0o027) };
+    let created = (
+        create_dir(&root, "hush", 0o700),
+        create_dir(&root, "socket", 0o755),
+    );
+    // SAFETY: umask takes one mode value and returns the previous mask.
+    unsafe { libc::umask(old) };
+    created.0.unwrap();
+    created.1.unwrap();
+    assert_eq!(mode_links(&temp.path().join("hush")).0, 0o700);
+    assert_eq!(mode_links(&temp.path().join("socket")).0, 0o755);
+}
+
+#[test]
+fn create_dir_below_a_shared_parent_never_changes_the_mode_it_made() {
+    let (temp, root) = tree();
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o770)).unwrap();
+    // SAFETY: umask takes one mode value and returns the previous mask.
+    let old = unsafe { libc::umask(0o027) };
+    let created = (
+        create_dir(&root, "hush", 0o700),
+        create_dir(&root, "socket", 0o755),
+    );
+    // SAFETY: umask takes one mode value and returns the previous mask.
+    unsafe { libc::umask(old) };
+    created.0.unwrap();
+    assert!(created.1.is_err());
+    assert_eq!(mode_links(&temp.path().join("hush")).0, 0o700);
+    assert_eq!(mode_links(&temp.path().join("socket")).0, 0o750);
+}

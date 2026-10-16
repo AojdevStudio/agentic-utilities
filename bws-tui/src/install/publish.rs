@@ -5,24 +5,40 @@
 //! staging name as a second link that `finish_stage` removes on the next run.
 
 use super::custody::{Dir, STAGE_PREFIX};
-use super::sys::{c_path, check, create_exclusive, lstat_at, openat};
+use super::sys::{c_path, check, create_exclusive, fstat, lstat_at, openat};
 use anyhow::{bail, Context, Result};
 use std::fs::File;
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) fn create_dir(parent: &Dir, name: &str, mode: u32) -> Result<()> {
     let path = parent.path().join(name);
     let raw = c_path(name.as_bytes())?;
     // SAFETY: the name is NUL-terminated and the parent descriptor is open.
-    check(unsafe { libc::mkdirat(parent.fd().as_raw_fd(), raw.as_ptr(), 0o700) })
+    check(unsafe { libc::mkdirat(parent.fd().as_raw_fd(), raw.as_ptr(), mode as libc::mode_t) })
         .with_context(|| format!("cannot create {}", path.display()))?;
     let dir = openat(parent.fd(), name, libc::O_RDONLY | libc::O_DIRECTORY)
         .with_context(|| format!("cannot open the new {}", path.display()))?;
-    // The directory is new and ours, so its exact mode only undoes the umask.
-    // SAFETY: fchmod on an open descriptor this process owns.
-    check(unsafe { libc::fchmod(dir.as_raw_fd(), mode as libc::mode_t) })
-        .with_context(|| format!("cannot set the mode of {}", path.display()))?;
+    // A strict parent keeps the new name ours, so fchmod only undoes the umask.
+    // A shared parent like Ubuntu's /var/log lets members swap it, so check only.
+    let parent_mode = fstat(parent.fd())
+        .with_context(|| format!("cannot inspect {}", parent.path().display()))?
+        .st_mode as u32;
+    if parent_mode & 0o022 == 0 {
+        // SAFETY: fchmod on an open descriptor this process owns.
+        check(unsafe { libc::fchmod(dir.as_raw_fd(), mode as libc::mode_t) })
+            .with_context(|| format!("cannot set the mode of {}", path.display()))?;
+    }
+    let actual = fstat(dir.as_fd())
+        .with_context(|| format!("cannot inspect the new {}", path.display()))?
+        .st_mode as u32
+        & 0o7777;
+    if actual != mode {
+        bail!(
+            "{} was created with mode {actual:o}, not {mode:o}. Check the umask",
+            path.display()
+        );
+    }
     sync(parent.fd()).with_context(|| format!("cannot sync {}", parent.path().display()))
 }
 

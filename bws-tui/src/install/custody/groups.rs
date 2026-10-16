@@ -4,11 +4,13 @@
 //! protected file checks and bind the name to one gid that no other line uses.
 //! Root controls that file, so the members it lists are trusted. Those members
 //! can create, rename, or remove entries in /var/log, including /var/log/hush
-//! itself. The trust is deliberately limited to the log dir's parent. Any doubt
-//! trusts nothing, so the usual refusal stands. macOS has no log dir here and
-//! gains nothing.
+//! itself. The trust is deliberately limited to the log dir's parent, and only
+//! on the walk to the log dir itself. A walk to any other path through
+//! /var/log, such as a program or a file inside the log dir, trusts nothing,
+//! because those members could swap what it finds. Any doubt trusts nothing, so
+//! the usual refusal stands. macOS has no log dir here and gains nothing.
 
-use super::{regular_file, Dir, Walk};
+use super::{regular_file, Dir, Owner, Walk};
 use crate::install::layout::{rel, Layout};
 use crate::install::sys::openat;
 use crate::install::Fact;
@@ -20,30 +22,49 @@ const SYSTEM_GROUPS: [&str; 2] = ["syslog", "adm"];
 /// Far above any local group file. A longer one is not parsed at all.
 const LIMIT: usize = 1 << 20;
 
-/// The one directory that may be group writable, and the gids it may carry.
+/// The log dir, whose parent alone may be group writable, and the gids it may carry.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Shared {
-    dir: Option<PathBuf>,
+    log_dir: Option<PathBuf>,
     gids: Vec<u32>,
 }
 
 impl Shared {
     pub(super) fn allows(&self, path: &Path, gid: u32) -> bool {
-        self.dir.as_deref() == Some(path) && self.gids.contains(&gid)
+        self.log_dir.as_deref().and_then(Path::parent) == Some(path) && self.gids.contains(&gid)
+    }
+
+    /// This trust for a walk that ends at the log dir, and none for any other walk.
+    pub(super) fn toward(&self, target: &Path) -> Shared {
+        match self.log_dir.as_deref() == Some(target) {
+            true => self.clone(),
+            false => Shared::default(),
+        }
     }
 }
 
 impl Dir {
     /// This install root, letting the log dir's parent carry a vouched system group's write bit.
     pub(crate) fn trusting_log_parent(mut self, layout: &Layout) -> Dir {
-        let parent = layout.log_dir().and_then(|dir| Path::new(dir).parent());
-        if let (Some(parent), Some(text)) = (parent, self.group_file(layout)) {
+        if let (Some(dir), Some(text)) = (layout.log_dir(), self.group_file(layout)) {
             self.shared = Shared {
-                dir: Some(self.path.join(rel(parent))),
+                log_dir: Some(self.path.join(rel(Path::new(dir)))),
                 gids: vouched(&text),
             };
         }
         self
+    }
+
+    /// Walk relative components below this directory, checking each one.
+    /// No directory on the way may be group writable.
+    pub(crate) fn walk(&self, rel: &Path, owner: Owner) -> Fact<Walk> {
+        self.walk_with(rel, owner, Shared::default())
+    }
+
+    /// Walk to one of the installer's own directories. Only the walk to the
+    /// log dir itself keeps the trust in its shared parent.
+    pub(crate) fn walk_own_dir(&self, rel: &Path, owner: Owner) -> Fact<Walk> {
+        self.walk_with(rel, owner, self.shared.toward(&self.path.join(rel)))
     }
 
     fn group_file(&self, layout: &Layout) -> Option<String> {

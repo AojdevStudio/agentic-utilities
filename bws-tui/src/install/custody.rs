@@ -79,8 +79,9 @@ impl Dir {
         }
     }
 
-    /// Walk relative components below this directory, checking each one.
-    pub(crate) fn walk(&self, rel: &Path, owner: Owner) -> Fact<Walk> {
+    /// Walk relative components below this directory, checking each one with
+    /// the trust that `walk` or `walk_own_dir` chose.
+    fn walk_with(&self, rel: &Path, owner: Owner, shared: groups::Shared) -> Fact<Walk> {
         let mut names = Vec::new();
         for component in rel.components() {
             let Component::Normal(name) = component else {
@@ -93,7 +94,7 @@ impl Dir {
                 fd,
                 path: self.path.clone(),
                 mode: self.mode,
-                shared: self.shared.clone(),
+                shared,
             },
             Err(error) => return io_fact(&self.path, &error),
         };

@@ -8,12 +8,13 @@ use crate::install::apply_harness::{install, Token};
 use crate::install::fake_host_harness::FakeHost;
 use crate::install::fixture_harness::{owner, Fixture};
 use crate::install::input_tests::grant;
-use crate::install::layout::Platform;
+use crate::install::layout::{Layout, Platform};
 use crate::install::observe::observe;
-use crate::install::plan::Step;
+use crate::install::plan::{Plan, Step};
 use crate::install::status::Status;
 use std::fs;
 use std::os::unix::fs::{chown, MetadataExt, PermissionsExt};
+use std::path::PathBuf;
 
 const SHARED: &str = "var/log is group or world writable";
 const SYSLOG: &str = "root:x:0:\nsyslog:x:GID:\n";
@@ -158,6 +159,57 @@ fn every_other_shared_parent_or_private_dir_is_still_refused() {
         let reasons = plan(&fixture, &mut host).expect_err(name);
         assert!(
             reasons.iter().any(|reason| reason.contains(expected)),
+            "{name}: {reasons:?}"
+        );
+        assert!(host.actions.is_empty(), "{name}");
+        assert_eq!(fixture.snapshot(), before, "{name}");
+    }
+}
+
+type Place = fn(&mut Layout, PathBuf);
+/// A case name, a directory to make with its mode, a program path, and where the layout looks for it.
+type Program<'a> = (&'a str, Option<(&'a str, u32)>, &'a str, Place);
+
+#[test]
+fn programs_below_a_shared_log_parent_are_refused() {
+    let hush: Place = |layout, path| layout.executable = path;
+    let bws: Place = |layout, path| layout.bws_candidates = vec![path];
+    let cases: [Program; 4] = [
+        (
+            "hush in a log subdir",
+            Some(("var/log/build", 0o755)),
+            "/var/log/build/hush",
+            hush,
+        ),
+        ("hush beside the log dir", None, "/var/log/hush-bin", hush),
+        (
+            "hush in the log dir",
+            Some(("var/log/hush", 0o700)),
+            "/var/log/hush/hush",
+            hush,
+        ),
+        (
+            "bws in a log subdir",
+            Some(("var/log/build", 0o755)),
+            "/var/log/build/bws",
+            bws,
+        ),
+    ];
+    for (name, dir, program, place) in cases {
+        let (fixture, mut host, _) = shared_log(SYSLOG);
+        if let Some((dir, mode)) = dir {
+            fixture.mkdir(dir, mode);
+        }
+        fixture.put(program, b"fixture\n", 0o755);
+        let mut layout = fixture.layout();
+        place(&mut layout, p(program));
+        let before = fixture.snapshot();
+        let reasons = Plan::from_observation(observe(layout, &mut host))
+            .map(|plan| plan.steps().to_vec())
+            .expect_err(name)
+            .0;
+        assert!(
+            reasons.iter().any(|reason| reason.contains(SHARED)),
             "{name}: {reasons:?}"
         );
         assert!(host.actions.is_empty(), "{name}");

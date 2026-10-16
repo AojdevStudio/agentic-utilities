@@ -14,8 +14,10 @@ use anyhow::{bail, Context, Result};
 use secrecy::SecretString;
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 const SYSTEMCTL: &str = "/usr/bin/systemctl";
 const BUSCTL: &str = "/usr/bin/busctl";
@@ -233,14 +235,15 @@ fn run(
     run_within(program, args, input, BUDGET)
 }
 
-/// Run one checked program. Stdout is bounded and the child is killed and
-/// reaped past its deadline. `budget` is the production one outside tests.
+/// Run one checked program. One deadline, started here before spawn, covers
+/// input, output, exit and cleanup. `budget` is the production one outside tests.
 pub(super) fn run_within(
     program: &str,
     args: &[String],
     input: Option<(&SecretString, File)>,
     budget: Budget,
 ) -> Result<(Option<i32>, String)> {
+    let deadline = Instant::now() + budget.time;
     let root = match Dir::open_root(Path::new("/"), Owner(0)) {
         Fact::Known(root) => root,
         Fact::Refused(why) | Fact::Unknown(why) => bail!("cannot check {program} ({why})"),
@@ -256,6 +259,8 @@ pub(super) fn run_within(
         .env_clear()
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .env("LC_ALL", "C")
+        // Its own process group, so a stop also reaches its descendants.
+        .process_group(0)
         .stderr(Stdio::null());
     let (stdin, stdout) = match &input {
         Some((_, out)) => (Stdio::piped(), Stdio::from(out.try_clone()?)),
@@ -266,5 +271,11 @@ pub(super) fn run_within(
         .stdout(stdout)
         .spawn()
         .with_context(|| format!("cannot run {program}"))?;
-    drive(program, child, input.map(|(token, _)| token), budget)
+    drive(
+        program,
+        child,
+        input.map(|(token, _)| token),
+        deadline,
+        budget,
+    )
 }

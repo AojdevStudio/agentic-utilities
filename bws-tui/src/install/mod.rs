@@ -40,6 +40,8 @@ mod macos_tests;
 #[cfg(test)]
 mod manager_tests;
 #[cfg(test)]
+mod native_host_tests;
+#[cfg(test)]
 mod observe_tests;
 #[cfg(test)]
 mod publish_tests;

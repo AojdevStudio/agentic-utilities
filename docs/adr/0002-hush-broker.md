@@ -138,5 +138,5 @@ These record how `hush-broker/3-human` implements the human surface. They refine
 
 ## Open questions
 
-- A root LaunchDaemon on macOS conflicts with the rule that Mac background jobs ship through `obi bgjob deploy`. PR 4 documents it as an exception unless `obi bgjob` grows LaunchDaemon support.
+- A root LaunchDaemon on macOS conflicts with the rule that Mac background jobs ship through `obi bgjob deploy`. PR 4 documents it as an exception unless `obi bgjob` grows LaunchDaemon support. [bws-tui/docs/install.md](../../bws-tui/docs/install.md) documents the exception for operators.
 - PAM headers (`libpam0g-dev`) must exist on the Linux build machine and CI runner for PR 3.

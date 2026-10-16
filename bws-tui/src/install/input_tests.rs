@@ -79,10 +79,10 @@ fn named_inputs_need_owner_only_access_and_anonymous_pipes_stay_accepted() {
     let mut writer = OpenOptions::new().write(true).open(&open).unwrap();
     writer.write_all(SENTINEL.as_bytes()).unwrap();
     let granted_fifo = fifo(temp.path(), "granted-fifo", 0o600);
-    grant(&granted_fifo);
+    grant(&granted_fifo, 0o600);
     let granted_file = temp.path().join("granted-file");
     fs::write(&granted_file, SENTINEL).unwrap();
-    grant(&granted_file);
+    grant(&granted_file, 0o600);
     let private_fifo = fifo(temp.path(), "private-fifo", 0o600);
     let (pipe_reader, _pipe_writer) = std::io::pipe().unwrap();
     let (socket, _peer) = UnixStream::pair().unwrap();
@@ -134,9 +134,9 @@ fn nonblocking(path: &Path) -> File {
         .unwrap()
 }
 
-/// Grant read through an extended ACL, then restore mode 0600, so only the
-/// ACL differs from a private file. On Linux this masks the named entry.
-fn grant(path: &Path) {
+/// Grant read through an extended ACL, then restore `mode`, so only the ACL
+/// differs from a protected path. On Linux this masks the named entry.
+pub(super) fn grant(path: &Path, mode: u32) {
     #[cfg(target_os = "linux")]
     let status = Command::new("setfacl")
         .args(["-m", "u:65534:r"])
@@ -148,7 +148,7 @@ fn grant(path: &Path) {
         .arg(path)
         .status();
     assert!(status.unwrap().success(), "{}", path.display());
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
 }
 
 fn pty() -> (File, OwnedFd) {

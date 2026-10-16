@@ -1,7 +1,7 @@
 //! Prerequisites with no artifact of their own: policy, macOS aliases, the
 //! trusted bws binary and the service manager's view of hush.
 
-use super::custody::Dir;
+use super::custody::{Contents, Dir, FileState, Mode, Walk};
 use super::facts::{io_fact, Fact, Service};
 use super::host::{Answer, Host, Query};
 use super::layout::{rel, Backend, Layout, Platform};
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 pub(crate) fn checks(layout: &Layout, root: &Dir) -> Vec<Fact<()>> {
     let mut checks = vec![
         root.executable(rel(&layout.executable), layout.owner),
-        policy(layout),
+        policy(layout, root),
     ];
     if layout.platform == Platform::MacOs {
         checks.push(aliases(layout));
@@ -22,9 +22,27 @@ pub(crate) fn checks(layout: &Layout, root: &Dir) -> Vec<Fact<()>> {
     checks
 }
 
-/// An existing policy must be protected and valid. Absence is the empty policy.
-pub(crate) fn policy(layout: &Layout) -> Fact<()> {
+/// An existing policy must be protected and valid, below protected ancestors,
+/// with no ACL grant on any of them. Absence is the empty policy.
+pub(crate) fn policy(layout: &Layout, root: &Dir) -> Fact<()> {
     let logical = layout.policy();
+    let (parent, name) = logical.rsplit_once('/').unwrap_or(("", logical));
+    let dir = match root.walk(rel(Path::new(parent)), layout.owner) {
+        Fact::Known(Walk::Found(dir)) => dir,
+        Fact::Known(Walk::Missing { .. }) => return Fact::Known(()),
+        Fact::Refused(why) => return Fact::Refused(why),
+        Fact::Unknown(why) => return Fact::Unknown(why),
+    };
+    match dir.file(name, Mode::Protected, layout.owner, Contents::Opaque) {
+        Fact::Known(FileState::Absent) => return Fact::Known(()),
+        Fact::Known(FileState::Ready) => {}
+        Fact::Known(FileState::Resume { .. }) => {
+            return Fact::Refused(format!("{logical} has another hard link"))
+        }
+        Fact::Refused(why) => return Fact::Refused(why),
+        Fact::Unknown(why) => return Fact::Unknown(why),
+    }
+    // The checked ancestors let only root replace the file the parser opens.
     let dev_owner = layout.owner.0 != 0;
     match Policy::load(&layout.host_path(Path::new(logical)), dev_owner) {
         Ok(_) => Fact::Known(()),

@@ -3,6 +3,7 @@
 use super::facts::AccountRecord;
 use super::fake_host_harness::FakeHost;
 use super::fixture_harness::Fixture;
+use super::input_tests::grant;
 use super::layout::Platform;
 use super::observe::{observe, Creation};
 use super::plan::{Plan, Step};
@@ -203,4 +204,40 @@ fn status_reports_six_independent_facts_for_a_fresh_host() {
         "{lines:?}"
     );
     assert!(host.actions.is_empty() && host.encrypted == 0);
+}
+
+#[test]
+fn a_macos_policy_needs_protected_ancestors_and_no_acl_grant() {
+    let policy = "private/etc/hush/hushd.toml";
+    let cases: [(&str, Mutation); 4] = [
+        ("protected parent", |_, _| {}),
+        ("world-writable parent", |f, _| {
+            f.mkdir_mode("private/etc/hush", 0o777)
+        }),
+        ("parent with an ACL grant", |f, _| {
+            grant(&f.path("private/etc/hush"), 0o755)
+        }),
+        ("policy with an ACL grant", |f, _| {
+            grant(&f.path("private/etc/hush/hushd.toml"), 0o600)
+        }),
+    ];
+    let outcomes = cases.map(|(name, change)| {
+        let (fixture, mut host) = setup(Platform::MacOs);
+        fixture.mkdir("private/etc/hush", 0o755);
+        fixture.put(policy, b"require_hushrun = [\"PROD_TEST\"]\n", 0o600);
+        change(&fixture, &mut host);
+        let before = fixture.snapshot();
+        let admitted = plan(&fixture, &mut host).is_ok();
+        assert_eq!(fixture.snapshot(), before, "{name}");
+        (name, admitted)
+    });
+    assert_eq!(
+        outcomes,
+        [
+            ("protected parent", true),
+            ("world-writable parent", false),
+            ("parent with an ACL grant", false),
+            ("policy with an ACL grant", false),
+        ]
+    );
 }

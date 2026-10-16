@@ -123,3 +123,30 @@ fn a_foreign_command_loaded_during_apply_stops_before_the_next_manager_action() 
     assert_eq!(host.actions, [Action::EnableUnit], "{failure:?}");
     assert_eq!(token.reads, 0);
 }
+
+#[test]
+fn a_macos_policy_parent_opened_during_apply_stops_before_kickstart() {
+    let fixture = Fixture::new(Platform::MacOs);
+    fixture.mkdir("private/etc/hush", 0o755);
+    fixture.put(
+        "private/etc/hush/hushd.toml",
+        b"require_hushrun = []\n",
+        0o600,
+    );
+    let mut host = FakeHost::new(fixture.temp.path(), Platform::MacOs);
+    install(&fixture, &mut host, &mut Token::default()).unwrap();
+    host.actions.clear();
+    host.stop();
+    host.disabled = Some(true);
+    let _ = std::fs::remove_file(fixture.path("private/var/run/hush/hush.sock"));
+    let parent = fixture.path("private/etc/hush");
+    host.on_act = Some(Box::new(move |action| {
+        if *action == Action::LaunchdEnable {
+            use std::os::unix::fs::PermissionsExt;
+            let open = std::fs::Permissions::from_mode(0o777);
+            std::fs::set_permissions(&parent, open).unwrap();
+        }
+    }));
+    let failure = install(&fixture, &mut host, &mut Token::default()).unwrap_err();
+    assert_eq!(host.actions, [Action::LaunchdEnable], "{failure:?}");
+}

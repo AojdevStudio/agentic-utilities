@@ -120,7 +120,8 @@ fn a_dependency_that_changes_after_enable_stops_apply_before_start() {
     fn chmod(path: &Path, mode: u32) {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
-    let cases: [(&str, fn(&Path)); 4] = [
+    type Change = fn(&Path);
+    let cases: [(&str, Change); 4] = [
         ("etc/hush/token.cred", |path| chmod(path, 0o640)),
         ("etc/systemd/system/hush.service", |path| {
             fs::write(path, b"[Service]\nExecStart=/usr/bin/false\n").unwrap()

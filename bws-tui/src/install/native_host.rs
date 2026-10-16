@@ -7,7 +7,7 @@ use super::custody::{Dir, Owner};
 use super::facts::Fact;
 use super::host::{Action, Answer, Host, Query};
 use super::layout::{rel, CREDENTIAL_NAME, LAUNCHD_LABEL, UNIT_NAME};
-use super::native_io::{drive, Budget, BUDGET};
+use super::native_io::{drive, Budget, Owned, BUDGET};
 use super::sys::create_exclusive;
 use crate::broker::identity::{AccountDb, SystemAccounts, HUSHRUN_ACCOUNT};
 use anyhow::{bail, Context, Result};
@@ -253,6 +253,8 @@ pub(super) fn run_within(
     {
         bail!("{program} is not a trusted native program ({why})");
     }
+    // Held until the child is reaped, so a stop signal waits for cleanup.
+    let _owned = Owned::take()?;
     let mut command = Command::new(program);
     command
         .args(args)

@@ -8,6 +8,8 @@ use crate::broker::private_temp_harness::PrivateTemp;
 use crate::broker::token::TOKEN_LIMIT;
 use secrecy::SecretString;
 use std::fs::{self, File};
+use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
@@ -135,6 +137,112 @@ fn a_helper_that_reads_its_token_finishes_within_its_budget() {
         fs::read_to_string(&path).unwrap().trim(),
         TOKEN_LIMIT.to_string()
     );
+}
+
+/// Test only: the installer side of the interrupt test. Its supervisor runs
+/// it alone in its own process group, so the signal reaches nothing else.
+#[test]
+#[ignore = "run only by an_interrupt_stops_the_helper_group_before_the_installer_exits"]
+fn interrupt_driver() {
+    let (Ok(dir), Ok(mode)) = (
+        std::env::var("HUSH_INTERRUPT_DIR"),
+        std::env::var("HUSH_INTERRUPT_MODE"),
+    ) else {
+        return;
+    };
+    let ready = format!("echo $$ > {dir}/pid.tmp; mv {dir}/pid.tmp {dir}/pid");
+    if mode == "helper" {
+        let script = format!(
+            "{SLEEP} 3 & echo $! > {dir}/descendant; {ready}; {SLEEP} 0.5; echo late > {dir}/late; {SLEEP} 3"
+        );
+        let _ = run_within(SH, &args(&["-c", &script]), None, BUDGET);
+    } else {
+        run_within(SH, &args(&["-c", "exit 0"]), None, BUDGET).unwrap();
+        run_within(SH, &args(&["-c", &ready]), None, BUDGET).unwrap();
+        std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+#[test]
+fn an_interrupt_stops_the_helper_group_before_the_installer_exits() {
+    for mode in ["helper", "idle"] {
+        let temp = PrivateTemp::new("hush-native-test");
+        let dir = temp.path();
+        let driver = Driver(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "install::native_host_tests::interrupt_driver"])
+                .arg("--ignored")
+                .env("HUSH_INTERRUPT_DIR", dir)
+                .env("HUSH_INTERRUPT_MODE", mode)
+                .process_group(0)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let until = Instant::now() + Duration::from_secs(10);
+        let pid = loop {
+            if let Ok(pid) = fs::read_to_string(dir.join("pid")) {
+                break pid.trim().parse().unwrap();
+            }
+            assert!(Instant::now() < until, "{mode}: the driver never got ready");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // The idle case's ready shell has exited, so its pid is not tracked.
+        let helper = (mode == "helper").then(|| {
+            let descendant = fs::read_to_string(dir.join("descendant")).unwrap();
+            (
+                Descendant(pid),
+                Descendant(descendant.trim().parse().unwrap()),
+            )
+        });
+        // SAFETY: SIGINT to the driver's own group, as a terminal sends it.
+        unsafe { libc::killpg(driver.0.id() as libc::pid_t, libc::SIGINT) };
+        let status = driver.wait_within(BOUND);
+        assert_eq!(
+            status.map(|s| s.signal()),
+            Some(Some(libc::SIGINT)),
+            "{mode}"
+        );
+        if let Some((helper, descendant)) = helper {
+            assert!(
+                helper.gone_within(Duration::ZERO),
+                "the helper still runs after the installer exited"
+            );
+            assert!(
+                descendant.gone_within(BOUND),
+                "the helper's descendant still runs"
+            );
+            std::thread::sleep(Duration::from_millis(700));
+            assert!(!dir.join("late").exists(), "the helper kept running");
+        }
+    }
+}
+
+/// The interrupt test's driver. Its group is killed on drop if it still runs.
+struct Driver(Child);
+
+impl Driver {
+    fn wait_within(mut self, limit: Duration) -> Option<std::process::ExitStatus> {
+        let until = Instant::now() + limit;
+        while Instant::now() < until {
+            if let Some(status) = self.0.try_wait().unwrap() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        None
+    }
+}
+
+impl Drop for Driver {
+    fn drop(&mut self) {
+        if let Ok(None) = self.0.try_wait() {
+            // SAFETY: SIGKILL to the test's own driver group only.
+            unsafe { libc::killpg(self.0.id() as libc::pid_t, libc::SIGKILL) };
+            let _ = self.0.wait();
+        }
+    }
 }
 
 /// A process the runner's child left behind. Killed on drop if still alive,

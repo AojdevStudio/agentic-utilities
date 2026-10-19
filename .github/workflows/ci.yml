@@ -12,6 +12,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: gitleaks
+        id: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           # The action downloads a fixed filename; keep it in job-local temp.
@@ -21,7 +22,8 @@ jobs:
           # The action's upload has no retention input, so the next step uploads the report.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
       - name: Preserve gitleaks report
-        if: always()
+        # Upload only this run's report. The self-hosted workspace can hold an older one.
+        if: ${{ !cancelled() && steps.gitleaks.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-results.sarif

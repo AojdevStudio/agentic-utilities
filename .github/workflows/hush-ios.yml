@@ -48,3 +48,4 @@ jobs:
           name: hush-ios-tests
           path: hush-ios/.build/results/*.xcresult
           if-no-files-found: ignore
+          retention-days: 7

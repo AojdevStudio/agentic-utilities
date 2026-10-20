@@ -1,5 +1,15 @@
 name: Hush iOS
 
+# Runs on the Mac mini runner, not GitHub's hosted macOS runner. Hosted macOS
+# minutes bill at 10x, and one 25-minute run used 250 of a day's 253 minutes.
+#
+# The mini runs every repository's runner as one user. This job therefore keeps
+# everything it writes under its own temp directory and deletes it at the end:
+# the Rust toolchain and targets, the cargo registry, the bridge build, and
+# Xcode's DerivedData. Nothing lands in ~/.cargo, ~/.rustup, Homebrew, or
+# ~/Library/Developer/Xcode/DerivedData, so a cache sweep in this job can never
+# delete another job's tools and another job cannot clobber this one's cache.
+
 on:
   pull_request:
     paths: ['hush-ios/**', '.github/workflows/hush-ios.yml']
@@ -12,20 +22,48 @@ permissions:
   contents: read
 
 concurrency:
-  group: hush-ios-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   ios:
-    runs-on: macos-26
+    # The runner is a machine Ossie owns. Only this repository's own branches
+    # run on it: never a fork's pull request and never Dependabot, as the actor
+    # or as the pull request's author. Same guard as materialize-3d.
+    if: >-
+      github.actor != 'dependabot[bot]' && (
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]'))
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Describe the runner and point every cache at this job's temp directory
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodegen --version || { echo "xcodegen is not installed on this runner (brew install xcodegen)" >&2; exit 1; }
+          xcrun simctl list runtimes available
+          df -h "$RUNNER_TEMP"
+          job_dir="$RUNNER_TEMP/hush-ios"
+          mkdir -p "$job_dir"
+          {
+            echo "HUSH_JOB_DIR=$job_dir"
+            echo "RUSTUP_HOME=$job_dir/rustup"
+            echo "CARGO_HOME=$job_dir/cargo"
+            echo "CARGO_TARGET_DIR=$job_dir/target"
+            echo "HUSH_DERIVED_DATA=$job_dir/DerivedData"
+          } >> "$GITHUB_ENV"
+      # Installs stable and the iOS targets into this job's RUSTUP_HOME and
+      # CARGO_HOME above, not the host's. No rust-cache: its cache-bin sweep
+      # once deleted ~/.cargo/bin on this host, and a shared cache is not
+      # worth the risk on a 10x cheaper runner.
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-      - name: Install XcodeGen
-        run: brew install xcodegen
       - name: Build SDK bridge
         run: hush-ios/scripts/build-bridge.sh
       - name: Test on iPhone and iPad
@@ -33,14 +71,15 @@ jobs:
       - name: Verify Release excludes test fixtures
         run: |
           cd hush-ios
-          xcodebuild build -project Hush.xcodeproj -scheme Hush -configuration Release -destination 'generic/platform=iOS' -derivedDataPath .build/ReleaseCheck CODE_SIGNING_ALLOWED=NO
+          xcodebuild build -project Hush.xcodeproj -scheme Hush -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$HUSH_DERIVED_DATA/ReleaseCheck" CODE_SIGNING_ALLOWED=NO
           python3 - <<'PY'
+          import os
           from pathlib import Path
-          binary = Path('.build/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush').read_bytes()
+          binary = Path(os.environ['HUSH_DERIVED_DATA'], 'ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush').read_bytes()
           if b'HUSH_UI_TEST_SCENARIO' in binary:
               raise SystemExit('Release binary contains the UI test harness')
           PY
-          python3 scripts/check-sqlite.py .build/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush
+          python3 scripts/check-sqlite.py "$HUSH_DERIVED_DATA/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush"
       - name: Preserve test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,3 +87,8 @@ jobs:
           name: hush-ios-tests
           path: hush-ios/.build/results/*.xcresult
           if-no-files-found: ignore
+      - name: Clean this job's caches off the shared runner
+        if: always()
+        run: |
+          du -sh "$HUSH_JOB_DIR" hush-ios/.build 2>/dev/null || true
+          rm -rf "$HUSH_JOB_DIR" hush-ios/.build

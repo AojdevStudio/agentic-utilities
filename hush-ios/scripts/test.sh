@@ -23,5 +23,5 @@ if not candidates: raise SystemExit("No available "+family+" simulator")
 print(max(candidates)[1])
 ' "$family")
   result=".build/results/${family}-$(date -u +%Y%m%dT%H%M%SZ).xcresult"
-  xcodebuild test -project Hush.xcodeproj -scheme Hush     -destination "platform=iOS Simulator,id=$destination"     -derivedDataPath .build/DerivedData -resultBundlePath "$result"     CODE_SIGN_IDENTITY='-' CODE_SIGN_STYLE=Automatic
+  xcodebuild test -project Hush.xcodeproj -scheme Hush     -destination "platform=iOS Simulator,id=$destination"     -derivedDataPath "${HUSH_DERIVED_DATA:-.build/DerivedData}" -resultBundlePath "$result"     CODE_SIGN_IDENTITY='-' CODE_SIGN_STYLE=Automatic
  done

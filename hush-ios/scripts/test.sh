@@ -7,8 +7,13 @@ if [[ ! -d .build/HushBridge.xcframework ]]; then
 fi
 xcodegen generate
 mkdir -p .build/results
+# HUSH_SIM_IPHONE and HUSH_SIM_IPAD name a simulator UDID to test on. CI sets
+# them to simulators it created for the job. Unset, the newest available
+# simulator of that family on iOS 17 or later is used.
 for family in iPhone iPad; do
-  destination=$(xcrun simctl list devices available -j | python3 -c '
+  override="HUSH_SIM_$(echo "$family" | tr '[:lower:]' '[:upper:]')"
+  destination="${!override:-}"
+  [[ -n "$destination" ]] || destination=$(xcrun simctl list devices available -j | python3 -c '
 import json,re,sys
 family=sys.argv[1]
 runtimes=json.load(sys.stdin)["devices"]

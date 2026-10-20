@@ -1,14 +1,16 @@
 name: Hush iOS
 
-# Runs on the Mac mini runner, not GitHub's hosted macOS runner. Hosted macOS
-# minutes bill at 10x, and one 25-minute run used 250 of a day's 253 minutes.
+# Runs on the Mac mini runner, not GitHub's hosted macOS runner. On 2026-10-19
+# GitHub counted one 25-minute hosted macOS run as 250 of that day's 253
+# minutes, and a hosted macOS minute counts 10x.
 #
 # The mini runs every repository's runner as one user. This job therefore keeps
 # everything it writes under its own temp directory and deletes it at the end:
-# the Rust toolchain and targets, the cargo registry, the bridge build, and
-# Xcode's DerivedData. Nothing lands in ~/.cargo, ~/.rustup, Homebrew, or
-# ~/Library/Developer/Xcode/DerivedData, so a cache sweep in this job can never
-# delete another job's tools and another job cannot clobber this one's cache.
+# the Rust toolchain and targets, the cargo registry, the bridge build, Xcode's
+# DerivedData, and the two simulators it tests on. Nothing lands in ~/.cargo,
+# ~/.rustup, Homebrew, or ~/Library/Developer/Xcode/DerivedData, so a cache
+# sweep in this job can never delete another job's tools, and another job
+# cannot clobber this one's cache or boot its simulator.
 
 on:
   pull_request:
@@ -27,9 +29,12 @@ concurrency:
 
 jobs:
   ios:
-    # The runner is a machine Ossie owns. Only this repository's own branches
-    # run on it: never a fork's pull request and never Dependabot, as the actor
-    # or as the pull request's author. Same guard as materialize-3d.
+    # The runner is a machine Ossie owns. This condition skips every run this
+    # repository does not own: a fork's pull request and Dependabot, as the
+    # actor or as the pull request's author. It is not the gate. A fork's pull
+    # request runs its own copy of this file and can delete the condition. The
+    # gate is the repository's fork approval policy, which must stay at
+    # all_external_contributors so no fork run starts without a maintainer.
     if: >-
       github.actor != 'dependabot[bot]' && (
       github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
@@ -48,6 +53,11 @@ jobs:
           xcodegen --version || { echo "xcodegen is not installed on this runner (brew install xcodegen)" >&2; exit 1; }
           xcrun simctl list runtimes available
           df -h "$RUNNER_TEMP"
+          free_kb=$(df -k "$RUNNER_TEMP" | awk 'NR == 2 { print $4 }')
+          if [ "$free_kb" -lt 10485760 ]; then
+            echo "only $((free_kb / 1024)) MiB free under $RUNNER_TEMP; this job needs 10 GiB" >&2
+            exit 1
+          fi
           job_dir="$RUNNER_TEMP/hush-ios"
           mkdir -p "$job_dir"
           {
@@ -55,15 +65,50 @@ jobs:
             echo "RUSTUP_HOME=$job_dir/rustup"
             echo "CARGO_HOME=$job_dir/cargo"
             echo "CARGO_TARGET_DIR=$job_dir/target"
-            echo "HUSH_DERIVED_DATA=$job_dir/DerivedData"
+            echo "HUSH_DERIVED_DATA=$job_dir/DerivedData/Test"
           } >> "$GITHUB_ENV"
+      # Other repositories' jobs on this host test on the shared simulators too.
+      # Two xcodebuild test runs on one device break each other, so this job
+      # creates its own iPhone and iPad on the newest iOS runtime and deletes
+      # them at the end.
+      - name: Create this job's simulators
+        run: |
+          pick() {
+            xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          family = sys.argv[1]
+          candidates = []
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              match = re.search(r"iOS-(\d+)-(\d+)(?:-(\d+))?$", runtime)
+              if not match:
+                  continue
+              version = tuple(int(part or 0) for part in match.groups())
+              if version[0] < 17:
+                  continue
+              candidates.extend((version, runtime, d["deviceTypeIdentifier"]) for d in devices if d["name"].startswith(family))
+          if not candidates:
+              raise SystemExit("No available " + family + " simulator")
+          _, runtime, device_type = max(candidates)
+          print(runtime, device_type)
+          ' "$1"
+          }
+          for family in iPhone iPad; do
+            read -r runtime device_type <<<"$(pick "$family")"
+            udid=$(xcrun simctl create "hush-ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$family" "$device_type" "$runtime")
+            echo "$family: $udid ($device_type on $runtime)"
+            echo "HUSH_SIM_$(echo "$family" | tr '[:lower:]' '[:upper:]')=$udid" >> "$GITHUB_ENV"
+          done
       # Installs stable and the iOS targets into this job's RUSTUP_HOME and
-      # CARGO_HOME above, not the host's. No rust-cache: its cache-bin sweep
-      # once deleted ~/.cargo/bin on this host, and a shared cache is not
-      # worth the risk on a 10x cheaper runner.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      # CARGO_HOME above, not the host's. A plain rustup call, not a
+      # third-party action from a moving branch, because this host holds
+      # Ossie's credentials. No rust-cache: its cache-bin sweep once deleted
+      # ~/.cargo/bin on this host.
+      - name: Install Rust stable and the iOS targets into this job's homes
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          rustup show
       - name: Build SDK bridge
         run: hush-ios/scripts/build-bridge.sh
       - name: Test on iPhone and iPad
@@ -71,15 +116,15 @@ jobs:
       - name: Verify Release excludes test fixtures
         run: |
           cd hush-ios
-          xcodebuild build -project Hush.xcodeproj -scheme Hush -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$HUSH_DERIVED_DATA/ReleaseCheck" CODE_SIGNING_ALLOWED=NO
+          xcodebuild build -project Hush.xcodeproj -scheme Hush -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$HUSH_JOB_DIR/DerivedData/ReleaseCheck" CODE_SIGNING_ALLOWED=NO
           python3 - <<'PY'
           import os
           from pathlib import Path
-          binary = Path(os.environ['HUSH_DERIVED_DATA'], 'ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush').read_bytes()
+          binary = Path(os.environ['HUSH_JOB_DIR'], 'DerivedData/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush').read_bytes()
           if b'HUSH_UI_TEST_SCENARIO' in binary:
               raise SystemExit('Release binary contains the UI test harness')
           PY
-          python3 scripts/check-sqlite.py "$HUSH_DERIVED_DATA/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush"
+          python3 scripts/check-sqlite.py "$HUSH_JOB_DIR/DerivedData/ReleaseCheck/Build/Products/Release-iphoneos/Hush.app/Hush"
       - name: Preserve test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,8 +132,12 @@ jobs:
           name: hush-ios-tests
           path: hush-ios/.build/results/*.xcresult
           if-no-files-found: ignore
-      - name: Clean this job's caches off the shared runner
+      - name: Clean this job's caches and simulators off the shared runner
         if: always()
         run: |
+          for udid in ${HUSH_SIM_IPHONE:-} ${HUSH_SIM_IPAD:-}; do
+            xcrun simctl shutdown "$udid" || true
+            xcrun simctl delete "$udid" || true
+          done
           du -sh "$HUSH_JOB_DIR" hush-ios/.build 2>/dev/null || true
           rm -rf "$HUSH_JOB_DIR" hush-ios/.build

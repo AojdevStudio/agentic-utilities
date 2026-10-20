@@ -146,7 +146,12 @@ export function titleViolation(title: string): Violation | null {
 }
 
 /** Checks one pull request against the contract. Every violation carries the fix in its message. */
-export function checkPullRequest(pr: PullRequest): Verdict {
+// CodeRabbit appends its release notes inside these markers after the author's body.
+const CODERABBIT_SUMMARY =
+  /\n*<!-- This is an auto-generated comment: release notes by coderabbit\.ai -->[\s\S]*?<!-- end of auto-generated comment: release notes by coderabbit\.ai -->\n*/g;
+
+export function checkPullRequest(input: PullRequest): Verdict {
+  const pr = { ...input, body: input.body.replace(CODERABBIT_SUMMARY, "\n") };
   const v: Violation[] = [];
   if (pr.draft) v.push({ rule: "draft", message: "drafts get no review-bot coverage. Open the PR ready for review." });
   const title = pr.title === undefined ? null : titleViolation(pr.title);

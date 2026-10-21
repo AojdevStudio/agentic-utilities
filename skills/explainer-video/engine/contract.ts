@@ -46,7 +46,7 @@ export type Timeline = typeof TimelineSpec.infer;
 // audio/<id>.meta.json: the cache key of the clip, its cue times (seconds into the clip), and the start time of
 // every spoken character. Cues are recomputed from `times` when the timeline is written, so moving or renaming a
 // cue needs no new audio. Clips cached before `times` existed carry only `cues`.
-export const AudioMeta = type({ hash: "string", cues: Cues, "times?": "number[]" });
+export const AudioMeta = type({ hash: "string", cues: Cues, "times?": "number[] > 0" });
 export type AudioMeta = typeof AudioMeta.infer;
 
 /** Each `{cue}` mark's time: the start time of the character it sits before. */

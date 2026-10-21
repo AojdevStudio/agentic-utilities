@@ -136,7 +136,7 @@ async function writeTimeline(paths: ProjectPaths, scenes: Scene[]) {
     const meta = await loadAudioMeta(join(paths.audio, `${s.id}.meta.json`));
     if (!meta.times) legacy.push(s.id);
     const cues = meta.times ? cueTimes(s, meta.times) : meta.cues;
-    const missing = [...s.marks.keys()].filter((m) => !(m in cues));
+    const missing = [...s.marks.keys()].filter((m) => !Object.hasOwn(cues, m));
     if (missing.length) throw new Error(`${s.id}: audio meta lacks cues ${missing.join(", ")} (regenerate the clip)`);
     const dur = LEAD + audioDur + TAIL;
     out.push({ id: s.id, title: s.title, start, dur, lead: LEAD, audioDur, cues, closing: s.closing, stills: s.stills });

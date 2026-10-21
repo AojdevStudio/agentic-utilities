@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "bun check"
+    "typecheck": "bunx -p typescript tsc --noEmit -p ."
   },
   "dependencies": {
     "arktype": "^2.1.25",

@@ -16,7 +16,7 @@ The engine is deterministic. ElevenLabs reads `narration.json` and returns per-c
 
 ## Where it runs
 
-Render on any machine with bun, ffmpeg, and headless Chromium. A Linux box over ssh works well. Non-interactive ssh skips the shell rc, so on a remote box start every command with a PATH that finds bun, for example:
+Render on Linux x64 or an Apple Silicon Mac with bun, ffmpeg, and headless Chromium. The engine refuses other platforms. A Linux box over ssh works well. Non-interactive ssh skips the shell rc, so on a remote box start every command with a PATH that finds bun, for example:
 
 ```bash
 export PATH=$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH
@@ -35,12 +35,12 @@ export ELEVENLABS_API_KEY=...    # your ElevenLabs API key
 export ELEVENLABS_VOICE_ID=...   # the voice that narrates
 ```
 
-- `ffmpeg` and `ffprobe` must be on PATH.
+- `ffmpeg`, `ffprobe`, and `unzip` must be on PATH. The first render uses `unzip` to unpack the Inter font it downloads.
 - Create the API key in ElevenLabs under Developers, API Keys. A restricted key needs Text to Speech access and read access to Voices.
 - Pick the voice in ElevenLabs under Voices. To use one you do not have yet, add it from the Voice Library to My Voices first. Then open the voice's menu and copy its voice ID.
 - `codex` (the OpenAI Codex CLI) is optional. Only the review in step 6 uses it.
 
-If bun, ffmpeg, Chromium, or either variable is missing, say which one and stop.
+If bun, ffmpeg, unzip, Chromium, or either variable is missing, say which one and stop.
 
 A project is a plain folder on the render box, for example `~/explainer-<slug>-<yyyymmdd>`, holding three files you write: `brief.md`, `narration.json`, and `scenes.js`. The engine writes every output into that folder. The worked example is `examples/explainer-video-skill/`. Read all three of its files before you write your own.
 

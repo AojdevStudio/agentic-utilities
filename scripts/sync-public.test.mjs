@@ -193,6 +193,23 @@ test("merged private-term patterns fire on overlay terms", () => {
   }
 });
 
+test("overlay skill rules append to the tracked entry, and an unknown skill is refused", () => {
+  const tracked = { ...manifest, skills: { demo: { mode: "mirror", replace: [{ find: "a", replaceWith: "b" }] } } };
+  const merged = mergeLocalOverlay(tracked, {
+    skills: {
+      demo: { exclude: ["examples/example-vault/**"], replace: [{ find: "example-vault", replaceWith: "x" }] },
+    },
+  });
+  assert.deepEqual(merged.skills.demo.exclude, ["examples/example-vault/**"]);
+  assert.deepEqual(
+    merged.skills.demo.replace.map((r) => r.find),
+    ["a", "example-vault"],
+  );
+  assert.deepEqual(merged.skills.demo.dropLines, []);
+  assert.equal(tracked.skills.demo.exclude, undefined, "the tracked manifest is not mutated");
+  assert.throws(() => mergeLocalOverlay(tracked, { skills: { nope: {} } }), /names skill 'nope'/);
+});
+
 test("mergeLocalOverlay with no overlay returns the manifest unchanged", () => {
   assert.equal(mergeLocalOverlay(manifest, null), manifest);
 });

@@ -18,6 +18,10 @@ An enumeration of those names is itself metadata about your private ecosystem, s
 the list publicly would leak the very thing the list exists to protect. This mirrors the
 `.gitleaks.toml` / `.gitleaks.local.toml` split the repo already uses.
 
+The overlay may also hold `skills.<name>` entries. Their `exclude`, `replace`, and `dropLines`
+are appended to that skill's tracked entry, so an exclusion that names a private file stays
+out of git too. An overlay entry for a skill the tracked manifest does not list fails the run.
+
 The sync merges them (overlay patterns appended, overlay replacements last) and **exits 1
 if the overlay is missing**. A scrub that quietly covers less than intended is worse than
 one that refuses to run. Copy `public-manifest.local.json.example` to get started.
@@ -90,7 +94,7 @@ the store being present.
 
 ## Formatting owns nothing generated
 
-`biome.json` excludes `skills/*/assets/**` and `skills/*/templates/**`. Those are payloads
+`biome.json` excludes `skills/*/assets/**`, `skills/*/templates/**`, and the `engine/` and `examples/` folders of `explainer-video`. Those are payloads
 a skill ships, and their formatting belongs to whoever wrote them. Without the exclusion,
 `lint:fix` rewrites generated files and the very next `--check` reports drift that no one
 introduced.

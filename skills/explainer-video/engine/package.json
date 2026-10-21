@@ -1,0 +1,15 @@
+{
+  "name": "explainer-video-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "bun check"
+  },
+  "dependencies": {
+    "arktype": "^2.1.25",
+    "playwright-core": "1.64.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -26,6 +26,7 @@ Keep this as the human-readable record of what lives in the package.
 | `bambu-slicer` | Skill | `skills/bambu-slicer/SKILL.md` | active | Public-safe Agent Skill for Bambu Lab 3D-printing workflows: OpenSCAD design, MakerWorld browsing, OrcaSlicer CLI slicing, plate arrangement, and printer control. |
 | `deep-dive` | Skill | `skills/deep-dive/SKILL.md` | active | Produces structured deep-dive technical, operational, and strategic analysis. |
 | `diataxis-docs-site` | Skill | `skills/diataxis-docs-site/SKILL.md` | active | Builds and maintains source-backed documentation sites organized around tutorials, how-to guides, reference, and explanation. |
+| `explainer-video` | Skill | `skills/explainer-video/SKILL.md` | active | Mirrored from the private store. Makes narrated 3Blue1Brown-style explainer videos from a brief: ElevenLabs voice with per-character timings, a canvas scene program, a headless Chromium plus ffmpeg render, and an optional Codex review of stills. |
 | `find-docs` | Skill | `skills/find-docs/SKILL.md` | active | Retrieves authoritative, current technical docs and API references before answering or coding. |
 | `gitworkflow` | Skill | `skills/gitworkflow/SKILL.md` | active | Handles Git Flow branching, CI monitoring, PRs, merges, releases, submodules, and issue routing. |
 | `github-wiki` | Skill | `skills/github-wiki/SKILL.md` | active | Builds and maintains canonical, source-backed GitHub Wikis with rendered verification and event-driven maintenance. |

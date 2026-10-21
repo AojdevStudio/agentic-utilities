@@ -22,6 +22,7 @@
 | [`question`](extensions/question/) | Pi Extension | Recommendation-first user questions, bounded browser batch questionnaires, and an rpiv-contract TUI exposed as `agentic_utilities_ask_user_question`. |
 | [`conditional-hooks`](extensions/conditional-hooks/) | Pi Extension | Loads explicit JSON hook policy, including the documented worktree-GC-on-merge example. |
 | [`bambu-slicer`](skills/bambu-slicer/) · [plugin](claude-code/plugins/bambu-slicer/) | Skill + Claude Code plugin | End-to-end Bambu Lab pipeline: OpenSCAD design, MakerWorld browsing, OrcaSlicer-backed STL→3MF, plate arrangement, printer control. |
+| [`explainer-video`](skills/explainer-video/) | Skill | Narrated 3Blue1Brown-style explainer videos from a brief: ElevenLabs voice, canvas scenes, headless Chromium plus ffmpeg render. |
 | [`harness-audit`](skills/harness-audit/) | Skill | Audits a repo for AI-harness readiness across the 10-artifact stack and dispatches surgical fixes. |
 | [`scaffold-notes`](skills/scaffold-notes/) | Skill | Maintenance helper for adding resources to this repo consistently. |
 | [`stars`](stars/) · [skill](skills/stars/) | Bun CLI + Agent Skill | Verify and star GitHub repositories, then continue through the ledger and review workflow. |
@@ -81,6 +82,12 @@ To inspect the canonical GitHub repository:
 
 ```bash
 bunx skills add AojdevStudio/agentic-utilities --list
+```
+
+To install one skill, name it with `--skill`:
+
+```bash
+bunx skills add AojdevStudio/agentic-utilities --skill explainer-video
 ```
 
 Use the skills CLI for discovery and repo-page telemetry. For this user's isolated daily setup, copy from this repo into harness-specific inventories (`~/.pi/agent/skills`, `~/.codex/skills`, `~/.claude/skills`) instead of relying on a shared `~/.agents` bridge. The current CLI can still choose shared Agent Skills paths for some agent targets, so verify install output before using it as an installer.

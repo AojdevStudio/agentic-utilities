@@ -31,10 +31,11 @@
     },
     {
       "title": "Content & Media",
-      "description": "Skills for READMEs, visuals, images, and video analysis.",
+      "description": "Skills for READMEs, visuals, images, explainer videos, and video analysis.",
       "skills": [
         "art",
         "awesome-readme",
+        "explainer-video",
         "gpt-image-2",
         "youtube-analyzer"
       ]

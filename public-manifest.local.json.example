@@ -23,5 +23,9 @@
 
   "transforms": {
     "replace": [{ "find": "your-private-repo", "replaceWith": "a private repo" }]
+  },
+
+  "skills": {
+    "some-skill": { "exclude": ["examples/your-private-project/**"], "dropLines": ["your-laptop"] }
   }
 }

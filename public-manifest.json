@@ -161,7 +161,7 @@
         },
         {
           "find": "The engine lives at the store path `~/.agents/skills/explainer-video/engine/` on every box. Before the first run on a box, run `bun install --cwd ~/.agents/skills/explainer-video/engine`. Each item in `requires` must answer on the box. If one is missing, say which one and stop.",
-          "replaceWith": "The engine is the `engine/` folder next to this SKILL.md. Below, `<skill>` means this skill's folder, for example `~/.agents/skills/explainer-video`.\n\n### Setup\n\nRun once on the render machine:\n\n```bash\nbun install --cwd <skill>/engine\nbunx playwright install chromium-headless-shell\nexport ELEVENLABS_API_KEY=...    # your ElevenLabs API key\nexport ELEVENLABS_VOICE_ID=...   # the voice that narrates\n```\n\n- `ffmpeg`, `ffprobe`, and `unzip` must be on PATH. The first render uses `unzip` to unpack the Inter font it downloads.\n- Create the API key in ElevenLabs under Developers, API Keys. A restricted key needs Text to Speech access and read access to Voices.\n- Pick the voice in ElevenLabs under Voices. To use one you do not have yet, add it from the Voice Library to My Voices first. Then open the voice's menu and copy its voice ID.\n- `codex` (the OpenAI Codex CLI) is optional. Only the review in step 6 uses it.\n\nIf bun, ffmpeg, unzip, Chromium, or either variable is missing, say which one and stop."
+          "replaceWith": "The engine is the `engine/` folder next to this SKILL.md. Below, `<skill>` means this skill's folder, for example `~/.agents/skills/explainer-video`.\n\n### Setup\n\nRun once on the render machine:\n\n```bash\nbun install --cwd <skill>/engine\nbunx playwright install chromium-headless-shell\nexport ELEVENLABS_API_KEY=...    # your ElevenLabs API key\nexport ELEVENLABS_VOICE_ID=...   # the voice that narrates\n```\n\n- `ffmpeg`, `ffprobe`, and `unzip` must be on PATH. The first render uses `unzip` to unpack the Inter font it downloads.\n- Create the API key in ElevenLabs under Developers, API Keys. A restricted key needs Text to Speech access and read access to Voices.\n- Pick the voice in ElevenLabs under Voices. To use one you do not have yet, add it from the Voice Library to My Voices first. Then open the voice's menu and copy its voice ID.\n- The engine asks ElevenLabs for 192 kbps MP3, which ElevenLabs gives only on the Creator plan or above. A Free or Starter key fails at step 3.\n- `codex` (the OpenAI Codex CLI) is optional. Only the review in step 6 uses it.\n\nIf bun, ffmpeg, unzip, or Chromium is missing, say which one and stop. Do the same when a variable is unset and `hush` (see step 3) cannot supply it either."
         },
         {
           "find": "~/.agents/skills/explainer-video/engine",
@@ -190,6 +190,10 @@
         {
           "find": "only after the URL works and no revision is pending",
           "replaceWith": "only after the video is delivered and no revision is pending"
+        },
+        {
+          "find": "bun .../engine/",
+          "replaceWith": "bun <skill>/engine/"
         }
       ]
     }

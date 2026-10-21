@@ -38,9 +38,10 @@ export ELEVENLABS_VOICE_ID=...   # the voice that narrates
 - `ffmpeg`, `ffprobe`, and `unzip` must be on PATH. The first render uses `unzip` to unpack the Inter font it downloads.
 - Create the API key in ElevenLabs under Developers, API Keys. A restricted key needs Text to Speech access and read access to Voices.
 - Pick the voice in ElevenLabs under Voices. To use one you do not have yet, add it from the Voice Library to My Voices first. Then open the voice's menu and copy its voice ID.
+- The engine asks ElevenLabs for 192 kbps MP3, which ElevenLabs gives only on the Creator plan or above. A Free or Starter key fails at step 3.
 - `codex` (the OpenAI Codex CLI) is optional. Only the review in step 6 uses it.
 
-If bun, ffmpeg, unzip, Chromium, or either variable is missing, say which one and stop.
+If bun, ffmpeg, unzip, or Chromium is missing, say which one and stop. Do the same when a variable is unset and `hush` (see step 3) cannot supply it either.
 
 A project is a plain folder on the render box, for example `~/explainer-<slug>-<yyyymmdd>`, holding three files you write: `brief.md`, `narration.json`, and `scenes.js`. The engine writes every output into that folder. The worked example is `examples/explainer-video-skill/`. Read all three of its files before you write your own.
 
@@ -60,11 +61,11 @@ A project is a plain folder on the render box, for example `~/explainer-<slug>-<
 
 4. **Scenes.** Write `scenes.js`, one `SCENES.<id> = (t, c, dur) => { ... }` per narration scene. Read [references/scenes.md](references/scenes.md) for the drawing kit and the layout rules. Done when every narration id has a scene, and every animation starts from `c("cue")`, never from a raw number of seconds.
 
-5. **Check and stills.** `bun .../engine/render.ts stills <project>` runs `check` first. `check` fails on page errors, missing cues, em dashes or semicolons, and text clipped by the frame. Then it writes `stills/<id>_<n>.png`. Open every still and look at it yourself. Fix text that overlaps, arrows that point at nothing, and labels that are hard to read. Done when `check: PASS` prints and you would ship every still.
+5. **Check and stills.** `bun <skill>/engine/render.ts stills <project>` runs `check` first. `check` fails on page errors, missing cues, em dashes or semicolons, and text clipped by the frame. Then it writes `stills/<id>_<n>.png`. Open every still and look at it yourself. Fix text that overlaps, arrows that point at nothing, and labels that are hard to read. Done when `check: PASS` prints and you would ship every still.
 
-6. **Second-model review.** `bun .../engine/review.ts <project>` sends every still plus `brief.md` to the Codex CLI (`gpt-6.1-sol` by default, change it with `--model`) and prints `review<N>.md`. This step is optional. Fix each finding, re-run step 5, then review again, for at most 3 rounds. If `codex` is not installed or fails, say so plainly and do a careful self-review against the same five checks in `engine/review-prompt.md`. Done when the review prints `CLEAN`, or after round 3 with the open findings named.
+6. **Second-model review.** `bun <skill>/engine/review.ts <project>` sends every still plus `brief.md` to the Codex CLI (`gpt-6.1-sol` by default, change it with `--model`) and prints `review<N>.md`. This step is optional. Fix each finding, re-run step 5, then review again, for at most 3 rounds. If `codex` is not installed or fails, say so plainly and do a careful self-review against the same five checks in `engine/review-prompt.md`. Done when the review prints `CLEAN`, or after round 3 with the open findings named.
 
-7. **Render.** `bun .../engine/render.ts video <project> 7`, where 7 is the worker count. It writes `out/final.mp4`: 1920x1080, 30 fps, H.264 with AAC, -14 LUFS. Watch-check it:
+7. **Render.** `bun <skill>/engine/render.ts video <project> 7`, where 7 is the worker count. It writes `out/final.mp4`: 1920x1080, 30 fps, H.264 with AAC, -14 LUFS. Watch-check it:
    - `ffprobe` shows the duration, plus one video stream and one audio stream.
    - `ffmpeg -i out/final.mp4 -af ebur128 -f null -` shows `I:` near -14 LUFS.
    - Frames pulled with `ffmpeg -ss <t>` at 4 or more points match what the narration says at that moment.

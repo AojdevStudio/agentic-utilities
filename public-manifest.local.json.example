@@ -26,6 +26,6 @@
   },
 
   "skills": {
-    "some-skill": { "exclude": ["examples/your-private-project/**"], "dropLines": ["your-laptop"] }
+    "gitworkflow": { "exclude": ["examples/your-private-project/**"], "dropLines": ["your-laptop"] }
   }
 }

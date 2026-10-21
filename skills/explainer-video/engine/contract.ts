@@ -173,10 +173,13 @@ export async function loadTimeline(paths: ProjectPaths, narration: Scene[]): Pro
   return tl;
 }
 
-/** Still times for one scene, in time order: before each `stills` cue, mid-scene, and the end state. */
+/**
+ * Still times for one scene, in time order: before each `stills` cue, mid-scene, and the end state.
+ * A pre-cue still never lands before `start + lead`, where the fade-in ends, so it stays in its own scene.
+ */
 export function stillTimes(s: TimelineScene): number[] {
   return [
-    ...s.stills.map((cue) => s.start + s.lead + s.cues[cue]! - STILL_BEFORE_CUE),
+    ...s.stills.map((cue) => Math.max(s.start + s.lead, s.start + s.lead + s.cues[cue]! - STILL_BEFORE_CUE)),
     s.start + s.dur * 0.5,
     s.start + s.dur - 0.5,
   ].sort((a, b) => a - b);

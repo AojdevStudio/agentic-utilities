@@ -28,8 +28,8 @@ runMain(async () => {
 
   const template = await Bun.file(join(import.meta.dir, "review-prompt.md")).text();
   const prompt = template
-    .replace("{{STILLS}}", names.map((n) => n.replace(/\.png$/, "")).join(", "))
-    .replace("{{BRIEF}}", brief);
+    .replace("{{STILLS}}", () => names.map((n) => n.replace(/\.png$/, "")).join(", "))
+    .replace("{{BRIEF}}", () => brief);
 
   const rounds = readdirSync(paths.root).map((f) => Number(f.match(/^review(\d+)\.md$/)?.[1] ?? 0));
   const round = Math.max(0, ...rounds) + 1;

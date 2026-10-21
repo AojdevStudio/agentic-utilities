@@ -13,7 +13,9 @@ import { type } from "arktype";
 import {
   LEAD,
   TAIL,
+  cueTimes,
   exec,
+  formatLength,
   loadAudioMeta,
   loadNarration,
   projectPaths,
@@ -93,9 +95,8 @@ async function generate(paths: ProjectPaths, s: Scene, c: Credentials, hash: str
   if (j instanceof type.errors) throw new Error(`${s.id}: unexpected ElevenLabs response: ${j.summary}`);
   const t = j.alignment.character_start_times_seconds;
   if (!t.length) throw new Error(`${s.id}: ElevenLabs returned no character timings`);
-  const cues = Object.fromEntries([...s.marks].map(([name, i]) => [name, t[Math.min(i, t.length - 1)]!]));
   await Bun.write(join(paths.audio, `${s.id}.mp3`), Buffer.from(j.audio_base64, "base64"));
-  const meta: AudioMeta = { hash, cues };
+  const meta: AudioMeta = { hash, cues: cueTimes(s, t), times: t };
   await Bun.write(join(paths.audio, `${s.id}.meta.json`), JSON.stringify(meta));
 }
 
@@ -129,18 +130,21 @@ async function audioDuration(path: string) {
 async function writeTimeline(paths: ProjectPaths, scenes: Scene[]) {
   let start = 0;
   const out: TimelineScene[] = [];
+  const legacy: string[] = [];
   for (const s of scenes) {
     const audioDur = await audioDuration(join(paths.audio, `${s.id}.mp3`));
-    const { cues } = await loadAudioMeta(join(paths.audio, `${s.id}.meta.json`));
+    const meta = await loadAudioMeta(join(paths.audio, `${s.id}.meta.json`));
+    if (!meta.times) legacy.push(s.id);
+    const cues = meta.times ? cueTimes(s, meta.times) : meta.cues;
     const missing = [...s.marks.keys()].filter((m) => !(m in cues));
     if (missing.length) throw new Error(`${s.id}: audio meta lacks cues ${missing.join(", ")} (regenerate the clip)`);
     const dur = LEAD + audioDur + TAIL;
     out.push({ id: s.id, title: s.title, start, dur, lead: LEAD, audioDur, cues, closing: s.closing, stills: s.stills });
     start += dur;
   }
+  if (legacy.length) console.log(`${legacy.join(", ")}: clips predate per-character timings, so a moved cue keeps its old time there (re-voice with --force once)`);
   await Bun.write(paths.timeline, JSON.stringify({ total: start, scenes: out }, null, 1));
-  const m = Math.floor(start / 60), sec = Math.round(start % 60);
-  console.log(`total ${start.toFixed(2)} s (${m}:${String(sec).padStart(2, "0")}), ${scenes.length} scenes`);
+  console.log(`total ${start.toFixed(2)} s (${formatLength(start)}), ${scenes.length} scenes`);
 }
 
 runMain(async () => {

@@ -115,11 +115,25 @@ export function rewriteSkillName(content, publicName) {
  * private machine, repo, or domain lives in the overlay, because publishing
  * that list would leak exactly what the list exists to protect. Overlay leak
  * patterns are appended; overlay replacements run after the tracked ones.
+ * Overlay `skills.<name>` entries append `exclude`, `replace`, and `dropLines` to
+ * that skill's tracked entry, so a rule that names a private file stays out of git.
  */
 export function mergeLocalOverlay(manifest, overlay) {
   if (!overlay) return manifest;
+  const skills = { ...manifest.skills };
+  for (const [name, extra] of Object.entries(overlay.skills ?? {})) {
+    const entry = skills[name];
+    if (!entry) throw new Error(`Local overlay names skill '${name}', which public-manifest.json does not list.`);
+    skills[name] = {
+      ...entry,
+      exclude: [...(entry.exclude ?? []), ...(extra.exclude ?? [])],
+      replace: [...(entry.replace ?? []), ...(extra.replace ?? [])],
+      dropLines: [...(entry.dropLines ?? []), ...(extra.dropLines ?? [])],
+    };
+  }
   return {
     ...manifest,
+    skills,
     leakPatterns: [...(manifest.leakPatterns ?? []), ...(overlay.leakPatterns ?? [])],
     transforms: {
       ...manifest.transforms,

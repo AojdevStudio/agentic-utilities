@@ -150,6 +150,52 @@
     "harness-worktrees": {
       "mode": "public-owned",
       "reason": "Private counterpart was archived and superseded by a differently-shaped skill."
+    },
+    "explainer-video": {
+      "mode": "mirror",
+      "$comment": "One store example documents a private project, so the gitignored overlay excludes it and points readers at the public worked example. The overlay also holds the rules that name the maintainer's machines and delivery lane. The rules here make the rest portable.",
+      "replace": [
+        {
+          "find": "the user watches instead of reads. A video earns its place when he would skip the written answer.",
+          "replaceWith": "A video earns its place when the viewer would skip a written answer."
+        },
+        {
+          "find": "The engine lives at the store path `~/.agents/skills/explainer-video/engine/` on every box. Before the first run on a box, run `bun install --cwd ~/.agents/skills/explainer-video/engine`. Each item in `requires` must answer on the box. If one is missing, say which one and stop.",
+          "replaceWith": "The engine is the `engine/` folder next to this SKILL.md. Below, `<skill>` means this skill's folder, for example `~/.agents/skills/explainer-video`.\n\n### Setup\n\nRun once on the render machine:\n\n```bash\nbun install --cwd <skill>/engine\nbunx playwright install chromium-headless-shell\nexport ELEVENLABS_API_KEY=...    # your ElevenLabs API key\nexport ELEVENLABS_VOICE_ID=...   # the voice that narrates\n```\n\n- `ffmpeg`, `ffprobe`, and `unzip` must be on PATH. The first render uses `unzip` to unpack the Inter font it downloads.\n- Create the API key in ElevenLabs under Developers, API Keys. A restricted key needs Text to Speech access and read access to Voices.\n- Pick the voice in ElevenLabs under Voices. To use one you do not have yet, add it from the Voice Library to My Voices first. Then open the voice's menu and copy its voice ID.\n- The engine asks ElevenLabs for 192 kbps MP3, which ElevenLabs gives only on the Creator plan or above. A Free or Starter key fails at step 3.\n- `codex` (the OpenAI Codex CLI) is optional. Only the review in step 6 uses it.\n\nIf bun, ffmpeg, unzip, or Chromium is missing, say which one and stop. Do the same when a variable is unset and `hush` (see step 3) cannot supply it either."
+        },
+        {
+          "find": "~/.agents/skills/explainer-video/engine",
+          "replaceWith": "<skill>/engine"
+        },
+        {
+          "find": "Speak plainly to the user as \"you\". Don't say his name.",
+          "replaceWith": "Speak plainly to the viewer as \"you\"."
+        },
+        {
+          "find": "For either one that is unset, it asks hush (BWS) instead, so on the user's boxes nothing needs exporting.",
+          "replaceWith": "For either one that is unset, it tries `hush` (a Bitwarden Secrets Manager CLI) if you have it. Most users just export the two variables."
+        },
+        {
+          "find": "to Codex (`gpt-6.1-sol`) and prints `review<N>.md`.",
+          "replaceWith": "to the Codex CLI (`gpt-6.1-sol` by default, change it with `--model`) and prints `review<N>.md`. This step is optional."
+        },
+        {
+          "find": "If Codex fails, say so plainly",
+          "replaceWith": "If `codex` is not installed or fails, say so plainly"
+        },
+        {
+          "find": "- the embed and the URL",
+          "replaceWith": "- where the video is"
+        },
+        {
+          "find": "only after the URL works and no revision is pending",
+          "replaceWith": "only after the video is delivered and no revision is pending"
+        },
+        {
+          "find": "bun .../engine/",
+          "replaceWith": "bun <skill>/engine/"
+        }
+      ]
     }
   },
   "localOverlay": "public-manifest.local.json"

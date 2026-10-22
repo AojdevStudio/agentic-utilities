@@ -29,6 +29,8 @@
       "!skills/*/templates",
       "!skills/art/Tools",
       "!skills/art/Lib",
+      "!skills/explainer-video/engine",
+      "!skills/explainer-video/examples",
       "themes/**",
       "!**/node_modules",
       "!**/opensrc"

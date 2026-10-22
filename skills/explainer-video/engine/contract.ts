@@ -43,9 +43,21 @@ const TimelineSpec = type({ total: "number", scenes: TimelineSceneSpec.array() }
 export type TimelineScene = typeof TimelineSceneSpec.infer;
 export type Timeline = typeof TimelineSpec.infer;
 
-// audio/<id>.meta.json: the cache key of the clip plus its cue times (seconds into the clip).
-export const AudioMeta = type({ hash: "string", cues: Cues });
+// audio/<id>.meta.json: the cache key of the clip, its cue times (seconds into the clip), and the start time of
+// every spoken character. Cues are recomputed from `times` when the timeline is written, so moving or renaming a
+// cue needs no new audio. Clips cached before `times` existed carry only `cues`.
+export const AudioMeta = type({ hash: "string", cues: Cues, "times?": "number[] > 0" });
 export type AudioMeta = typeof AudioMeta.infer;
+
+/** Each `{cue}` mark's time: the start time of the character it sits before. */
+export const cueTimes = (s: Scene, times: readonly number[]): Record<string, number> =>
+  Object.fromEntries([...s.marks].map(([name, i]) => [name, times[Math.min(i, times.length - 1)]!]));
+
+/** A length in seconds as m:ss, rounded to the nearest second first so 119.6 s reads 2:00, never 1:60. */
+export function formatLength(seconds: number) {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
 
 /** A validated scene: the spoken text with `{cue}` marks removed, and each mark's character offset. */
 export type Scene = {

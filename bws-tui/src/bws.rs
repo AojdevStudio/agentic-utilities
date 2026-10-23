@@ -141,7 +141,7 @@ mod tests {
             "secret create"
         );
         assert_eq!(
-            operation_name(&["secret", "edit", "--value", "super-secret", "secret-id"]),
+            operation_name(&["secret", "edit", "--value=super-secret", "--", "secret-id"]),
             "secret edit"
         );
     }

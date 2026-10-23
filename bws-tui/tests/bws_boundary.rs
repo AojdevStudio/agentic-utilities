@@ -11,9 +11,10 @@ use std::time::{Duration, Instant};
 
 const PEM: &str =
     "-----BEGIN HUSH TEST VALUE-----\nbm90IGEgc2VjcmV0\n-----END HUSH TEST VALUE-----\n";
+const CALL_END: &str = "@@end-of-call@@";
 
 const STUB: &str = r#"#!/bin/sh
-printf '%s\0' "$@" >> "$HUSH_STUB_LOG"
+printf '%s\0' "$@" '@@end-of-call@@' >> "$HUSH_STUB_LOG"
 after=0
 want=0
 for arg in "$@"; do
@@ -59,6 +60,7 @@ impl Sandbox {
         self.root.join("bws.log")
     }
 
+    /// A real token in the environment must never reach a bws that shadows the stub.
     fn hush(&self, args: &[&str], stdin: Stdio) -> Child {
         let path = format!(
             "{}:{}",
@@ -67,6 +69,8 @@ impl Sandbox {
         );
         Command::new(env!("CARGO_BIN_EXE_hush"))
             .args(args)
+            .env_remove("BWS_ACCESS_TOKEN")
+            .env_remove("BWS_SERVER_URL")
             .env("PATH", path)
             .env("HOME", &self.root)
             .env("XDG_STATE_HOME", self.root.join("state"))
@@ -79,14 +83,16 @@ impl Sandbox {
             .unwrap()
     }
 
-    /// Every argument bws received, across all calls.
-    fn bws_args(&self) -> Vec<String> {
-        let log = fs::read(self.log()).unwrap_or_default();
-        String::from_utf8(log)
-            .unwrap()
-            .split('\0')
-            .map(str::to_owned)
-            .collect()
+    /// The argv of the one `bws secret <subcommand>` call, if hush made it.
+    fn secret_call(&self, subcommand: &str) -> Option<Vec<String>> {
+        let log = String::from_utf8(fs::read(self.log()).unwrap_or_default()).unwrap();
+        let args: Vec<String> = log.split('\0').map(str::to_owned).collect();
+        args.split(|arg| arg == CALL_END)
+            .find(|call| {
+                call.windows(2)
+                    .any(|pair| pair[0] == "secret" && pair[1] == subcommand)
+            })
+            .map(<[String]>::to_vec)
     }
 }
 
@@ -117,11 +123,8 @@ fn assert_success(output: &Output) {
     );
 }
 
-fn sent_whole(sandbox: &Sandbox, value: &str) -> bool {
-    sandbox
-        .bws_args()
-        .iter()
-        .any(|arg| arg == value || arg.strip_prefix("--value=") == Some(value))
+fn argv(parts: &[&str]) -> Option<Vec<String>> {
+    Some(parts.iter().map(|part| part.to_string()).collect())
 }
 
 #[test]
@@ -143,27 +146,52 @@ fn add_with_value_never_waits_on_an_open_stdin() {
     let output = finish_within(child, Duration::from_secs(10));
     drop(held_open);
     assert_success(&output);
-    assert!(sent_whole(&sandbox, "v1"), "bws never got the --value");
+    assert_eq!(
+        sandbox.secret_call("create"),
+        argv(&[
+            "-o",
+            "json",
+            "secret",
+            "create",
+            "--",
+            "HUSH_TEST_KEY",
+            "v1",
+            "p1"
+        ])
+    );
 }
 
 #[test]
-fn add_sends_a_pem_value_to_bws_intact() {
+fn add_sends_hyphen_leading_key_value_and_note_to_bws_intact() {
     let sandbox = Sandbox::new("add-pem");
+    let value = format!("--value={PEM}");
     let child = sandbox.hush(
         &[
             "add",
-            "--key",
-            "HUSH_TEST_KEY",
+            "--key=-HUSH_TEST_KEY",
             "--project",
             "proj",
-            "--value",
-            PEM,
+            &value,
+            "--note=-n",
         ],
         Stdio::null(),
     );
     let output = finish_within(child, Duration::from_secs(10));
     assert_success(&output);
-    assert!(sent_whole(&sandbox, PEM), "bws did not get the PEM whole");
+    assert_eq!(
+        sandbox.secret_call("create"),
+        argv(&[
+            "-o",
+            "json",
+            "secret",
+            "create",
+            "--note=-n",
+            "--",
+            "-HUSH_TEST_KEY",
+            PEM,
+            "p1"
+        ])
+    );
 }
 
 #[test]
@@ -188,11 +216,15 @@ fn edit_sends_a_piped_pem_value_to_bws_intact() {
         .unwrap();
     let output = finish_within(child, Duration::from_secs(10));
     assert_success(&output);
-    assert!(sent_whole(&sandbox, PEM), "bws did not get the PEM whole");
+    let value = format!("--value={PEM}");
+    assert_eq!(
+        sandbox.secret_call("edit"),
+        argv(&["-o", "json", "secret", "edit", &value, "--", "s1"])
+    );
 }
 
 #[test]
-fn hyphen_leading_key_and_note_reach_bws() {
+fn edit_sends_hyphen_leading_key_and_note_to_bws_intact() {
     let sandbox = Sandbox::new("edit-hyphen-fields");
     let child = sandbox.hush(
         &[
@@ -208,7 +240,37 @@ fn hyphen_leading_key_and_note_reach_bws() {
     );
     let output = finish_within(child, Duration::from_secs(10));
     assert_success(&output);
-    let args = sandbox.bws_args();
-    assert!(args.iter().any(|a| a.ends_with("-HUSH_TEST_RENAMED")));
-    assert!(args.iter().any(|a| a.ends_with("-- rotated")));
+    assert_eq!(
+        sandbox.secret_call("edit"),
+        argv(&[
+            "-o",
+            "json",
+            "secret",
+            "edit",
+            "--key=-HUSH_TEST_RENAMED",
+            "--note=-- rotated",
+            "--",
+            "s1"
+        ])
+    );
+}
+
+#[test]
+fn value_never_takes_the_next_flag_as_the_secret() {
+    let sandbox = Sandbox::new("edit-value-swallow");
+    let child = sandbox.hush(
+        &[
+            "edit",
+            "--key",
+            "HUSH_TEST_KEY",
+            "--project",
+            "proj",
+            "--value",
+            "--stdin",
+        ],
+        Stdio::null(),
+    );
+    let output = finish_within(child, Duration::from_secs(10));
+    assert!(!output.status.success(), "hush accepted --value --stdin");
+    assert_eq!(sandbox.secret_call("edit"), None);
 }

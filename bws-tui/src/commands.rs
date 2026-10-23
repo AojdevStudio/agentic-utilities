@@ -13,7 +13,7 @@ pub(crate) enum Cmd {
         /// Project name or UUID. Prompts interactively if omitted and a TTY is present.
         #[arg(long)]
         project: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long)]
         value: Option<String>,
         #[arg(long)]
         note: Option<String>,
@@ -54,7 +54,7 @@ pub(crate) enum Cmd {
         project: Option<String>,
         #[arg(long)]
         new_key: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long)]
         value: Option<String>,
         /// Read the new value from stdin. Explicit so note/key-only edits never block.
         #[arg(long, conflicts_with = "value")]

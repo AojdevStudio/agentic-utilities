@@ -94,9 +94,10 @@ fn add(
         Some(query) => bws::resolve_project(&projects, query)?.id.clone(),
         None => pick_project_interactive(&projects)?,
     };
-    let value = value
-        .or(stdin_value()?)
-        .context("no --value given and nothing piped on stdin")?;
+    let value = match value {
+        Some(value) => value,
+        None => stdin_value()?.context("no --value given and nothing piped on stdin")?,
+    };
     audit::record("add", &[&key])?;
     let created = bws::create_secret(
         &key,

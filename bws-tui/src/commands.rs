@@ -13,7 +13,7 @@ pub(crate) enum Cmd {
         /// Project name or UUID. Prompts interactively if omitted and a TTY is present.
         #[arg(long)]
         project: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         value: Option<String>,
         #[arg(long)]
         note: Option<String>,
@@ -54,7 +54,7 @@ pub(crate) enum Cmd {
         project: Option<String>,
         #[arg(long)]
         new_key: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         value: Option<String>,
         /// Read the new value from stdin. Explicit so note/key-only edits never block.
         #[arg(long, conflicts_with = "value")]
@@ -94,9 +94,10 @@ fn add(
         Some(query) => bws::resolve_project(&projects, query)?.id.clone(),
         None => pick_project_interactive(&projects)?,
     };
-    let value = value
-        .or(stdin_value()?)
-        .context("no --value given and nothing piped on stdin")?;
+    let value = match value {
+        Some(value) => value,
+        None => stdin_value()?.context("no --value given and nothing piped on stdin")?,
+    };
     audit::record("add", &[&key])?;
     let created = bws::create_secret(
         &key,

@@ -47,6 +47,39 @@ import UIKit
         }
     }
 
+    @Test func leavingTheAppKeepsTheCopiedValueForPasting() async throws {
+        let pasteboard = UIPasteboard.general
+        let previous = pasteboard.items
+        defer { pasteboard.items = previous }
+        let backend = FakeBackend()
+        let store = VaultStore(credentials: FakeCredentialStore(),
+                               deviceAuthenticator: FakeDeviceAuthenticator(), makeConnection: backend.factory)
+        let model = AppModel(store: store)
+        try await store.connect(token: "0.test", region: .us)
+        model.selection = Fixture.stripe.id
+        await model.loadDetail(Fixture.stripe.id)
+        model.copyValue()
+
+        let controller = UIHostingController(rootView: RootView(model: model))
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.view.layoutIfNeeded()
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        model.enterBackground()
+        controller.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(store.phase == .locked)
+        #expect(model.detail == .idle)
+        #expect(pasteboard.string == Fixture.stripeDetail.value)
+
+        model.enterForeground()
+        model.lock()
+        #expect(!pasteboard.hasStrings)
+    }
+
     @Test(arguments: [false, true])
     func refreshedProjectsKeepOnlyAnExistingFilter(removed: Bool) async throws {
         let refreshed = OSAllocatedUnfairLock(initialState: false)

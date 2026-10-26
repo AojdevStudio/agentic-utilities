@@ -20,6 +20,7 @@ struct HushApp: App {
         .onChange(of: scenePhase) { _, phase in
             // Inactive only covers the screen, so a Face ID prompt never locks the app it is unlocking.
             if phase == .background { model.enterBackground() }
+            if phase == .active { model.enterForeground() }
         }
     }
 

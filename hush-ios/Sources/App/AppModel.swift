@@ -172,13 +172,20 @@ extension SessionPhase {
         clearVault()
     }
 
-    /// Scene went to the background. Lock before anything else, then clear every secret on screen.
+    /// Scene went to the background. Release the copied value to its system expiry, so another app
+    /// can paste it. Then lock and clear every secret on screen.
     func enterBackground() {
+        clipboard.release()
         lock()
         tokenDraft = ""
         isConnecting = false
         isReplacingToken = false
         connectFailure = nil
+    }
+
+    /// Scene is active again. Take back a copied value that is still on the pasteboard, so Lock clears it.
+    func enterForeground() {
+        clipboard.reclaim()
     }
 
     /// Drops everything that came from an unlocked session. Also called when the store locks itself.

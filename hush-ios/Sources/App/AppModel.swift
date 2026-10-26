@@ -173,7 +173,9 @@ extension SessionPhase {
     }
 
     /// Scene went to the background. Lock before anything else, then clear every secret on screen.
+    /// The copied value stays for pasting in another app until its system expiry.
     func enterBackground() {
+        clipboard.release()
         lock()
         tokenDraft = ""
         isConnecting = false

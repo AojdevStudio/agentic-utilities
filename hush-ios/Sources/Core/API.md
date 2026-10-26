@@ -145,7 +145,7 @@ Raw bridge, SDK, and Keychain errors never reach the views. A malformed bridge r
 }
 ```
 
-`copy` also schedules `clearIfOwned` after the lifetime. Call `clearIfOwned` on lock if you want the value gone before the system expiry.
+`copy` also schedules `clearIfOwned` after the lifetime. Call `clearIfOwned` on lock if you want the value gone before the system expiry. Call `release` when the app leaves the foreground, so another app can paste the value until the system expiry.
 
 ## Bridge wire format (Core side)
 

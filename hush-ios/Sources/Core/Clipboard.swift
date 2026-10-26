@@ -33,12 +33,18 @@ import UniformTypeIdentifiers
 
     /// Clears the pasteboard only if nothing was copied after our value.
     func clearIfOwned() {
+        let owned = ownedChangeCount
+        release()
+        guard let owned, pasteboard.changeCount == owned else { return }
+        pasteboard.items = []
+    }
+
+    /// Stops tracking our value without clearing it, so another app can paste it.
+    /// The system expiry set in `copy` still removes it.
+    func release() {
         expiry?.cancel()
         expiry = nil
-        guard let owned = ownedChangeCount else { return }
         ownedChangeCount = nil
-        guard pasteboard.changeCount == owned else { return }
-        pasteboard.items = []
     }
 
     static func options(now: Date, lifetime: Duration) -> [UIPasteboard.OptionsKey: Any] {

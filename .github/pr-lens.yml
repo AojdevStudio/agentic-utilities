@@ -1,0 +1,6 @@
+# PR Lens appends a block to PR descriptions by default. That block lands after the
+# required last line (Changes made by ...), so the pr-kit body check fails. Keep the
+# diagrams in the PR Lens comment only. PR Lens rejects a file without schemaVersion.
+schemaVersion: 0.2.0
+github:
+  description: false

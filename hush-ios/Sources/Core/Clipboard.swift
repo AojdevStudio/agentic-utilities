@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
     private let pasteboard: UIPasteboard
     private let lifetime: Duration
     private var ownedChangeCount: Int?
+    /// Our value while another app may paste it. `reclaim` makes it ours again.
+    private var releasedChangeCount: Int?
     private var expiry: Task<Void, Never>?
 
     init(pasteboard: UIPasteboard = .general, lifetime: Duration = .seconds(30)) {
@@ -19,6 +21,7 @@ import UniformTypeIdentifiers
             options: Self.options(now: .now, lifetime: lifetime)
         )
         ownedChangeCount = pasteboard.changeCount
+        releasedChangeCount = nil
         expiry?.cancel()
         expiry = Task { [weak self, lifetime] in
             do {
@@ -33,18 +36,29 @@ import UniformTypeIdentifiers
 
     /// Clears the pasteboard only if nothing was copied after our value.
     func clearIfOwned() {
-        let owned = ownedChangeCount
-        release()
-        guard let owned, pasteboard.changeCount == owned else { return }
+        expiry?.cancel()
+        expiry = nil
+        guard let owned = ownedChangeCount else { return }
+        ownedChangeCount = nil
+        guard pasteboard.changeCount == owned else { return }
         pasteboard.items = []
     }
 
-    /// Stops tracking our value without clearing it, so another app can paste it.
+    /// Lets another app paste our value. `clearIfOwned` skips it until `reclaim`.
     /// The system expiry set in `copy` still removes it.
     func release() {
         expiry?.cancel()
         expiry = nil
+        if let owned = ownedChangeCount { releasedChangeCount = owned }
         ownedChangeCount = nil
+    }
+
+    /// Makes a released value ours again if nothing was copied after it, so a lock clears it.
+    func reclaim() {
+        guard let released = releasedChangeCount else { return }
+        releasedChangeCount = nil
+        guard pasteboard.changeCount == released else { return }
+        ownedChangeCount = released
     }
 
     static func options(now: Date, lifetime: Duration) -> [UIPasteboard.OptionsKey: Any] {

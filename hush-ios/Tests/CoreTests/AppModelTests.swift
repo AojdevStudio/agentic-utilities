@@ -74,6 +74,10 @@ import UIKit
         #expect(store.phase == .locked)
         #expect(model.detail == .idle)
         #expect(pasteboard.string == Fixture.stripeDetail.value)
+
+        model.enterForeground()
+        model.lock()
+        #expect(!pasteboard.hasStrings)
     }
 
     @Test(arguments: [false, true])

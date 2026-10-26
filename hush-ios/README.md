@@ -19,7 +19,7 @@ Add a secret with a key, value, and project. Notes are optional. A definite reje
 
 ## Privacy
 
-The catalog holds metadata only. Values and notes are fetched on demand and are not cached to disk. The app covers its content when inactive and locks in the background. Details, drafts, and an app-owned clipboard entry are cleared when locked. The background lock is the exception for the clipboard: a copied value stays so you can paste it in another app, and iOS removes it 30 seconds after the copy. The app does not clear text another app has since copied.
+The catalog holds metadata only. Values and notes are fetched on demand and are not cached to disk. The app covers its content when inactive and locks in the background. Details, drafts, and an app-owned clipboard entry are cleared when locked. The background lock is the exception for the clipboard: a copied value stays so you can paste it in another app, and iOS removes it 30 seconds after the copy. Back in the app, Lock clears it again. The app does not clear text another app has since copied.
 
 Credentials use `WhenPasscodeSetThisDeviceOnly` and user presence. The Rust session and in-flight work use a serial queue. Lock invalidates the session immediately, so a late response cannot unlock it or restore its contents. This reduces retention but does not promise that Swift strings can be securely erased from process memory.
 

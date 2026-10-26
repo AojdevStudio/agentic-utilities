@@ -183,6 +183,11 @@ extension SessionPhase {
         connectFailure = nil
     }
 
+    /// Scene is active again. Take back a copied value that is still on the pasteboard, so Lock clears it.
+    func enterForeground() {
+        clipboard.reclaim()
+    }
+
     /// Drops everything that came from an unlocked session. Also called when the store locks itself.
     func clearVault() {
         clipboard.clearIfOwned()

@@ -162,6 +162,36 @@ fn add_with_value_never_waits_on_an_open_stdin() {
 }
 
 #[test]
+fn add_without_value_reads_piped_stdin() {
+    let sandbox = Sandbox::new("add-piped");
+    let mut child = sandbox.hush(
+        &["add", "--key", "HUSH_TEST_KEY", "--project", "proj"],
+        Stdio::piped(),
+    );
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(PEM.as_bytes())
+        .unwrap();
+    let output = finish_within(child, Duration::from_secs(10));
+    assert_success(&output);
+    assert_eq!(
+        sandbox.secret_call("create"),
+        argv(&[
+            "-o",
+            "json",
+            "secret",
+            "create",
+            "--",
+            "HUSH_TEST_KEY",
+            PEM,
+            "p1"
+        ])
+    );
+}
+
+#[test]
 fn add_sends_hyphen_leading_key_value_and_note_to_bws_intact() {
     let sandbox = Sandbox::new("add-pem");
     let value = format!("--value={PEM}");

@@ -32,6 +32,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+      - name: Install the PAM headers bws-tui links against
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libpam0g-dev
       - name: Install job-scoped Bun
         env:
           BUN_JOB_DIR: ${{ runner.temp }}/bun

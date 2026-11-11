@@ -79,6 +79,36 @@ import XCTest
         XCTAssertFalse(element("detail-value-masked").exists)
     }
 
+    /// Copy, leave for the Home Screen, and come back. The background lock must leave the copy, so
+    /// the system Paste menu pastes it at once.
+    func testCopiedValueSurvivesLeavingTheAppAndPastes() {
+        launch("saved")
+        unlock()
+        rows().element(boundBy: 0).tap()
+        XCTAssertTrue(element("reveal-button").waitForExistence(timeout: 5))
+        element("reveal-button").tap()
+        XCTAssertTrue(element("detail-value").waitForExistence(timeout: 2))
+        let copied = element("detail-value").label
+        element("copy-button").tap()
+        XCTAssertTrue(element("copied-status").waitForExistence(timeout: 2))
+
+        XCUIDevice.shared.press(.home)
+        let backgroundStates = [XCUIApplication.State.runningBackground, .runningBackgroundSuspended].map(\.rawValue)
+        let inBackground = XCTNSPredicateExpectation(predicate: NSPredicate(format: "state IN %@", backgroundStates), object: app)
+        XCTAssertEqual(XCTWaiter().wait(for: [inBackground], timeout: 5), .completed)
+        app.activate()
+        unlock()
+        app.buttons["add-button"].tap()
+        let key = app.textFields["draft-key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 5))
+        key.tap()
+        key.press(forDuration: 1.2)
+        let paste = app.menuItems["Paste"]
+        XCTAssertTrue(paste.waitForExistence(timeout: 3), "the pasteboard is empty after leaving Hush")
+        paste.tap()
+        XCTAssertEqual(key.value as? String, copied)
+    }
+
     /// Empty save marks the field and keeps the draft. A good save opens the new secret, masked.
     func testAddValidatesThenOpensTheNewSecret() {
         launch("saved")

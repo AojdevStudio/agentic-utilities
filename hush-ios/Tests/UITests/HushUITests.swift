@@ -93,7 +93,9 @@ import XCTest
         XCTAssertTrue(element("copied-status").waitForExistence(timeout: 2))
 
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5) || app.wait(for: .runningBackgroundSuspended, timeout: 5))
+        let backgroundStates = [XCUIApplication.State.runningBackground, .runningBackgroundSuspended].map(\.rawValue)
+        let inBackground = XCTNSPredicateExpectation(predicate: NSPredicate(format: "state IN %@", backgroundStates), object: app)
+        XCTAssertEqual(XCTWaiter().wait(for: [inBackground], timeout: 5), .completed)
         app.activate()
         unlock()
         app.buttons["add-button"].tap()

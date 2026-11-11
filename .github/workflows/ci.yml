@@ -22,7 +22,7 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: secret-scan
     steps:
       - uses: actions/checkout@v4

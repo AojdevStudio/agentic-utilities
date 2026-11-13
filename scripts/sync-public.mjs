@@ -227,7 +227,13 @@ async function listFiles(dir, prefix = "") {
   }
   const out = [];
   for (const entry of entries) {
-    if (entry.name === ".DS_Store" || entry.name === "node_modules" || entry.name === ".git") continue;
+    if (
+      entry.name === ".DS_Store" ||
+      entry.name === "node_modules" ||
+      entry.name === "__pycache__" ||
+      entry.name === ".git"
+    )
+      continue;
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) out.push(...(await listFiles(join(dir, entry.name), relPath)));
     else out.push(relPath);

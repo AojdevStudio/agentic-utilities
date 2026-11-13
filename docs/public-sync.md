@@ -89,8 +89,20 @@ Being "verifiable" here means a transform gap fails a run rather than shipping.
    `.gitleaks.local.toml` (gitignored, per-contributor terms). Independent of the sync,
    so it also covers hand-edited files.
 
-Run `--check` on a schedule to catch staleness. Nothing in `bun run check` depends on
-the store being present.
+Nothing in `bun run check` depends on the store being present.
+
+## Scheduled sync
+
+The maintainer's machine runs the sync once a day against a fresh copy of `main`. The
+job never touches a working checkout and never pushes to `main`. When the sync changes
+anything, it opens or updates one PR from the `sync/public-skills` branch. The PR body
+rates the merge risk and lists store skills that no manifest entry claims yet. Those
+names are only candidates: a skill goes public when someone adds its manifest entry by
+hand.
+
+If a leak assertion, a dangling reference, gitleaks, or a validator fails, the job
+opens nothing and logs the reason. A store skill that disappears also stops the run,
+because its entry needs a decision: switch it to `public-owned` or remove it.
 
 ## Formatting owns nothing generated
 

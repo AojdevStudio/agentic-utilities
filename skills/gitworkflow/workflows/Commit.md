@@ -1,6 +1,6 @@
 # Commit Workflow
 
-Commit with submodule awareness, hook-aware strategy, conventional messages, auto-push, and the changelog gate.
+Commit with submodule awareness, hook-aware strategy, conventional messages, and auto-push.
 
 ## Flags
 
@@ -11,7 +11,7 @@ Commit with submodule awareness, hook-aware strategy, conventional messages, aut
 | `--no-push` | Commit only, no push |
 | `-m "..."` / `--message "..."` | Use this message instead of generating one |
 
-No flag skips the changelog (gated by design) or the audit and CI/hooks checks (non-blocking, nothing to opt out of).
+No flag skips the audit and CI/hooks checks (non-blocking, nothing to opt out of). Commit never writes `CHANGELOG.md`: the `Unreleased` section is regenerated on `main` at release time (see Release), so branches cannot conflict on it.
 
 ## 1. Submodules first (unless `--no-submodules`)
 
@@ -41,24 +41,11 @@ Unless `--no-verify`: run the project's own lint/check command, alert on staged 
 
 Stage what belongs together (split into atomic commits when the diff mixes concerns: code vs docs vs tests). Message per the SKILL.md contract (emoji + type(scope) + `Co-Authored-By: AOJDevStudio`), or the user's `-m`. Then push, setting upstream if the branch has none — the full commit→push cycle runs without confirmation unless `--no-push`.
 
-## 4. Changelog gate (ALWAYS runs — tool-contract)
-
-```bash
-changelog --unreleased --force    # install with: uv tool install --from git+https://github.com/AojdevStudio/agentic-utilities#subdirectory=changelog changelog
-```
-
-Rewrites only the `## [Unreleased]` section from commits since the last tag (all commits when untagged); never invents a version or tag. If `CHANGELOG.md` changed:
-
-- Fresh local commit → `git add CHANGELOG.md && git commit --amend --no-edit`, then re-push with `--force-with-lease` (the amend changed the tip SHA).
-- Already-pushed/shared commit → **never rewrite published history**; stage it to ride the next commit instead.
-
-Tool missing → say so in one line and continue (non-blocking).
-
-## 5. Dependency audit (non-blocking)
+## 4. Dependency audit (non-blocking)
 
 Invoke the **DependencyAudit** workflow. It reports open Dependabot alerts by severity or degrades to a one-line reason (disabled, 403, non-GitHub remote, no gh). It never blocks, delays, or aborts the commit.
 
-## 6. CI + hooks presence (non-blocking)
+## 5. CI + hooks presence (non-blocking)
 
 If `.github/workflows/` lacks a PR-gate/release workflow, or no hook manager is configured (`lefthook.yml` / `.husky/` / `.pre-commit-config.yaml` / `core.hooksPath` all absent), surface the gap once and offer CISetup. Both present → stay silent. If lefthook is configured but not installed, run `lefthook install`.
 
@@ -70,7 +57,6 @@ If `.github/workflows/` lacks a PR-gate/release workflow, or no hook manager is 
 **Strategy:** <PARALLEL|COORDINATED|HYBRID>
 **Submodules:** <N processed | none>
 **Pushed:** ✅ origin/<branch> (or ⏸️ --no-push)
-**Changelog:** ✍️ Unreleased section updated (or ⏸️ tool not found)
 **Security:** 🛡️ <N open alerts | ℹ️ audit skipped — reason>
 **Repo hygiene:** ✅ CI + hooks present (or 🧩 gap — /GitWorkflow CISetup)
 
@@ -86,5 +72,4 @@ If `.github/workflows/` lacks a PR-gate/release workflow, or no hook manager is 
 | Pre-commit hook fails | Show the error, abort (unless `--no-verify`) |
 | Submodule push fails | Warn, continue with the parent commit |
 | Sensitive file staged | Block, show which |
-| Changelog tool/write failure | One line, continue (non-blocking) |
 | Audit or hygiene check failure of any kind | One line, continue (non-blocking) |

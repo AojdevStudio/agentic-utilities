@@ -1,9 +1,9 @@
 ---
 name: find-docs
-description: Fetch current, version-accurate documentation, API references, and code examples for any developer library, framework, SDK, CLI tool, or cloud service via the ctx7 CLI, instead of relying on training data that may be stale. USE WHEN the user asks about a specific library/framework/SDK/CLI tool/cloud service (even well-known ones like React, Next.js, Prisma, Django), API syntax, configuration options, version migration, library-specific debugging, or setup instructions. Prefer over web search for library documentation. NOT FOR an open question with no named library (use research).
+description: Fetch current, version-accurate documentation, API references, and code examples for any developer library, framework, SDK, CLI tool, or cloud service via the ctx7 CLI, instead of relying on training data that may be stale. USE WHEN the user asks about a specific library/framework/SDK/CLI tool/cloud service (even well-known ones like React, Next.js, Prisma, Django), API syntax, configuration options, version migration, library-specific debugging, setup instructions, or version-pinned vendor model or prompting guides (Anthropic, OpenAI), even when asked to open them in a browser. Prefer over web search for library documentation. NOT FOR an open question with no named library (use research).
 metadata:
   category: engineering
-  lanes: [claude, codex, pi]
+  lanes: [claude, codex, pi, cursor]
 ---
 
 # Documentation Lookup
@@ -133,6 +133,7 @@ Do not silently fall back to training data — always tell the user why Context7
 
 ## Common Mistakes
 
+- When the request names a version (a model guide for 5.1, a framework major), confirm the fetched page's title or URL carries that exact version before extracting anything; sibling versions share names and search returns the older one first
 - Library IDs require a `/` prefix — `/facebook/react` not `facebook/react`
 - Always run `ctx7 library` first — `ctx7 docs react "hooks"` will fail without a valid ID
 - Use descriptive queries, not single words — `"React useEffect cleanup function"` not `"hooks"`

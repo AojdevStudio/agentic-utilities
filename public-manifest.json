@@ -53,10 +53,8 @@
   ],
   "skills": {
     "adversarial-review": {
-      "mode": "mirror",
-      "publicOwned": [
-        "agents/**"
-      ]
+      "mode": "public-owned",
+      "reason": "The store retired its copy on 2026-10-08, so this copy is now maintained here."
     },
     "deep-dive": {
       "mode": "mirror",
@@ -106,19 +104,8 @@
       ]
     },
     "harness-audit": {
-      "mode": "mirror",
-      "exclude": [
-        "references/sanity-check.md"
-      ],
-      "$comment": "sanity-check.md cites two private-vault pages as its source of truth, so it is useless outside that vault.",
-      "publicOwned": [
-        "agents/**",
-        "references/evidence-protocol.md",
-        "references/smoke-ticket-eval.md",
-        "references/stack-go.md",
-        "references/symphony-readiness.md",
-        "references/workflow-template.md"
-      ]
+      "mode": "public-owned",
+      "reason": "The store retired its copy on 2026-10-08, so this copy is now maintained here."
     },
     "herdr-fleet": {
       "mode": "forked",
@@ -152,7 +139,8 @@
       "reason": "Private counterpart was archived and superseded by a differently-shaped skill."
     },
     "explainer-video": {
-      "mode": "mirror",
+      "mode": "forked",
+      "reason": "Since 2026-11-09 the store copy narrates through a private local TTS lane, and 17 lines name private machines and projects. The public copy keeps the ElevenLabs version until transforms for that lane exist. The replace rules below stay so the entry can return to mirror.",
       "$comment": "One store example documents a private project, so the gitignored overlay excludes it and points readers at the public worked example. The overlay also holds the rules that name the maintainer's machines and delivery lane. The rules here make the rest portable.",
       "replace": [
         {

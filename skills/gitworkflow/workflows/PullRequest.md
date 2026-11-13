@@ -25,7 +25,11 @@ Validate any detected issue actually exists in this repo before using it.
 
 ## 4. Body and creation
 
-Body sections: **Summary** (key changes), **Linked issues** (the resolved line from step 3), **Verification** (the concrete commands actually run — truthful and copy-pastable), screenshots when UI changed. Prefer `--body-file` over inline heredocs when templates matter.
+Title: the repo's convention, conventional-commit style where the repo uses it (`fix(web): new threads no longer spike CPU`), simple and readable.
+
+Body sections: **Summary** (key changes), **Linked issues** (the resolved line from step 3), **Verification** (the concrete commands actually run — truthful and copy-pastable), screenshots when UI changed. Prefer `--body-file` over inline heredocs when templates matter. Open with the problem, then how it was solved; aim for simplicity.
+
+The body ends with one line naming the model and harness that made the changes, in this exact shape so the `PR contract` check can read it: `Changes made by <model> via <harness>` (for example `Changes made by Claude Opus 5 via Claude Code`). Never a draft: drafts get no review-bot coverage.
 
 ## 5. Verify what GitHub parsed (required)
 

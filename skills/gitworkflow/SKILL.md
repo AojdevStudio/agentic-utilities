@@ -16,14 +16,14 @@ Smart Git workflow engine: hook-aware commits, Git Flow branching, CI monitoring
 
 Invoking this skill makes a repo match a sane, low-friction workflow without being asked. Every **Commit**:
 
-- **Auto-updates the CHANGELOG** (mandatory, no skip flag — a gate with an escape hatch isn't a gate): regenerates the `Unreleased` section in place, idempotently, via the bundled changelog tool.
+- **Leaves `CHANGELOG.md` alone.** The `Unreleased` section is derived from commits and is written once, on `main`, at release time (Release workflow, or the repo's own release script). Regenerating it on every branch made two green PRs conflict on a block the release cut replaces anyway, and GitHub's merge check cannot resolve it (retired 2026-09-02; Finance Guru #957 was the last instance).
 - **Surfaces open Dependabot alerts** (never blocks — one-line reason and continue when unavailable).
 - **Checks CI + local hooks exist** (never blocks — nudges toward CISetup when absent; runs `lefthook install` when configured-but-uninstalled).
 
 ## Changelog tool (tool-contract)
 
 ```bash
-changelog --unreleased --force          # rewrite the Unreleased section (Commit does this every run)
+changelog --unreleased --force          # rewrite the Unreleased section; run on main before a cut, never on a PR branch
 changelog VERSION --auto --dry-run      # preview a release cut
 changelog VERSION --auto --force        # write the release section
 ```
@@ -41,6 +41,7 @@ Announce `Running the **<Workflow>** workflow from the **git-workflow** skill...
 | **Release** | create release, bump version, tag | `workflows/Release.md` |
 | **PullRequest** | create/submit PR | `workflows/PullRequest.md` |
 | **CIMerge** | merge PR, check/monitor CI, auto-merge | `workflows/CIMerge.md` |
+| **ReviewBudget** | start or resume any PR review, remediation, babysitting, or reviewer queue | `workflows/ReviewBudget.md` |
 | **CISetup** | set up/scaffold CI, GitHub Actions, runners | `workflows/CISetup.md` |
 | **DependencyAudit** | dependabot alerts, security audit | `workflows/DependencyAudit.md` |
 | **DeployWorkflow** | land a workflow file on main independent of feature work | `workflows/DeployWorkflow.md` |

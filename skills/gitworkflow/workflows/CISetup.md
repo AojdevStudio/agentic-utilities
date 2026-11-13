@@ -70,7 +70,7 @@ New template = drop the `.hbs` file, add a row here and a Phase-3 question; the 
 | Host | Labels | Notes |
 |------|--------|-------|
 | Proxmox VM 120 (org) | `self-hosted, homelab-ci` | |
-| Mac Mini M4 (org) | `self-hosted, homelab-macos, mac-mini-m4` | `tauri-macos` is a Finance-Guru-v2 repo-level override only |
+| Mac Mini M4 (org) | `self-hosted, homelab-macos, mac-mini-m4` | `tauri-macos` is a repo-level override for one app repo only |
 
 Variables: `SELF_HOSTED_LINUX` / `SELF_HOSTED_MACOS` (JSON arrays) and `SELF_HOSTED_LINUX_AVAILABLE` (string bool), org-level. **Labels are referenced in YAML only via `${{ vars.* }}`** — hardcoding leaks topology and breaks portability.
 

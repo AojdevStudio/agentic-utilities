@@ -25,6 +25,8 @@ CI takes ~15s to queue after a push — an empty first poll is normal. Poll ever
 
 Automated reviewers post asynchronously *after* checks pass; merging before they finish defeats them. Wait for pending checks to clear, then hold a **240-second minimum settlement window** (90s proved too short in practice). Then read `reviewDecision` — `CHANGES_REQUESTED` → § Address feedback; approved or empty → check for substantive COMMENTED reviews too, address any actionable ones, then merge.
 
+**Review bot gate.** Apply the [merge policy](MergePolicy.md): the active review bot's pass signal must be present on the exact current head. Verify required CI, findings, threads, scope, and merge authorization separately. Wait for a missing or stale verdict; report a failing one as not merge-ready.
+
 ## Fix CI
 
 Read the actual failed logs (`gh run view <run-id> --log-failed`) — never guess from the check name. Fix, push, return to § Monitor. Maximum 3 fix attempts, then stop with the failure report.
@@ -35,7 +37,7 @@ When a repo-specific check fails on PR metadata: inspect `body` and `closingIssu
 
 ## Address feedback
 
-Read all review comments, address each, push, return to § Monitor (CI re-runs on new commits). Maximum 5 review cycles, then stop and report the disagreement.
+Read all review comments, address each, push, return to § Monitor (CI re-runs on new commits). Apply the [review budget](ReviewBudget.md) before starting remediation: it caps fix-and-review rounds per PR and owns the stop-and-report rules; where it counts rounds, it supersedes this section's "maximum 5 review cycles".
 
 ## Merge
 

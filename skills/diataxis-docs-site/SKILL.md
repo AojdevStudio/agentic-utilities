@@ -4,7 +4,7 @@ description: Build, convert, and maintain source-backed Diátaxis sites with the
 disable-model-invocation: false
 metadata:
   category: docs
-  lanes: [claude, codex]
+  lanes: [claude, codex, pi]
 ---
 
 # Diátaxis Docs Site
@@ -44,12 +44,12 @@ Preserve acceptance boundaries. A passing build or Simulator run is not physical
 
 Give each page one primary user need:
 
-| Mode | User need | Form | Test |
-| --- | --- | --- | --- |
-| Tutorial | Learn | Guided lesson | Can a newcomer complete a safe, repeatable learning experience? |
-| How-to | Accomplish | Goal-directed steps | Can a competent user reach one observable result? |
-| Reference | Look up | Factual description | Does it describe the product's machinery precisely and consistently? |
-| Explanation | Understand | Context and discussion | Does it answer why, connect concepts, or examine tradeoffs? |
+| Mode        | User need  | Form                   | Test                                                                 |
+| ----------- | ---------- | ---------------------- | -------------------------------------------------------------------- |
+| Tutorial    | Learn      | Guided lesson          | Can a newcomer complete a safe, repeatable learning experience?      |
+| How-to      | Accomplish | Goal-directed steps    | Can a competent user reach one observable result?                    |
+| Reference   | Look up    | Factual description    | Does it describe the product's machinery precisely and consistently? |
+| Explanation | Understand | Context and discussion | Does it answer why, connect concepts, or examine tradeoffs?          |
 
 Split pages that serve multiple modes. Link across modes instead of embedding long detours. Keep changelogs, roadmaps, support policy, and project governance outside the four modes when that is clearer than forcing a false classification.
 
@@ -80,13 +80,11 @@ Use the bundled `assets/aoj-starlight/` starter for every site. The fixed standa
 - Starlight navigation, search, SEO, code highlighting, and accessibility defaults;
 - a production build and GitHub Pages deployment workflow.
 
-Use Node.js 22.19.0 or newer to satisfy the starter's locked dependencies.
-
 Create the site with `scripts/create_site.py`; do not recreate the starter by hand. Supply the project name, description, repository URL, canonical site URL, base path, and default branch. The script refuses to overwrite an existing site or workflow.
 
 Keep the framework and AOJ design tokens fixed. Customize only the project title, description, repository link, content, and deployment URL. If GitHub Pages is unavailable, change only the hosting adapter; keep the Starlight starter and visual system unchanged. Add plugins only for confirmed needs that Starlight does not cover.
 
-**Complete when:** the generated site contains no template tokens, installs from its lockfile, and passes `npm run check` and `npm run build` without changing the shared visual system.
+**Complete when:** the generated site contains no template tokens, installs from its `bun.lock` with `bun install --frozen-lockfile`, and passes `bun run check` and `bun run build` without changing the shared visual system.
 
 ## 6. Author by mode
 
@@ -164,13 +162,13 @@ Select exactly one:
 
 Also require concrete verification results. Map change types to modes:
 
-| Change | Review |
-| --- | --- |
-| Onboarding or first-use flow | Tutorials |
-| User task or recovery flow | How-to guides |
-| API, configuration, schema, status, or limit | Reference |
-| Architecture, privacy, constraint, or design decision | Explanation |
-| Release or acceptance status | Home, relevant modes, project status pages |
+| Change                                                | Review                                     |
+| ----------------------------------------------------- | ------------------------------------------ |
+| Onboarding or first-use flow                          | Tutorials                                  |
+| User task or recovery flow                            | How-to guides                              |
+| API, configuration, schema, status, or limit          | Reference                                  |
+| Architecture, privacy, constraint, or design decision | Explanation                                |
+| Release or acceptance status                          | Home, relevant modes, project status pages |
 
 Add automated documentation checks to existing CI only when they protect the build, links, generated reference, or redirects. Add no content-sync system between two canonical sources.
 

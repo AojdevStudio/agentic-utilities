@@ -59,9 +59,8 @@ alternatives. A deep dive that optimizes the wrong approach is worse than useles
 
 **What this looks like in practice:**
 
-- User says "manage lockfiles in my Bun monorepo" -> First ask: is Bun actually the best
-  monorepo tool for your situation? Compare Bun vs pnpm vs yarn workspaces. Pick the winner
-  based on the user's actual constraints (team size, ecosystem needs, build speed). THEN
+- User says "add caching to my API with Redis" -> First ask: is Redis the right cache for
+  this load and deployment target? Pick the winner from the user's actual constraints, THEN
   dive into how to set it up correctly.
 
 - User says "secrets management with .env files" -> First ask: what's the right secrets
@@ -122,9 +121,9 @@ Detect depth from the user's phrasing, or default to **Standard**.
 
 | Level        | Trigger Phrases                                   | Scope                                                  |
 |-------------|---------------------------------------------------|--------------------------------------------------------|
-| **Quick**    | "quick take", "80/20", "high-level", "tl;dr"     | ONE clear recommendation with 2-3 supporting reasons. ~400-500 words. No tables, no sub-sections, no action plan — just the answer and why. |
-| **Standard** | (default) "deep dive", "break down", "how should" | 5-8 structured questions answered. Full adaptive sections. Aim for ~2000 words (1500-2500 range). |
-| **Exhaustive** | "exhaustive", "comprehensive", "leave nothing out", "full audit" | Every applicable section, edge cases, exception handling, team policy language, example commands. Aim for ~3500 words (3000+ minimum). |
+| **Quick**    | "quick take", "80/20", "high-level", "tl;dr"     | ONE clear recommendation with 2-3 supporting reasons. No tables, no sub-sections, no action plan — just the answer and why. |
+| **Standard** | (default) "deep dive", "break down", "how should" | 5-8 structured questions answered. Full adaptive sections. |
+| **Exhaustive** | "exhaustive", "comprehensive", "leave nothing out", "full audit" | Every applicable section, edge cases, exception handling, team policy language, example commands. |
 
 ### Quick depth is fundamentally different
 
@@ -195,8 +194,8 @@ next step. See the Quick depth section above.
 6. **Make it actionable.** Every section should leave the user knowing what to DO, not just
    what to think. Include commands, config snippets, and checklists where applicable.
 
-7. **Respect the depth level.** Quick means ~400-500 words, no structure. Standard means
-   ~2000 words with full structure. Exhaustive means ~3500 words with every section.
+7. **Respect the depth level.** Quick is a decision with no structure. Standard uses the
+   full backbone. Exhaustive covers every section.
    Don't pad Quick or shortchange Exhaustive.
 
 ---

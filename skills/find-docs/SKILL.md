@@ -13,7 +13,7 @@ Retrieve current documentation and code examples for any library using the globa
 Make sure the CLI is up to date before running commands:
 
 ```bash
-npm install -g ctx7@latest
+bun add -g ctx7@latest
 ```
 
 ## Workflow
@@ -28,9 +28,9 @@ ctx7 library <name> <query>
 ctx7 docs <libraryId> <query>
 ```
 
-You MUST call `ctx7 library` first to obtain a valid library ID UNLESS the user explicitly provides a library ID in the format `/org/project` or `/org/project/version`.
+Run `ctx7 library` first to get a library ID, unless the user gave one as `/org/project` or `/org/project/version`. `ctx7 docs` fails without a valid ID.
 
-IMPORTANT: Do not run these commands more than 3 times per question. If you cannot find what you need after 3 attempts, use the best result you have.
+If three lookups do not find it, use the best result and say what was missing.
 
 Run Context7 CLI requests outside Codex's default sandbox. If a Context7 CLI command fails with DNS or network errors such as ENOTFOUND, host resolution failures, or fetch failed, rerun it outside the sandbox instead of retrying inside the sandbox.
 
@@ -69,7 +69,7 @@ Each result includes:
    - Benchmark score (higher is better, 100 is the maximum)
 3. If multiple good matches exist, acknowledge this but proceed with the most relevant one
 4. If no good matches exist, clearly state this and suggest query refinements
-5. For ambiguous queries, request clarification before proceeding with a best-guess match
+5. For an ambiguous query, pick the likeliest match, name it, and proceed
 
 ### Version-specific IDs
 

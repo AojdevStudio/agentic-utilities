@@ -31,7 +31,7 @@ Ask only when an unanswered choice changes architecture, hosting cost, access, o
 Build an evidence ledger before restructuring content:
 
 1. Read repository and lifecycle instructions.
-2. Inspect the current default-branch code, configuration, tests, CI, releases, issues, and deployed state. Prefer a code knowledge graph when available.
+2. Inspect the current default-branch code, configuration, tests, CI, releases, issues, and deployed state. Use `Agent(subagent_type="code-scout")` to map the code before reading files.
 3. Inventory every existing documentation page and its inbound links.
 4. Mark each proposed claim `verified`, `planned`, `deprecated`, or `unknown` with a source.
 5. Treat an existing Wiki as a useful input, not proof that its claims remain current.

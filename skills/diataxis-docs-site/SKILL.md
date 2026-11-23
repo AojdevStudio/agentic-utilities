@@ -1,6 +1,6 @@
 ---
 name: diataxis-docs-site
-description: Build, convert, and maintain source-backed Diátaxis sites with the fixed AOJ Astro Starlight starter. Use when a repository, Wiki, or docs collection must become a consistently branded site organized into tutorials, how-to guides, reference, and explanation, including publication and ongoing documentation-impact checks.
+description: "Build or maintain a source-backed Diataxis docs site (tutorials, how-tos, reference, explanation) on the AOJ Astro Starlight starter. Use when a repo, wiki, or docs set must become a branded site."
 disable-model-invocation: false
 metadata:
   category: docs

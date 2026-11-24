@@ -1,6 +1,6 @@
 ---
 name: find-docs
-description: Fetch current, version-accurate documentation, API references, and code examples for any developer library, framework, SDK, CLI tool, or cloud service via the ctx7 CLI, instead of relying on training data that may be stale. USE WHEN the user asks about a specific library/framework/SDK/CLI tool/cloud service (even well-known ones like React, Next.js, Prisma, Django), API syntax, configuration options, version migration, library-specific debugging, setup instructions, or version-pinned vendor model or prompting guides (Anthropic, OpenAI), even when asked to open them in a browser. Prefer over web search for library documentation. NOT FOR an open question with no named library (use research).
+description: "Fetch current, version-accurate docs and API examples for a named library, framework, SDK, CLI, or cloud service with ctx7. Use for any question about a specific library's API, config, or migration."
 metadata:
   category: engineering
   lanes: [claude, codex, pi, cursor]

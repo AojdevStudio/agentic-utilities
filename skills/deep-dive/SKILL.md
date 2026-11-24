@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 name: deep-dive
-description: Structured, opinionated deep-dive analysis and investigation for any technical, operational, or strategic topic, delivering one clear recommendation instead of a menu of options. USE WHEN deep dive into, break this down for me, audit my approach to, thorough breakdown of, how should I manage X, create a policy for, expert rundown on, investigate X, best practice for X. NOT FOR simple factual questions, quick how-tos, or code-only requests.
+description: "Opinionated deep-dive analysis of a technical, operational, or strategic topic that ends in one recommendation. Use for deep dive into, break this down, audit my approach, or best practice for X."
 metadata:
   category: research
   lanes: [claude, codex, pi]

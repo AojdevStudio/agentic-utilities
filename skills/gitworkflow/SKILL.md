@@ -1,6 +1,6 @@
 ---
 name: gitworkflow
-description: Smart Git workflow engine — hook-aware commits, Git Flow branching, CI monitoring and auto-merge, changelog automation, submodule handling. USE WHEN committing, branching (feature/release/hotfix), cutting a release, opening or submitting a PR, merging or monitoring CI, setting up CI, auditing Dependabot alerts, or managing submodules.
+description: "Hook-aware commits, Git Flow branches, CI monitoring, changelogs, and submodules. Use when committing, branching, cutting a release, merging or watching CI, or auditing Dependabot alerts."
 metadata:
   category: git/pr
   lanes: [claude, codex, pi]

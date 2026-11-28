@@ -4,7 +4,7 @@ name: deep-dive
 description: "Opinionated deep-dive analysis of a technical, operational, or strategic topic that ends in one recommendation. Use for deep dive into, break this down, audit my approach, or best practice for X."
 metadata:
   category: research
-  lanes: [claude, codex, pi]
+  lanes: [claude, codex, pi, gemini]
   author: ossie
 ---
 

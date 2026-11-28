@@ -4,7 +4,7 @@ description: "Build or maintain a source-backed Diataxis docs site (tutorials, h
 disable-model-invocation: false
 metadata:
   category: docs
-  lanes: [claude, codex, pi]
+  lanes: [claude, codex, pi, gemini]
 ---
 
 # Diátaxis Docs Site

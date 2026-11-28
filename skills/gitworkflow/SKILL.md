@@ -3,7 +3,7 @@ name: gitworkflow
 description: "Hook-aware commits, Git Flow branches, CI monitoring, changelogs, and submodules. Use when committing, branching, cutting a release, merging or watching CI, or auditing Dependabot alerts."
 metadata:
   category: git/pr
-  lanes: [claude, codex, pi]
+  lanes: [claude, codex, pi, gemini]
   author: ossie
 context: fork
 ---

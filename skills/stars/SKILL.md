@@ -3,7 +3,7 @@ name: stars
 description: Use when the user asks to star a GitHub repository by URL, OWNER/REPO, or a reference from the conversation, including a YouTube analysis; also use when they ask to continue the stars review workflow.
 metadata:
   category: ops
-  lanes: [claude, codex, pi]
+  lanes: [claude, codex, pi, gemini]
 ---
 
 # GitHub stars

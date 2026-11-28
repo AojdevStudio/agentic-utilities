@@ -3,7 +3,7 @@ name: find-docs
 description: "Fetch current, version-accurate docs and API examples for a named library, framework, SDK, CLI, or cloud service with ctx7. Use for any question about a specific library's API, config, or migration."
 metadata:
   category: engineering
-  lanes: [claude, codex, pi, cursor]
+  lanes: [claude, codex, pi, cursor, gemini]
 ---
 
 # Documentation Lookup
